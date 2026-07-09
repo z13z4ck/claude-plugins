@@ -12,6 +12,14 @@
       "category": "productivity",
       "keywords": ["advisor", "second-opinion", "fable", "fallback"],
       "license": "MIT"
+    },
+    {
+      "name": "advisor-select",
+      "source": "./plugins/advisor-select",
+      "description": "Pick which model advises the current session — e.g. main conversation on Sonnet, second opinions from Opus. Session-scoped selection with fallback and substitution detection.",
+      "category": "productivity",
+      "keywords": ["advisor", "second-opinion", "model-selection", "session"],
+      "license": "MIT"
     }
   ]
 }

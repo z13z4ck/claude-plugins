@@ -1,3 +1,17 @@
+# z13z4ck-plugins — Claude Code plugin marketplace
+
+Two second-opinion advisor plugins, sharing the same read-only advisor
+workflow:
+
+| Plugin | Advisor model | Use when |
+|---|---|---|
+| [fable-advisor](#fable-advisor--a-fable-5-second-opinion-agent-for-claude-code) | Always Fable 5, labeled Opus fallback | You want top-tier judgment, nothing else |
+| [advisor-select](plugins/advisor-select/README.md) | Your choice per session (`opus`, `sonnet`, `haiku`, `fable`) | You want to tune second-opinion cost/quality — e.g. main session on Sonnet, advisor on Opus |
+
+```
+/plugin marketplace add z13z4ck/claude-plugins
+```
+
 # fable-advisor — a Fable 5 second-opinion agent for Claude Code
 
 Run your session on any model (Opus recommended). Consult a read-only Fable 5
