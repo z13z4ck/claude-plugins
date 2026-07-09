@@ -1,0 +1,16 @@
+{
+  "name": "z13z4ck-plugins",
+  "description": "z13z4ck Claude Code plugins",
+  "owner": {
+    "name": "z13z4ck"
+  },
+  "plugins": [
+    {
+      "name": "fable-advisor",
+      "source": "./plugins/fable-advisor",
+      "description": "Read-only Fable 5 advisor subagent for decisions, plan reviews, and stalled debugging, with Opus fallback when Fable is unavailable.",
+      "category": "productivity",
+      "keywords": ["advisor", "second-opinion", "fable", "fallback"]
+    }
+  ]
+}
