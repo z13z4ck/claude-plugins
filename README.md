@@ -12,6 +12,30 @@ workflow:
 /plugin marketplace add z13z4ck/claude-plugins
 ```
 
+# advisor-select — pick which model advises your session
+
+Run your main conversation on any model and choose, per session, which model
+serves as your read-only second-opinion advisor. The canonical setup: main
+session on Sonnet (fast, cheap), advisor on Opus (deep judgment on the calls
+that matter).
+
+```
+/plugin install advisor-select@z13z4ck-plugins
+/advisor-select:use opus            # this session's advisor (opus | sonnet | haiku | fable)
+/advisor-select:health              # confirm the selected model actually answers
+/advisor-select:consult <question>  # get a second opinion (--model <alias> to override once)
+/advisor-select:review-plan         # critique the current plan before executing it
+```
+
+`/advisor-select:use` with no argument shows the current selection and asks
+interactively. The choice is stored per session ID, so it survives context
+compaction and resets automatically in a new session (default: Opus). If the
+selected model is unavailable, the consultation retries once on a fallback
+and labels the verdict "ADVISOR RUNNING DEGRADED" — and every verdict opens
+with a MODEL line, so a silently substituted model can't pass as your
+selection. Full details, including proactive (no-command) invocation and a
+CLAUDE.md policy snippet: [plugins/advisor-select](plugins/advisor-select/README.md).
+
 # fable-advisor — a Fable 5 second-opinion agent for Claude Code
 
 Run your session on any model (Opus recommended). Consult a read-only Fable 5
