@@ -10,7 +10,8 @@
       "source": "./plugins/fable-advisor",
       "description": "Read-only Fable 5 advisor subagent for decisions, plan reviews, and stalled debugging, with Opus fallback when Fable is unavailable.",
       "category": "productivity",
-      "keywords": ["advisor", "second-opinion", "fable", "fallback"]
+      "keywords": ["advisor", "second-opinion", "fable", "fallback"],
+      "license": "MIT"
     }
   ]
 }

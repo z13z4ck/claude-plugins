@@ -60,3 +60,7 @@ every degraded verdict so you never mistake Opus judgment for Fable judgment.
 Degradation is detected two ways: a failed dispatch triggers the labeled Opus
 retry, and a dispatch that *succeeds* on the wrong model is caught by the
 MODEL line the advisor prints at the top of every verdict.
+
+## License
+
+[MIT](LICENSE) © Aziz (z13z4ck)
