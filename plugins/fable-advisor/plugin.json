@@ -1,0 +1,17 @@
+{
+  "name": "fable-advisor",
+  "displayName": "Fable Advisor",
+  "description": "A read-only Fable 5 advisor subagent your session consults for architectural decisions, plan reviews, and stalled debugging — with automatic Opus fallback when Fable is unavailable. Replaces reliance on the built-in advisor tool.",
+  "version": "1.2.0",
+  "author": {
+    "name": "Aziz"
+  },
+  "keywords": [
+    "advisor",
+    "second-opinion",
+    "fable",
+    "model-routing",
+    "fallback"
+  ],
+  "license": "MIT"
+}
