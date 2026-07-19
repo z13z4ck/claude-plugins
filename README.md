@@ -8,7 +8,7 @@
 |---|---|
 | [pause-resume](plugins/pause-resume/README.md) | Freeze a running agent between tool calls and thaw it later with context intact — for moving locations, losing connectivity, or sleeping the laptop mid-task |
 | [advisor-select](plugins/advisor-select/README.md) | Pick which model advises this session (`opus`, `sonnet`, `haiku`, `fable`) — e.g. main conversation on Sonnet, second opinions from Opus |
-| [fable-advisor](plugins/fable-advisor/README.md) | The same read-only advisor workflow, always on Fable 5 at `xhigh` effort, with a labeled Opus fallback |
+| [fable-advisor](plugins/fable-advisor/README.md) | A read-only second-opinion advisor, always on Fable 5 at `xhigh` effort, with a labeled Opus fallback |
 
 # pause-resume — stop an agent mid-task and come back to it
 

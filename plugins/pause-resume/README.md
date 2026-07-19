@@ -185,3 +185,7 @@ bash tests/run-tests.sh
 Covers the freeze/release cycle, deadline expiry, killed-gate detection,
 concurrent gates, session targeting, orphaned-flag cleanup, checkpoint
 rendering against a deliberately corrupted transcript, and brief delivery.
+
+## License
+
+[MIT](../../LICENSE) © Aziz (z13z4ck)
