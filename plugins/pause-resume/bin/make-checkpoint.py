@@ -113,6 +113,11 @@ def collect(path):
     }
 
     for entry in _iter_entries(path):
+        # Subagent (sidechain) turns share the transcript but are not the
+        # user's conversation: a prompt the main agent sent to a subagent must
+        # never surface as "the most recent instruction" in a brief.
+        if entry.get("isSidechain"):
+            continue
         etype = entry.get("type")
         state["session_id"] = entry.get("sessionId") or state["session_id"]
         state["cwd"] = entry.get("cwd") or state["cwd"]

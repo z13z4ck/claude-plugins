@@ -35,9 +35,18 @@ if [ -f "$all_flag" ]; then
     pr_session_is_live "$f" && others=$((others + 1))
   done
   if [ "$others" -eq 0 ]; then
-    rm -f "$all_flag" 2>/dev/null
-    pr_log "CLEARED orphaned global pause flag at session start ($sid)"
-    recovered_note="A global pause flag was left over from a session that is no longer running; it has been cleared automatically so this session will not freeze unexpectedly."
+    # The registry says nothing is alive — but the registry can be wrong
+    # (wiped state, a claude binary the comm-name walk cannot recognise). A
+    # frozen-gate marker with a live pid is direct proof some agent is paused
+    # right now; clearing the flag under it would release that gate and run
+    # the pending tool call unattended. When in doubt, keep the flag.
+    if pr_live_frozen_gate; then
+      pr_log "KEPT global pause flag at session start ($sid): a frozen gate is still live despite no registered sessions"
+    else
+      rm -f "$all_flag" 2>/dev/null
+      pr_log "CLEARED orphaned global pause flag at session start ($sid)"
+      recovered_note="A global pause flag was left over from a session that is no longer running; it has been cleared automatically so this session will not freeze unexpectedly."
+    fi
   fi
 fi
 

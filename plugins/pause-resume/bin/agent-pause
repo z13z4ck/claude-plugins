@@ -138,19 +138,31 @@ cmd_pause() {
 
   # Armed pause: let the agent keep working, then freeze it on schedule.
   # Detached with nohup so closing this terminal does not cancel the arming.
+  # A record file makes the armed pause visible to `status` and cancellable by
+  # `resume`; the sleeper removes it just before firing. Note the sleeper is a
+  # plain process: a reboot kills it and the pause never fires — `status`
+  # detects and reports that case rather than leaving a silent gap.
   if [ "$DELAY_SECS" -gt 0 ]; then
-    local self="$SCRIPT_DIR/$PROG"
-    nohup bash -c "sleep $DELAY_SECS; CLAUDE_PAUSE_HOME='$PR_HOME' '$self' pause \
+    local self="$SCRIPT_DIR/$PROG" armed_file apid
+    mkdir -p "$PR_HOME/armed" 2>/dev/null
+    armed_file="$PR_HOME/armed/$target"
+    nohup bash -c "sleep $DELAY_SECS; rm -f '$armed_file'; CLAUDE_PAUSE_HOME='$PR_HOME' '$self' pause \
       $([ -n "$TARGET" ] && printf -- '-s %s' "$TARGET") \
       -r $(printf '%q' "${REASON:-armed pause}") \
       -m $MAX_SECS $([ "$MODE" = "until-online" ] && printf -- '-o')" \
       >/dev/null 2>&1 &
+    apid=$!
     disown 2>/dev/null || true
-    pr_log "ARMED pause target=$target in ${DELAY_SECS}s"
+    {
+      printf 'fire=%s\n' "$(($(pr_now) + DELAY_SECS))"
+      printf 'pid=%s\n' "$apid"
+      printf 'mode=%s\n' "$MODE"
+      printf 'reason=%s\n' "$(printf '%s' "${REASON:-armed pause}" | tr '\n' ' ')"
+    } >"$armed_file" 2>/dev/null
+    pr_log "ARMED pause target=$target in ${DELAY_SECS}s pid=$apid"
     echo "Pause armed: $label freezes in $(pr_secs_to_human "$DELAY_SECS")."
-    echo "  The agent keeps working until then. Cancel with '$PROG resume'"
-    echo "  only after it fires — to cancel before, kill the armed job:"
-    echo "    pkill -f 'agent-pause pause'"
+    echo "  The agent keeps working until then. Shows up in '$PROG status';"
+    echo "  cancel any time with '$PROG resume'."
     return 0
   fi
 
@@ -184,10 +196,13 @@ EOF
 }
 
 cmd_resume() {
-  local removed=0 f
+  local removed=0 cancelled=0 global_left=0 f pid
   if [ -n "$TARGET" ]; then
     f="$(pr_flag_path "$TARGET")"
     [ -f "$f" ] && rm -f "$f" && removed=1
+    # A targeted resume cannot honestly say "nothing was paused" while a
+    # global flag keeps that session frozen — surface it instead of lying.
+    [ -f "$(pr_flag_path "$PR_ALL_FLAG")" ] && global_left=1
   else
     for f in "$PR_PAUSED"/*; do
       [ -e "$f" ] || continue
@@ -195,14 +210,49 @@ cmd_resume() {
     done
   fi
 
-  if [ "$removed" -eq 0 ]; then
+  # Cancel armed pauses too: "resume" means "let it run", and an armed pause
+  # that fires an hour after the user resumed is a nasty surprise.
+  for f in "$PR_HOME/armed"/${TARGET:-}*; do
+    [ -e "$f" ] || continue
+    pid="$(pr_read_flag_field "$f" pid)"
+    case "$pid" in '' | *[!0-9]*) ;; *) kill "$pid" 2>/dev/null ;; esac
+    rm -f "$f" 2>/dev/null
+    cancelled=$((cancelled + 1))
+  done
+
+  # Drop killed-gate markers whose owner is dead: they exist to stop tool
+  # calls running while a pause is believed active, and an explicit resume
+  # ends that. Left behind, they falsely deny the first tool call of the
+  # *next* pause. Markers with a live pid belong to gates that are frozen
+  # right now and clean up after themselves.
+  for f in "$PR_HOME/frozen"/${TARGET:-}*; do
+    [ -e "$f" ] || continue
+    pid="${f##*.}"
+    case "$pid" in '' | *[!0-9]*) rm -f "$f" 2>/dev/null; continue ;; esac
+    kill -0 "$pid" 2>/dev/null || rm -f "$f" 2>/dev/null
+  done
+
+  if [ "$removed" -eq 0 ] && [ "$cancelled" -eq 0 ]; then
+    if [ "$global_left" -eq 1 ]; then
+      echo "No session-specific pause on $(short "$TARGET"), but a GLOBAL pause flag is"
+      echo "set, so that session stays frozen. Run '$PROG resume' without -s to lift"
+      echo "it (affects all sessions)."
+      exit 0
+    fi
     echo "Nothing was paused."
     exit 0
   fi
 
-  pr_log "RESUME target=${TARGET:-all} cleared=$removed"
-  echo "Resumed. Cleared $removed pause flag(s)."
-  echo "Frozen agents pick up within ${PR_POLL_INTERVAL}s, continuing the tool call they stopped at."
+  pr_log "RESUME target=${TARGET:-all} cleared=$removed armed_cancelled=$cancelled"
+  [ "$removed" -gt 0 ] && echo "Resumed. Cleared $removed pause flag(s)."
+  [ "$cancelled" -gt 0 ] && echo "Cancelled $cancelled armed pause(s) before they fired."
+  if [ "$removed" -gt 0 ]; then
+    echo "Frozen agents pick up within ${PR_POLL_INTERVAL}s, continuing the tool call they stopped at."
+  fi
+  if [ "$global_left" -eq 1 ]; then
+    echo "Note: a GLOBAL pause flag is still set, so session $(short "$TARGET") stays"
+    echo "frozen. Run '$PROG resume' without -s to lift it (affects all sessions)."
+  fi
 }
 
 cmd_status() {
@@ -223,10 +273,50 @@ cmd_status() {
     [ -n "$reason" ] && printf '    reason: %s\n' "$reason"
     case "$dl" in
       '' | *[!0-9]*) ;;
-      *) printf '    expires in: %s\n' "$(pr_secs_to_human $((dl - now)))" ;;
+      *)
+        if [ "$dl" -gt "$now" ]; then
+          printf '    expires in: %s\n' "$(pr_secs_to_human $((dl - now)))"
+        else
+          printf '    expired %s ago — the pending tool call will be blocked, not run\n' "$(pr_secs_to_human $((now - dl)))"
+        fi
+        ;;
     esac
   done
   [ "$any" -eq 0 ] && echo "  (none — nothing is paused)"
+
+  echo
+  echo "ARMED (will pause later)"
+  any=0
+  for f in "$PR_HOME/armed"/*; do
+    [ -e "$f" ] || continue
+    any=1
+    sid="$(basename "$f")"
+    [ "$sid" = "$PR_ALL_FLAG" ] && sid="ALL SESSIONS"
+    local apid fire
+    apid="$(pr_read_flag_field "$f" pid)"
+    fire="$(pr_read_flag_field "$f" fire)"
+    case "$apid" in
+      '' | *[!0-9]*) apid="" ;;
+    esac
+    if [ -n "$apid" ] && ! kill -0 "$apid" 2>/dev/null; then
+      # The sleeper died (reboot, kill) — this pause will never fire. Say so
+      # and clean up rather than leaving a record that looks armed forever.
+      rm -f "$f" 2>/dev/null
+      printf '  %s  timer died before firing (rebooted?) — record removed, agent NOT paused\n' "$sid"
+      continue
+    fi
+    case "$fire" in
+      '' | *[!0-9]*) printf '  %s  armed\n' "$sid" ;;
+      *)
+        if [ "$fire" -gt "$now" ]; then
+          printf '  %s  fires in %s\n' "$sid" "$(pr_secs_to_human $((fire - now)))"
+        else
+          printf '  %s  firing about now\n' "$sid"
+        fi
+        ;;
+    esac
+  done
+  [ "$any" -eq 0 ] && echo "  (none)"
 
   echo
   echo "FROZEN RIGHT NOW"

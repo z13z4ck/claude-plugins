@@ -65,6 +65,11 @@ then:
 agent-pause pause --in 10m -r "leaving for the airport"
 ```
 
+An armed pause shows up in `agent-pause status` with its fire time, and
+`agent-pause resume` cancels it before it fires. The timer is a plain
+process: a reboot kills it and the pause never fires — `status` detects and
+reports that case instead of leaving a silent gap.
+
 ### From inside the session
 
 ```
@@ -118,6 +123,12 @@ machine down rather than suspend it, write a checkpoint too.
 **Local state only.** Flags live on the machine running the agent. Pausing from
 your phone means SSHing to that machine.
 
+**The online probe can be fooled.** `--until-online` prefers an HTTPS round
+trip to the API host, which captive portals fail closed (staying paused —
+safe). But when `curl` is absent it falls back to ping, and a portal that
+answers ping can thaw the agent onto a network that still blocks the API. The
+result is a failed API call, not lost work.
+
 ## Failing safe
 
 The design assumes the pause mechanism itself will sometimes break, because the
@@ -135,8 +146,12 @@ watching. Three things prevent that:
   than being killed.
 - A gate that exits cleanly removes its own marker file. A marker whose owning
   process is gone is therefore proof of a kill, and the next tool call is
-  **denied** rather than allowed. Worst case is a stopped agent and a clear
-  message, never a tool that ran behind your back.
+  **denied** rather than allowed. One caveat is unavoidable: the platform
+  allows the single tool call whose gate it killed, so a kill can leak that
+  one call before the denial kicks in. The deadline clamp exists to make
+  being killed rare, and the deny message reports how long the dead gate had
+  held so a platform cap lower than the configured timeout is visible rather
+  than silent.
 - When a pause deadline genuinely expires, the block tells the agent not to
   retry and to report to the user, so it does not thrash against the gate.
 
@@ -147,9 +162,9 @@ left to own it, and says so.
 
 ## Cost
 
-The gate runs before every tool call, so its fast path exits before parsing
-anything: a directory glob, no subprocess, no `jq`. Measured at ~7 ms per tool
-call on an M-series Mac, essentially all of it shell startup.
+The gate runs before every tool call, so its fast path exits before even
+reading stdin: a directory glob, no subprocess, no `jq`. Measured at ~7 ms per
+tool call on an M-series Mac, essentially all of it shell startup.
 
 ## Configuration
 
@@ -175,7 +190,7 @@ bin/make-checkpoint.py   Rebuild a brief from a transcript
 bin/lib.sh               Shared state layout and helpers
 hooks/hooks.json         Hook registration
 commands/                Slash commands
-tests/run-tests.sh       47 tests, isolated state, no network
+tests/run-tests.sh       59 tests, isolated state, no network
 ```
 
 ```bash
@@ -183,8 +198,11 @@ bash tests/run-tests.sh
 ```
 
 Covers the freeze/release cycle, deadline expiry, killed-gate detection,
-concurrent gates, session targeting, orphaned-flag cleanup, checkpoint
-rendering against a deliberately corrupted transcript, and brief delivery.
+concurrent gates, session targeting, orphaned-flag cleanup and its live-gate
+veto, mid-freeze re-pause (`--until-online` picked up by a frozen gate), the
+per-OS ping fallback, armed-pause visibility and cancellation, checkpoint
+rendering against a deliberately corrupted transcript (subagent sidechains
+excluded), and brief delivery.
 
 ## License
 

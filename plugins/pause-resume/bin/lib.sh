@@ -137,7 +137,15 @@ pr_is_online() {
     return 1
   fi
   if command -v ping >/dev/null 2>&1; then
-    ping -c 1 -t 3 1.1.1.1 >/dev/null 2>&1 && return 0
+    # Timeout flags differ by ping flavour: BSD/macOS takes -t <secs>, but on
+    # Linux -t is TTL — a TTL of 3 dies a few hops out and reports offline
+    # forever. Linux wants -W <secs>.
+    case "$(uname -s 2>/dev/null)" in
+      Darwin | FreeBSD | OpenBSD | NetBSD)
+        ping -c 1 -t 3 1.1.1.1 >/dev/null 2>&1 && return 0 ;;
+      *)
+        ping -c 1 -W 3 1.1.1.1 >/dev/null 2>&1 && return 0 ;;
+    esac
     return 1
   fi
   # No way to check — treat as online so we never wedge on a probe we can't run.
@@ -200,6 +208,27 @@ pr_session_is_live() {
   [ "$age" -lt 86400 ]
 }
 
+# Direct evidence of a live pause: a frozen-gate marker whose recorded pid is
+# still running. The registry can lie — a renamed binary breaks the comm-name
+# walk, state can be wiped — but a live gate process cannot. Cleanup paths must
+# check this before deleting any flag, or they un-pause an agent that is
+# frozen right now. `scope` narrows to one session id; empty checks all.
+pr_live_frozen_gate() {
+  local scope="${1:-}" f base pid
+  [ -d "$PR_HOME/frozen" ] || return 1
+  for f in "$PR_HOME/frozen"/*; do
+    [ -e "$f" ] || continue
+    base="$(basename "$f")"
+    pid="${base##*.}"
+    case "$pid" in '' | *[!0-9]*) continue ;; esac
+    if [ -n "$scope" ]; then
+      case "$base" in "$scope".*) ;; *) continue ;; esac
+    fi
+    kill -0 "$pid" 2>/dev/null && return 0
+  done
+  return 1
+}
+
 pr_reap_dead_sessions() {
   local f sid
   [ -d "$PR_SESSIONS" ] || return 0
@@ -207,6 +236,10 @@ pr_reap_dead_sessions() {
     [ -e "$f" ] || continue
     if ! pr_session_is_live "$f"; then
       sid="$(basename "$f" .json)"
+      # A live frozen gate for this session is proof the session is alive even
+      # when the registry walk says otherwise. Deleting its flag here would
+      # release the gate and run the pending tool call unattended.
+      pr_live_frozen_gate "$sid" && continue
       rm -f "$f" "$(pr_flag_path "$sid")" 2>/dev/null
     fi
   done

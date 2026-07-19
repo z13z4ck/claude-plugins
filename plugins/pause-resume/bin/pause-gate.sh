@@ -20,16 +20,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib.sh
 . "$SCRIPT_DIR/lib.sh"
 
-input="$(cat)"
-
 # --- fast path -------------------------------------------------------------
-# Runs before every single tool call, so bail out before parsing anything when
-# no pause flag exists anywhere. Directory glob only: no subprocess, no jq.
+# Runs before every single tool call, so bail out before even reading stdin
+# when no pause flag exists anywhere. Directory glob only: no subprocess, no
+# jq, no $(cat).
 if pr_nothing_paused; then
   exit 0
 fi
 
-# --- we may be paused; now it is worth parsing ------------------------------
+# --- we may be paused; now it is worth reading and parsing the input --------
+input="$(cat)"
 sid="$(printf '%s' "$input" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
 tool="$(printf '%s' "$input" | sed -n 's/.*"tool_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
 [ -z "$tool" ] && tool="a tool"
@@ -71,9 +71,15 @@ for stale in "$FROZEN_DIR/$sid".*; do
   if kill -0 "$stale_pid" 2>/dev/null; then
     continue # a sibling gate is legitimately frozen right now (parallel tools)
   fi
+  stale_since="$(pr_read_flag_field "$stale" since)"
+  held_note=""
+  case "$stale_since" in
+    '' | *[!0-9]*) ;;
+    *) held_note=" The dead gate had held for up to $(pr_secs_to_human $(($(pr_now) - stale_since))) against a configured ${PR_HOOK_TIMEOUT}s hook timeout — a large shortfall means the platform is enforcing a lower cap." ;;
+  esac
   rm -f "$stale" 2>/dev/null
   pr_log "KILLED-GATE detected session=$sid (stale pid $stale_pid) — denying $tool"
-  deny "This session is paused, but the pause hook was terminated early by a hook timeout, which would have let this $tool call run unattended. It was blocked instead. Do not retry it. Tell the user: the session is still paused and their work is intact; they can resume with 'agent-pause resume'. If this keeps happening, the hook timeout in the pause-resume plugin's hooks.json is being capped by the platform and CLAUDE_PAUSE_MAX_WAIT should be lowered to match."
+  deny "This session is paused, but the pause hook was terminated early by a hook timeout, which would have let this $tool call run unattended. It was blocked instead. Do not retry it. Tell the user: the session is still paused and their work is intact; they can resume with 'agent-pause resume'. If this keeps happening, the platform is capping hook timeouts below the configured value — set CLAUDE_PAUSE_HOOK_TIMEOUT and the timeout in the plugin's hooks/hooks.json to the platform's real cap.${held_note}"
 done
 
 frozen_marker="$FROZEN_DIR/$sid.$$"
@@ -113,6 +119,15 @@ while :; do
     fi
     flag="$newflag"
   fi
+
+  # Re-read mode and deadline every pass: `pause --until-online` or a new
+  # `--max` issued while this gate is already frozen rewrites the flag file in
+  # place (the path never vanishes), so a gate that only honoured the values
+  # it saw at freeze time would ignore the update until its stale deadline.
+  mode="$(pr_read_flag_field "$flag" mode)"
+  deadline="$(pr_read_flag_field "$flag" deadline)"
+  case "$deadline" in '' | *[!0-9]*) deadline=$((started + PR_DEFAULT_MAX_WAIT)) ;; esac
+  [ "$deadline" -gt "$hard_ceiling" ] && deadline="$hard_ceiling"
 
   now="$(pr_now)"
 

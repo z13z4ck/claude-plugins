@@ -106,6 +106,27 @@ check_dur 1d 86400
 if pr_duration_to_secs "banana" >/dev/null 2>&1; then no "rejects 'banana'"; else ok "rejects 'banana'"; fi
 
 echo
+echo "== connectivity probe uses the right ping flag for this OS =="
+# Linux ping treats -t as TTL (dies a few hops out), BSD/macOS as a timeout.
+# Shim out curl/uname/ping so pr_is_online must fall back to ping, and capture
+# the flags it actually passes.
+SHIM="$CLAUDE_PAUSE_HOME/shim-ping"
+mkdir -p "$SHIM"
+printf '#!/bin/sh\necho "$@" >"%s"\nexit 0\n' "$CLAUDE_PAUSE_HOME/ping-args" >"$SHIM/ping"
+printf '#!/bin/sh\necho %s\n' "$(uname -s)" >"$SHIM/uname"
+chmod +x "$SHIM/ping" "$SHIM/uname"
+(PATH="$SHIM" pr_is_online >/dev/null 2>&1)
+ping_args="$(cat "$CLAUDE_PAUSE_HOME/ping-args" 2>/dev/null)"
+case "$(uname -s)" in
+  Darwin | FreeBSD | OpenBSD | NetBSD) want="-t" ;;
+  *) want="-W" ;;
+esac
+case " $ping_args " in
+  *" $want "*) ok "ping fallback uses $want on $(uname -s)" ;;
+  *) no "ping fallback uses $want on $(uname -s)" "got: ping $ping_args" ;;
+esac
+
+echo
 echo "== pause holds the gate, resume releases it =="
 reset_state
 bash "$BIN/agent-pause" pause -r "test pause" >/dev/null 2>&1
@@ -151,6 +172,45 @@ fi
 rm -f "$tmpout"
 
 echo
+echo "== re-pausing while frozen updates the live gate =="
+# pr_write_flag rewrites the flag file in place, so a frozen gate only honours
+# a new mode/deadline if it re-reads the flag each pass. Freeze under a manual
+# pause, then switch to --until-online with a curl shim that reports online:
+# the gate must thaw itself.
+reset_state
+SHIM_ON="$CLAUDE_PAUSE_HOME/shim-online"
+mkdir -p "$SHIM_ON"
+printf '#!/bin/sh\nexit 0\n' >"$SHIM_ON/curl"
+chmod +x "$SHIM_ON/curl"
+bash "$BIN/agent-pause" pause -r "manual first" >/dev/null 2>&1
+tmpout="$(mktemp)"
+hook_input "$SID" "$CWD" | PATH="$SHIM_ON:$PATH" bash "$BIN/pause-gate.sh" >"$tmpout" 2>&1 &
+GATE_PID=$!
+sleep 3
+if kill -0 "$GATE_PID" 2>/dev/null; then
+  bash "$BIN/agent-pause" pause --until-online -r "now until-online" >/dev/null 2>&1
+  waited=0
+  while kill -0 "$GATE_PID" 2>/dev/null && [ "$waited" -lt 15 ]; do
+    sleep 1
+    waited=$((waited + 1))
+  done
+  if kill -0 "$GATE_PID" 2>/dev/null; then
+    no "gate picks up a mode change while frozen" "still blocked after ${waited}s"
+    kill -9 "$GATE_PID" 2>/dev/null
+    wait "$GATE_PID" 2>/dev/null
+  else
+    wait "$GATE_PID" 2>/dev/null
+    grc=$?
+    [ "$grc" -eq 0 ] && ok "gate picks up --until-online issued mid-freeze and thaws" ||
+      no "gate exit code after mid-freeze auto-thaw" "rc=$grc out=$(cat "$tmpout")"
+  fi
+else
+  no "gate picks up a mode change while frozen" "gate exited before the re-pause: $(cat "$tmpout")"
+fi
+bash "$BIN/agent-pause" resume >/dev/null 2>&1
+rm -f "$tmpout"
+
+echo
 echo "== deadline expiry blocks the pending tool call =="
 reset_state
 bash "$BIN/agent-pause" pause -m 1s -r "deadline test" >/dev/null 2>&1
@@ -193,6 +253,29 @@ printf '%s' "$GATE_OUT" | grep -qi "hook timeout" &&
 bash "$BIN/agent-pause" resume >/dev/null 2>&1
 
 echo
+echo "== resume clears killed-gate evidence =="
+# A stale marker left after resume would falsely deny the first tool call of
+# the NEXT pause with a misleading hook-timeout message.
+reset_state
+bash "$BIN/agent-pause" pause -r "stale marker test" >/dev/null 2>&1
+hook_input "$SID" "$CWD" | bash "$BIN/pause-gate.sh" >/dev/null 2>&1 &
+VICTIM=$!
+sleep 2
+kill -9 "$VICTIM" 2>/dev/null
+wait "$VICTIM" 2>/dev/null
+bash "$BIN/agent-pause" resume >/dev/null 2>&1
+[ "$(find "$CLAUDE_PAUSE_HOME/frozen" -type f 2>/dev/null | wc -l | tr -d ' ')" -eq 0 ] &&
+  ok "resume removes stale killed-gate markers" || no "resume removes stale killed-gate markers"
+bash "$BIN/agent-pause" pause -r "next pause" >/dev/null 2>&1
+gate_bounded 5 "$(hook_input "$SID" "$CWD")"
+if [ "$GATE_RC" -eq 124 ]; then
+  ok "first tool call of the next pause freezes instead of being denied"
+else
+  no "first tool call of the next pause freezes instead of being denied" "rc=$GATE_RC out=$GATE_OUT"
+fi
+bash "$BIN/agent-pause" resume >/dev/null 2>&1
+
+echo
 echo "== concurrent gates do not mistake each other for corpses =="
 reset_state
 bash "$BIN/agent-pause" pause -r "parallel test" >/dev/null 2>&1
@@ -226,6 +309,75 @@ bash "$BIN/agent-pause" resume >/dev/null 2>&1
 reset_state
 
 echo
+echo "== a live frozen gate vetoes orphan cleanup =="
+# The registry can lie (wiped state, unrecognisable binary name); a frozen
+# gate with a live pid is direct proof of an active pause. Cleanup must not
+# release it — that would run the pending tool call unattended.
+reset_state
+bash "$BIN/agent-pause" pause -r "veto test" >/dev/null 2>&1
+hook_input "$SID" "$CWD" | bash "$BIN/pause-gate.sh" >/dev/null 2>&1 &
+GATE_PID=$!
+sleep 3
+rm -f "$CLAUDE_PAUSE_HOME/sessions/"*.json # worst case: registry wiped
+veto_input="$(printf '{"session_id":"%s","cwd":"%s","hook_event_name":"SessionStart","source":"startup"}' "$OTHER" "$CWD")"
+printf '%s' "$veto_input" | bash "$BIN/session-start.sh" >/dev/null 2>&1
+if [ -f "$CLAUDE_PAUSE_HOME/paused/_all" ]; then
+  ok "global flag survives session-start while a gate is frozen"
+else
+  no "global flag survives session-start while a gate is frozen"
+fi
+# Same veto for per-session flags in pr_reap_dead_sessions: a dead-looking
+# registry entry must not take its flag down while a gate holds on it.
+bash "$BIN/agent-pause" pause -s "$SID" -r "reap veto" >/dev/null 2>&1
+cat >"$CLAUDE_PAUSE_HOME/sessions/$SID.json" <<EOF
+{"session_id": "$SID", "cwd": "$CWD", "ppid": "999999", "started_epoch": $(date +%s)}
+EOF
+pr_reap_dead_sessions
+if [ -f "$CLAUDE_PAUSE_HOME/paused/$SID" ]; then
+  ok "per-session flag survives reaping while its gate is frozen"
+else
+  no "per-session flag survives reaping while its gate is frozen"
+fi
+bash "$BIN/agent-pause" resume >/dev/null 2>&1
+waited=0
+while kill -0 "$GATE_PID" 2>/dev/null && [ "$waited" -lt 10 ]; do
+  sleep 1
+  waited=$((waited + 1))
+done
+kill -9 "$GATE_PID" 2>/dev/null
+wait "$GATE_PID" 2>/dev/null
+reset_state
+
+echo
+echo "== targeted resume warns about a global flag =="
+reset_state
+bash "$BIN/agent-pause" pause -r "global" >/dev/null 2>&1
+res_out="$(bash "$BIN/agent-pause" resume -s "$SID" 2>&1)"
+printf '%s' "$res_out" | grep -q "GLOBAL" &&
+  ok "resume -s surfaces the global flag instead of 'Nothing was paused'" ||
+  no "resume -s surfaces the global flag" "got: $res_out"
+[ -f "$CLAUDE_PAUSE_HOME/paused/_all" ] &&
+  ok "resume -s leaves the global flag in place" || no "resume -s leaves the global flag in place"
+bash "$BIN/agent-pause" resume >/dev/null 2>&1
+
+echo
+echo "== armed pauses are visible and cancellable =="
+reset_state
+bash "$BIN/agent-pause" pause -i 1h -r "armed test" >/dev/null 2>&1
+if bash "$BIN/agent-pause" status 2>/dev/null | grep -q "fires in"; then
+  ok "status shows the armed pause and when it fires"
+else
+  no "status shows the armed pause" "$(bash "$BIN/agent-pause" status 2>&1 | head -20)"
+fi
+[ ! -f "$CLAUDE_PAUSE_HOME/paused/_all" ] &&
+  ok "armed pause has not fired yet" || no "armed pause has not fired yet"
+bash "$BIN/agent-pause" resume >/dev/null 2>&1
+armed_left="$(find "$CLAUDE_PAUSE_HOME/armed" -type f 2>/dev/null | wc -l | tr -d ' ')"
+[ "$armed_left" -eq 0 ] &&
+  ok "resume cancels the armed pause before it fires" ||
+  no "resume cancels the armed pause" "$armed_left armed record(s) left"
+
+echo
 echo "== session lifecycle hooks =="
 se_input="$(printf '{"session_id":"%s","cwd":"%s","hook_event_name":"SessionStart","source":"startup"}' "$SID" "$CWD")"
 out="$(printf '%s' "$se_input" | bash "$BIN/session-start.sh" 2>&1)"
@@ -256,6 +408,7 @@ cat >"$FAKE" <<'EOF'
 {"type":"assistant","sessionId":"abc","cwd":"/tmp/proj","timestamp":"2026-01-01T00:02:00Z","message":{"role":"assistant","content":[{"type":"tool_use","name":"TodoWrite","input":{"todos":[{"content":"tokenizer","status":"completed"},{"content":"parser","status":"in_progress"},{"content":"tests","status":"pending"}]}}]}}
 {"type":"user","sessionId":"abc","message":{"role":"user","content":[{"type":"tool_result","content":"ok"}]}}
 {"type":"user","sessionId":"abc","message":{"role":"user","content":"<command-name>/goal</command-name><command-args>ship the parser</command-args>"}}
+{"type":"user","sessionId":"abc","isSidechain":true,"message":{"role":"user","content":"sidechain subagent prompt must not surface"}}
 { this line is deliberately corrupt
 EOF
 cp_out="$(python3 "$BIN/make-checkpoint.py" --transcript "$FAKE" --note "unit test" 2>&1)"
@@ -267,6 +420,9 @@ printf '%s' "$cp_out" | grep -q '\[~\] parser' && ok "marks the in-flight task" 
 printf '%s' "$cp_out" | grep -q '\[x\] tokenizer' && ok "marks completed tasks" || no "marks completed tasks"
 printf '%s' "$cp_out" | grep -q "/goal ship the parser" && ok "unwraps slash-command syntax" || no "unwraps slash-command syntax"
 printf '%s' "$cp_out" | grep -q "command-name" && no "strips raw command tags" || ok "strips raw command tags"
+printf '%s' "$cp_out" | grep -q "sidechain subagent prompt" &&
+  no "subagent sidechain turns stay out of the brief" ||
+  ok "subagent sidechain turns stay out of the brief"
 
 echo
 echo "== session-end writes a brief and queues it =="
