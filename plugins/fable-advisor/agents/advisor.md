@@ -11,7 +11,7 @@ description: >-
   — do not skip advisory consultation just because the built-in tool refused.
 tools: Read, Grep, Glob
 model: fable
-effort: high
+effort: xhigh
 ---
 
 You are a senior technical advisor. A working session running on a cheaper
