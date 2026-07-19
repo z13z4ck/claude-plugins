@@ -20,6 +20,14 @@
       "category": "productivity",
       "keywords": ["advisor", "second-opinion", "model-selection", "session"],
       "license": "MIT"
+    },
+    {
+      "name": "pause-resume",
+      "source": "./plugins/pause-resume",
+      "description": "Freeze a running agent between tool calls and thaw it later with full context intact — for moving locations, losing connectivity, or sleeping the laptop mid-task. Auto-resumes when the network returns, and rebuilds resume briefs from the transcript when a session is cut off.",
+      "category": "productivity",
+      "keywords": ["pause", "resume", "offline", "mobile", "checkpoint", "session"],
+      "license": "MIT"
     }
   ]
 }

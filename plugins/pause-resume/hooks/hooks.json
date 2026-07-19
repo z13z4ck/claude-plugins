@@ -1,0 +1,42 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/pause-gate.sh\"",
+            "timeout": 86400,
+            "statusMessage": "Paused — resume with: agent-pause resume"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/session-start.sh\"",
+            "timeout": 15,
+            "statusMessage": "Checking for an interrupted session..."
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/session-end.sh\"",
+            "timeout": 30,
+            "statusMessage": "Saving resume brief..."
+          }
+        ]
+      }
+    ]
+  }
+}

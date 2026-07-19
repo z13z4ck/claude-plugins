@@ -1,0 +1,20 @@
+{
+  "name": "pause-resume",
+  "displayName": "Pause / Resume",
+  "description": "Freeze a running Claude Code agent between tool calls and thaw it later with full context intact — for moving between locations, losing connectivity, or sleeping the laptop mid-task. Includes auto-resume when the network returns and resume briefs rebuilt from the transcript when a session is cut off.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Aziz"
+  },
+  "keywords": [
+    "pause",
+    "resume",
+    "offline",
+    "mobile",
+    "checkpoint",
+    "session",
+    "interrupt"
+  ],
+  "license": "MIT",
+  "hooks": "./hooks/hooks.json"
+}

@@ -1,0 +1,312 @@
+#!/usr/bin/env bash
+# agent-pause — pause and resume in-flight Claude Code agents from outside the
+# session.
+#
+# The point of being a standalone CLI: when an agent is mid-run you cannot get
+# a slash command to it, because typed input queues until the current turn
+# ends. A second terminal (or an SSH session from your phone) can drop the flag
+# file immediately, and the agent freezes at its next tool call.
+set -u
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./lib.sh
+. "$SCRIPT_DIR/lib.sh"
+
+PROG="$(basename "$0")"
+
+usage() {
+  cat <<EOF
+$PROG — pause and resume running Claude Code agents
+
+USAGE
+  $PROG pause   [options]    Freeze agents at their next tool call
+  $PROG resume  [options]    Thaw them and let work continue
+  $PROG toggle  [options]    Pause if running, resume if paused
+  $PROG status               Show what is paused, frozen, and live
+  $PROG sessions             List known sessions
+  $PROG checkpoints          List saved resume briefs
+
+OPTIONS
+  -s, --session <id>   Target one session (default: all live sessions)
+  -r, --reason <text>  Why — shown in status and to the agent on resume
+  -o, --until-online   Auto-resume as soon as the network is reachable again
+  -m, --max <dur>      Give up after this long (default: 12h). Accepts
+                       90s, 30m, 2h, 1d. On expiry the pending tool call is
+                       blocked with an explanation instead of running unwatched.
+  -i, --in <dur>       Arm the pause to fire later instead of now — useful when
+                       you know you are leaving in ten minutes and want the
+                       agent to keep working until then.
+  -h, --help           This text
+
+EXAMPLES
+  $PROG pause -r "boarding the train"       # freeze everything now
+  $PROG pause --until-online                # freeze; thaw itself when wifi returns
+  $PROG pause -s eafaa7bb-... -m 45m        # freeze one session, cap at 45 min
+  $PROG resume                              # continue where it left off
+  $PROG status                              # what is going on right now
+
+NOTES
+  Pausing takes effect at the agent's next tool call. A tool already executing
+  runs to completion — nothing is interrupted mid-write.
+  Once frozen, the session makes no API requests, so it is safe to lose the
+  network or suspend the machine. Context survives because the process does.
+EOF
+}
+
+# --- arg parsing ------------------------------------------------------------
+CMD="${1:-}"
+[ $# -gt 0 ] && shift
+
+TARGET=""
+REASON=""
+MODE="manual"
+MAX_SECS="$PR_DEFAULT_MAX_WAIT"
+DELAY_SECS=0
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -s | --session)
+      TARGET="${2:-}"
+      shift 2
+      ;;
+    -a | --all)
+      TARGET=""
+      shift
+      ;;
+    -r | --reason)
+      REASON="${2:-}"
+      shift 2
+      ;;
+    -o | --until-online)
+      MODE="until-online"
+      shift
+      ;;
+    -m | --max)
+      if ! MAX_SECS="$(pr_duration_to_secs "${2:-}")"; then
+        echo "$PROG: bad duration '${2:-}' — try 90s, 30m, 2h, 1d" >&2
+        exit 2
+      fi
+      shift 2
+      ;;
+    -i | --in)
+      if ! DELAY_SECS="$(pr_duration_to_secs "${2:-}")"; then
+        echo "$PROG: bad duration '${2:-}' — try 90s, 30m, 2h, 1d" >&2
+        exit 2
+      fi
+      shift 2
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "$PROG: unknown option '$1'" >&2
+      exit 2
+      ;;
+  esac
+done
+
+pr_init_dirs
+
+live_sessions() {
+  local f sid
+  [ -d "$PR_SESSIONS" ] || return 0
+  for f in "$PR_SESSIONS"/*.json; do
+    [ -e "$f" ] || continue
+    pr_session_is_live "$f" || continue
+    sid="$(basename "$f" .json)"
+    printf '%s\n' "$sid"
+  done
+}
+
+session_cwd() {
+  sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$(pr_session_file "$1")" 2>/dev/null | head -1
+}
+
+short() { printf '%s' "${1:0:8}"; }
+
+cmd_pause() {
+  local deadline target label n
+  deadline=$(($(pr_now) + MAX_SECS))
+  if [ -n "$TARGET" ]; then
+    target="$TARGET"
+    label="session $(short "$TARGET")"
+  else
+    target="$PR_ALL_FLAG"
+    label="all sessions"
+  fi
+
+  # Armed pause: let the agent keep working, then freeze it on schedule.
+  # Detached with nohup so closing this terminal does not cancel the arming.
+  if [ "$DELAY_SECS" -gt 0 ]; then
+    local self="$SCRIPT_DIR/$PROG"
+    nohup bash -c "sleep $DELAY_SECS; CLAUDE_PAUSE_HOME='$PR_HOME' '$self' pause \
+      $([ -n "$TARGET" ] && printf -- '-s %s' "$TARGET") \
+      -r $(printf '%q' "${REASON:-armed pause}") \
+      -m $MAX_SECS $([ "$MODE" = "until-online" ] && printf -- '-o')" \
+      >/dev/null 2>&1 &
+    disown 2>/dev/null || true
+    pr_log "ARMED pause target=$target in ${DELAY_SECS}s"
+    echo "Pause armed: $label freezes in $(pr_secs_to_human "$DELAY_SECS")."
+    echo "  The agent keeps working until then. Cancel with '$PROG resume'"
+    echo "  only after it fires — to cancel before, kill the armed job:"
+    echo "    pkill -f 'agent-pause pause'"
+    return 0
+  fi
+
+  pr_write_flag "$target" "$REASON" "$MODE" "$deadline" "${USER:-cli}"
+  pr_log "PAUSE target=$target mode=$MODE max=${MAX_SECS}s reason=${REASON:-none}"
+
+  echo "Paused $label."
+  [ -n "$REASON" ] && echo "  reason:  $REASON"
+  if [ "$MODE" = "until-online" ]; then
+    echo "  resumes: automatically once the network is reachable"
+  else
+    echo "  resumes: on '$PROG resume'"
+  fi
+  echo "  ceiling: $(pr_secs_to_human "$MAX_SECS") (then the pending tool call is blocked, not run)"
+
+  n=0
+  while read -r sid; do
+    [ -z "$sid" ] && continue
+    n=$((n + 1))
+    printf '  - %s  %s\n' "$(short "$sid")" "$(session_cwd "$sid")"
+  done <<EOF
+$(live_sessions)
+EOF
+  if [ "$n" -eq 0 ]; then
+    echo
+    echo "  No live sessions registered yet. The flag is set anyway, so the next"
+    echo "  agent to reach a tool call will freeze."
+  fi
+  echo
+  echo "Takes effect at the next tool call. Safe to disconnect or sleep now."
+}
+
+cmd_resume() {
+  local removed=0 f
+  if [ -n "$TARGET" ]; then
+    f="$(pr_flag_path "$TARGET")"
+    [ -f "$f" ] && rm -f "$f" && removed=1
+  else
+    for f in "$PR_PAUSED"/*; do
+      [ -e "$f" ] || continue
+      rm -f "$f" && removed=$((removed + 1))
+    done
+  fi
+
+  if [ "$removed" -eq 0 ]; then
+    echo "Nothing was paused."
+    exit 0
+  fi
+
+  pr_log "RESUME target=${TARGET:-all} cleared=$removed"
+  echo "Resumed. Cleared $removed pause flag(s)."
+  echo "Frozen agents pick up within ${PR_POLL_INTERVAL}s, continuing the tool call they stopped at."
+}
+
+cmd_status() {
+  local any=0 f sid since mode reason tool waited dl now
+  now="$(pr_now)"
+
+  echo "PAUSE FLAGS"
+  for f in "$PR_PAUSED"/*; do
+    [ -e "$f" ] || continue
+    any=1
+    sid="$(basename "$f")"
+    [ "$sid" = "$PR_ALL_FLAG" ] && sid="ALL SESSIONS"
+    mode="$(pr_read_flag_field "$f" mode)"
+    reason="$(pr_read_flag_field "$f" reason)"
+    dl="$(pr_read_flag_field "$f" deadline)"
+    printf '  %s\n' "$sid"
+    printf '    mode:   %s\n' "${mode:-manual}"
+    [ -n "$reason" ] && printf '    reason: %s\n' "$reason"
+    case "$dl" in
+      '' | *[!0-9]*) ;;
+      *) printf '    expires in: %s\n' "$(pr_secs_to_human $((dl - now)))" ;;
+    esac
+  done
+  [ "$any" -eq 0 ] && echo "  (none — nothing is paused)"
+
+  echo
+  echo "FROZEN RIGHT NOW"
+  any=0
+  for f in "$PR_HOME/frozen"/*; do
+    [ -e "$f" ] || continue
+    # Marker names are <session>.<gate-pid>; a marker whose pid is gone belongs
+    # to a gate that was killed, not one that is holding.
+    local pid="${f##*.}"
+    case "$pid" in
+      '' | *[!0-9]*) continue ;;
+    esac
+    kill -0 "$pid" 2>/dev/null || continue
+    any=1
+    sid="$(pr_read_flag_field "$f" session)"
+    since="$(pr_read_flag_field "$f" since)"
+    tool="$(pr_read_flag_field "$f" tool)"
+    waited="?"
+    case "$since" in
+      '' | *[!0-9]*) ;;
+      *) waited="$(pr_secs_to_human $((now - since)))" ;;
+    esac
+    printf '  %s  held at %s for %s\n' "$(short "${sid:-unknown}")" "${tool:-?}" "$waited"
+  done
+  [ "$any" -eq 0 ] && echo "  (none)"
+
+  echo
+  echo "LIVE SESSIONS"
+  any=0
+  while read -r sid; do
+    [ -z "$sid" ] && continue
+    any=1
+    printf '  %s  %s\n' "$(short "$sid")" "$(session_cwd "$sid")"
+  done <<EOF
+$(live_sessions)
+EOF
+  [ "$any" -eq 0 ] && echo "  (none registered)"
+
+  echo
+  if pr_is_online; then echo "NETWORK  reachable"; else echo "NETWORK  unreachable"; fi
+}
+
+cmd_sessions() {
+  local f sid state
+  [ -d "$PR_SESSIONS" ] || { echo "No sessions recorded."; exit 0; }
+  for f in "$PR_SESSIONS"/*.json; do
+    [ -e "$f" ] || { echo "No sessions recorded."; exit 0; }
+    sid="$(basename "$f" .json)"
+    if pr_session_is_live "$f"; then state="live"; else state="dead"; fi
+    printf '%-6s %s  %s\n' "$state" "$sid" "$(session_cwd "$sid")"
+  done
+}
+
+cmd_checkpoints() {
+  local f
+  [ -d "$PR_CHECKPOINTS" ] || { echo "No checkpoints saved."; exit 0; }
+  local found=0
+  for f in "$PR_CHECKPOINTS"/*.md; do
+    [ -e "$f" ] || continue
+    found=1
+    printf '%s  %s\n' "$(date -r "$f" '+%Y-%m-%d %H:%M' 2>/dev/null)" "$f"
+  done
+  [ "$found" -eq 0 ] && echo "No checkpoints saved."
+}
+
+cmd_toggle() {
+  if pr_nothing_paused; then cmd_pause; else cmd_resume; fi
+}
+
+case "$CMD" in
+  pause) cmd_pause ;;
+  resume | continue) cmd_resume ;;
+  toggle) cmd_toggle ;;
+  status | st) cmd_status ;;
+  sessions) cmd_sessions ;;
+  checkpoints) cmd_checkpoints ;;
+  '' | -h | --help | help) usage ;;
+  *)
+    echo "$PROG: unknown command '$CMD'" >&2
+    echo "Try '$PROG --help'." >&2
+    exit 2
+    ;;
+esac
