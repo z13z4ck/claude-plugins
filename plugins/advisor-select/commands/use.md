@@ -1,6 +1,6 @@
 ---
 description: Select which model advises this session (opus, sonnet, haiku, or fable)
-argument-hint: [opus|sonnet|haiku|fable] — no argument shows the current selection and asks
+argument-hint: "[opus|sonnet|haiku|fable] — no argument shows the current selection and asks"
 ---
 
 The user wants to set the advisor model for this session to: $ARGUMENTS

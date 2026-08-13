@@ -18,10 +18,12 @@ Health-check the advisor pipeline:
 4. Conclude with one line, one of:
    - "Fable advisor operational" — the agent's reply names Fable
    - "Degraded: Fable refused or was substituted, fallback to Opus works
-     (likely a model-access limit on this account/session)"
-   - "Advisor pipeline broken: both dispatches failed."
+     (likely a model-access limit on this account/session)" — only if the
+     fallback reply actually names Opus
+   - "Advisor pipeline broken: both dispatches failed, or neither reply
+     names the model that was dispatched."
 
-   Compare the agent's self-reported model against `fable` to decide which
-   case applies: a dispatch that succeeds but answers as another model is a
-   silent substitution, not a healthy pipeline. Do not speculate beyond the
-   observed errors.
+   Compare each reply's self-reported model against the model dispatched for
+   that attempt: a dispatch that succeeds but answers as another model is a
+   silent substitution, not a healthy pipeline — and that applies to the
+   fallback dispatch too. Do not speculate beyond the observed errors.

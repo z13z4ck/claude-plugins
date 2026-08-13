@@ -15,7 +15,7 @@ instead of being a session-scoped choice.
 |---|---|
 | `agents/advisor.md` | Read-only advisor, `model: fable`, `effort: xhigh` — consultations are rare and high-stakes, so each one buys the deepest reasoning tier short of `max`. Reads files itself instead of trusting summaries. Every verdict starts with a MODEL line so a silently substituted model can't pass as Fable. |
 | `/fable-advisor:consult <question>` | Deterministic consultation. `--model <alias>` overrides the advisor model per call. |
-| `/fable-advisor:review-plan` | Critique the session's current plan before execution. |
+| `/fable-advisor:review-plan` | Critique the session's current plan before execution. Takes the same `--model <alias>` override as consult. |
 | `/fable-advisor:health` | Verify Fable actually answers as itself; detects both failed dispatches and silent substitution, and reports whether the Opus fallback works. |
 
 Effort is set in the agent's frontmatter because the Agent tool has no

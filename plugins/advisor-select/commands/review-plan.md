@@ -1,6 +1,6 @@
 ---
 description: Send the current plan to the session-selected advisor for critique before executing it
-argument-hint: [optional extra context]
+argument-hint: "[optional extra context]"
 ---
 
 Before executing, get the current plan reviewed. Extra context from the user:
