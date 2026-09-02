@@ -8,7 +8,7 @@
     {
       "name": "fable-advisor",
       "source": "./plugins/fable-advisor",
-      "description": "Read-only Fable 5 advisor subagent for decisions, plan reviews, and stalled debugging, with Opus fallback when Fable is unavailable.",
+      "description": "Read-only Fable advisor subagent for decisions, plan reviews, and stalled debugging — tracks the newest Fable release via the fable alias (Fable 5.1 today), with Opus fallback when Fable is unavailable.",
       "category": "productivity",
       "keywords": ["advisor", "second-opinion", "fable", "fallback"],
       "license": "MIT"

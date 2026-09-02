@@ -28,8 +28,14 @@ Do the following:
 4. When the advisor reports back, check its MODEL line first: if it reports
    anything other than the model you dispatched, the model was silently
    substituted — prepend the same DEGRADED warning naming the model that
-   actually answered. Then present its VERDICT and RISKS sections
-   intact, state whether you agree, and if you disagree, say why in one or
-   two sentences before asking the user which direction to take.
+   actually answered. Claude Code does this itself when a Fable request is
+   refused by a safety classifier (the subagent is re-run on Opus and the
+   transcript shows a fallback notice), when a configured `fallbackModel`
+   chain takes over after an overload, or when a dismissed Fable
+   usage-credits prompt continues the turn on the default model — the
+   warning is required in every one of those cases. Then present its
+   VERDICT and RISKS sections intact, state whether you agree, and if you
+   disagree, say why in one or two sentences before asking the user which
+   direction to take.
 5. Do not begin implementing the advisor's recommendation until the user
    confirms.

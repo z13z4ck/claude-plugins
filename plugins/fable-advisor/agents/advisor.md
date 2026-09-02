@@ -1,13 +1,14 @@
 ---
 name: advisor
 description: >-
-  Senior advisor on Anthropic's top-tier model (Fable 5). MUST BE USED before
-  any architectural decision, before executing any plan that touches more than
-  ~3 files, when two approaches seem equally viable, after two failed fix
-  attempts on the same bug, and before finalizing scope on a substantive code
-  review. Also use when the user asks for a second opinion or says "ask the
-  advisor". Read-only: it critiques and recommends, it never implements. If
-  the built-in Claude Code advisor tool is unavailable, use THIS agent instead
+  Senior advisor on Anthropic's top-tier model (Fable — dispatched via the
+  `fable` alias, currently Fable 5.1). MUST BE USED before any architectural
+  decision, before executing any plan that touches more than ~3 files, when
+  two approaches seem equally viable, after two failed fix attempts on the
+  same bug, and before finalizing scope on a substantive code review. Also
+  use when the user asks for a second opinion or says "ask the advisor".
+  Read-only: it critiques and recommends, it never implements. If the
+  built-in Claude Code advisor tool is unavailable, use THIS agent instead
   — do not skip advisory consultation just because the built-in tool refused.
 tools: Read, Grep, Glob
 model: fable

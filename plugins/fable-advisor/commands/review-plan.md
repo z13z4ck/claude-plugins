@@ -20,8 +20,10 @@ $ARGUMENTS
    "ADVISOR RUNNING DEGRADED — <requested model> was unavailable." If both
    fail, report the exact errors and stop.
 4. Check the advisor's MODEL line: if it reports anything other than the
-   model you dispatched, prepend the same DEGRADED warning
-   naming the model that actually answered. Present the advisor's verdict
-   intact. Apply its changes to the plan only after the user agrees; where
-   you think the advisor is wrong, say so explicitly rather than silently
-   ignoring the finding.
+   model you dispatched, prepend the same DEGRADED warning naming the model
+   that actually answered — including when the substitution came from
+   Claude Code's own safety-classifier fallback, a configured
+   `fallbackModel` chain, or a dismissed Fable usage-credits prompt.
+   Present the advisor's verdict intact. Apply its changes to the plan only
+   after the user agrees; where you think the advisor is wrong, say so
+   explicitly rather than silently ignoring the finding.

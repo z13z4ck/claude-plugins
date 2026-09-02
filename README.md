@@ -6,19 +6,23 @@
 
 | Plugin | What it does |
 |---|---|
-| [fable-advisor](plugins/fable-advisor/README.md) | A read-only second-opinion advisor, always on Fable 5 at `xhigh` effort, with a labeled Opus fallback |
+| [fable-advisor](plugins/fable-advisor/README.md) | A read-only second-opinion advisor, always on Fable (the `fable` alias — Fable 5.1 today) at `xhigh` effort, with a labeled Opus fallback |
 | [advisor-select](plugins/advisor-select/README.md) | Pick which model advises this session (`opus`, `sonnet`, `haiku`, `fable`) — e.g. main conversation on Sonnet, second opinions from Opus |
 | [pause-resume](plugins/pause-resume/README.md) | Freeze a running agent between tool calls and thaw it later with context intact — for moving locations, losing connectivity, or sleeping the laptop mid-task |
 
-# fable-advisor — a Fable 5 second-opinion agent for Claude Code
+# fable-advisor — a Fable second-opinion agent for Claude Code
 
-Run your session on any model (Opus recommended). Consult a read-only Fable 5
-advisor — running at `xhigh` reasoning effort, since consultations are rare
-and high-stakes — for architectural decisions, plan reviews, and stalled
-debugging. Built as a replacement path for sessions where Claude Code's
-built-in advisor tool reports "Advisor unavailable": this plugin dispatches
-Fable through the standard subagent mechanism instead, and degrades to Opus
-with a clear label if Fable itself is refused.
+Run your session on any model. Consult a read-only Fable advisor — dispatched
+through the `fable` alias, so Fable 5.1 on current Claude Code, running at
+`xhigh` reasoning effort since consultations are rare and high-stakes — for
+architectural decisions, plan reviews, and stalled debugging. Built as a
+replacement path for sessions where Claude Code's built-in advisor tool is
+not attached (a Fable 5.1 main model accepts only a Fable 5.1 advisor, so a
+saved Opus advisor silently stops applying): this plugin dispatches Fable
+through the standard subagent mechanism instead, and degrades to Opus with a
+clear label if Fable itself is refused. If the session is already on Fable,
+the advisor is the same model and the value is a fresh-context, file-grounded
+second look rather than a capability jump.
 
 ```
 /plugin install fable-advisor@z13z4ck-plugins
@@ -28,9 +32,11 @@ with a clear label if Fable itself is refused.
 ```
 
 Every verdict opens with a MODEL line, so a silently substituted model can't
-pass as Fable — the health check treats "answered as another model" as
-degraded, not operational. A failed dispatch retries once on a fallback and
-labels the verdict "ADVISOR RUNNING DEGRADED". Full details, including
+pass as Fable — including when Claude Code's own safety-classifier fallback
+or `fallbackModel` chain re-runs the subagent on Opus. The health check
+treats "answered as another model" as degraded, not operational. A failed
+dispatch retries once on a fallback and labels the verdict "ADVISOR RUNNING
+DEGRADED". Full details, including
 proactive (no-command) invocation and a CLAUDE.md policy snippet:
 [plugins/fable-advisor](plugins/fable-advisor/README.md).
 

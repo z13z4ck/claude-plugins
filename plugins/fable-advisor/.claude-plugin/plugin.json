@@ -1,8 +1,8 @@
 {
   "name": "fable-advisor",
   "displayName": "Fable Advisor",
-  "description": "A read-only Fable 5 advisor subagent your session consults for architectural decisions, plan reviews, and stalled debugging — with automatic Opus fallback when Fable is unavailable. Replaces reliance on the built-in advisor tool.",
-  "version": "1.4.0",
+  "description": "A read-only Fable advisor subagent your session consults for architectural decisions, plan reviews, and stalled debugging — dispatched through the fable alias, so it tracks the newest Fable release (Fable 5.1 today), with automatic Opus fallback when Fable is unavailable. Replaces reliance on the built-in advisor tool.",
+  "version": "1.5.0",
   "author": {
     "name": "Aziz"
   },
