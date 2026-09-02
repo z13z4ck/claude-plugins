@@ -1,23 +1,32 @@
 # fable-advisor — a Fable second-opinion agent for Claude Code
 
 Run your session on any model. Consult a read-only Fable advisor for
-architectural decisions, plan reviews, and stalled debugging. The advisor is
-dispatched through the `fable` alias, so it tracks Claude Code's newest Fable
-release — Fable 5.1 on Claude Code 2.1.257 or later, Fable 5 on older
-versions and in Claude apps gateway sessions. Built as a replacement path for
-sessions where Claude Code's built-in advisor tool is not attached: this
-plugin dispatches Fable through the standard subagent mechanism instead, and
-degrades to Opus with a clear label if Fable itself is refused. Same advisor
-workflow as [advisor-select](../advisor-select), but the advisor model is
-fixed to Fable instead of being a session-scoped choice.
+architectural decisions, plan reviews, stalled debugging, and verification of
+a change set before you finish. The advisor is dispatched through the `fable`
+alias, so it tracks Claude Code's newest Fable release — Fable 5.1 on Claude
+Code 2.1.257 or later, Fable 5 on older versions and in Claude apps gateway
+sessions. Built as a replacement path for sessions where Claude Code's
+built-in advisor tool is not attached: this plugin dispatches Fable through
+the standard subagent mechanism instead, and degrades to Opus with a clear
+label if Fable itself is refused.
+
+Since 1.6.0 the plugin also **enforces** consultation. Hooks inject the
+advisor policy into every session, gate `ExitPlanMode` on a consultation,
+nudge when unreviewed edits pile up, and hold a turn that edited four or more
+files without advice once at its end, with an instruction to get the change
+set reviewed before finishing. No CLAUDE.md snippet is needed. Same advisor workflow as
+[advisor-select](../advisor-select), but the advisor model is fixed to Fable
+and the consultation is enforced rather than left to judgment.
 
 ## Components
 
 | Component | Purpose |
 |---|---|
-| `agents/advisor.md` | Read-only advisor, `model: fable`, `effort: xhigh` — consultations are rare and high-stakes, so each one buys the deepest reasoning tier short of `max`. Reads files itself instead of trusting summaries. Every verdict starts with a MODEL line so a silently substituted model can't pass as Fable. |
+| `agents/advisor.md` | Read-only advisor, `model: fable`, `effort: xhigh` — consultations are high-stakes, so each one buys the deepest reasoning tier short of `max`. Reads files itself instead of trusting summaries. Every verdict starts with a MODEL line so a silently substituted model can't pass as Fable. |
+| `hooks/hooks.json` + `bin/` | Five enforcement hooks (below). Transcript-driven, fail-open, silent inside subagents. |
 | `/fable-advisor:consult <question>` | Deterministic consultation. `--model <alias>` overrides the advisor model per call. |
 | `/fable-advisor:review-plan` | Critique the session's current plan before execution. Takes the same `--model <alias>` override as consult. |
+| `/fable-advisor:status` | How many consultations this session, which edits are still unreviewed, which hooks are active, and the last hook events. |
 | `/fable-advisor:health` | Verify Fable actually answers as itself and report which Fable version did; detects both failed dispatches and silent substitution, and reports whether the Opus fallback works. |
 
 Effort is set in the agent's frontmatter because the Agent tool has no
@@ -37,11 +46,71 @@ models reached at `xhigh`.
 /fable-advisor:health        # run this FIRST — confirms Fable is reachable on your account
 ```
 
-Fable 5.1 needs Claude Code 2.1.255 or later, and the `fable` alias resolves
-to it from 2.1.257 (`claude update`). On plans where Fable bills to usage
-credits, accept the one-time consent by running `/model fable` once before
-the first consultation — otherwise a dismissed consent prompt hands the
-dispatch to your default model (see below).
+Hooks load at session start, so restart Claude Code after installing or
+updating. Fable 5.1 needs Claude Code 2.1.255 or later, and the `fable`
+alias resolves to it from 2.1.257 (`claude update`). On plans where Fable
+bills to usage credits, accept the one-time consent by running `/model fable`
+once before the first consultation — otherwise a dismissed consent prompt
+hands the dispatch to your default model (see below). The hooks need
+`python3` on `PATH`; without it every hook is a silent no-op and the plugin
+falls back to description-driven consultation.
+
+## Enforcement hooks
+
+Claude Code decides on its own when to delegate to an agent by reading the
+agent's `description`. That is real but not guaranteed, and the instruction
+fades as context fills up. The hooks turn the policy into something the
+harness applies:
+
+| Hook | Event | What it does |
+|---|---|---|
+| Policy injection | `SessionStart` (startup, resume, clear, **compact**) | Puts the advisor policy — when to consult, how to dispatch, how to handle a degraded verdict — into context. Re-injected after every compaction, with a tally of consultations so far and files edited since the last one. |
+| Prompt nudge | `UserPromptSubmit` | Recognises decision prompts ("should we", "which is better", "trade-offs"), planning prompts ("refactor", "migrate", "design"), stalled fixes ("still failing", "same error" — escalates on the second in a row) and review requests, and states that the policy applies to this turn. Also surfaces any unreviewed edits over the threshold. Silent on trivial prompts and slash commands. |
+| Plan gate | `PreToolUse` on `ExitPlanMode` | **Denies** exiting plan mode until the advisor was dispatched during this planning episode (an `EnterPlanMode` call or a switch into plan mode starts one; a successful `ExitPlanMode` or a switch out of plan mode ends it — a denied attempt does not). Health checks don't count. Headless (`-p`) sessions have no `ExitPlanMode` tool, so this gate only ever fires interactively. After two denials it stops denying and only adds context, so a session where the Agent tool is unavailable cannot wedge; the normal plan-approval prompt still runs, so the user keeps their veto. |
+| Edit watch | `PostToolUse` on `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `Bash` | Counts distinct files edited since the last consultation and nudges at every multiple of the threshold (4, 8, 12 …). Bash writes count too — heredocs, `>`/`>>` redirects, `tee`, `sed -i` — because sessions in bypass-permissions mode are steered to edit through Bash, which the Edit/Write tools never see. Temp and device paths, Claude's own plan files and memory notes are ignored. The same hook records advisor dispatches, so a consultation counts the moment it is made even before the transcript has caught up. |
+| Stop audit | `Stop` | If the turn that is ending edited at least the threshold of distinct files and the advisor was not consulted during that turn, **holds the turn once** with an instruction to get a verification review of the change set. It is a hold, not a lock: after the model has acted on it (or explained why it could not), the next stop goes through. Honours `stop_hook_active`, never holds the same turn twice, and never fires inside a subagent. |
+
+Ground truth is the session transcript on disk (the same JSONL
+`/pause-resume:recover` reads), so a count cannot drift from what actually
+happened. Because Claude Code flushes that file lazily — mid-turn it can lag
+the tool calls by several entries — the `PostToolUse` hook also remembers
+what it saw (files edited this turn, consultations dispatched) in a small
+per-session state file, and every gate accepts either source. A consultation
+is any `Agent` dispatch with `subagent_type: fable-advisor:advisor`,
+whichever way it was triggered — autonomously, via `/fable-advisor:consult`,
+or because a gate demanded it. Every hook fails open: an unexpected error
+exits 0 with no output and a line in `events.log`.
+
+### Configuration
+
+Set these in the environment Claude Code runs in — the `env` block of
+`settings.json` is the usual place.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `FABLE_ADVISOR_ENFORCE` | `full` | `nudge` keeps the context injection but never denies or holds; `off` silences every hook. |
+| `FABLE_ADVISOR_FILE_THRESHOLD` | `4` | Distinct files that trigger the edit watch and the stop audit. The injected policy says "more than N−1 files" accordingly. |
+| `FABLE_ADVISOR_PLAN_GATE` | `1` | `0` disables the `ExitPlanMode` gate. |
+| `FABLE_ADVISOR_EDIT_WATCH` | `1` | `0` disables the edit-count nudge. |
+| `FABLE_ADVISOR_STOP_AUDIT` | `1` | `0` disables the end-of-turn hold. |
+| `FABLE_ADVISOR_PROMPT_NUDGE` | `1` | `0` disables per-prompt nudges. |
+| `FABLE_ADVISOR_HOME` | `~/.claude/fable-advisor` | Where `events.log` and per-session state live. State files are reaped after 7 days. |
+
+`~/.claude/fable-advisor/events.log` records every injection, nudge, denial,
+release and hold with the session id, so you can see the hooks working;
+`/fable-advisor:status` summarises the current session. The hooks have a
+test suite: `bash plugins/fable-advisor/tests/run-tests.sh`.
+
+### What this costs
+
+Each consultation is one Fable dispatch at `xhigh`, reading real files, so
+expect minutes per consultation and one or two per substantive turn: a plan
+review before edits, and a verification review at the end if the turn grew
+past the threshold without one. Consulting early is cheaper than being held
+later — a consultation anywhere in the same turn, plan review included,
+satisfies the stop audit for that turn. If that cadence is too much for a
+given project, `FABLE_ADVISOR_ENFORCE=nudge` keeps the reminders and drops
+the gates.
 
 ## When your session already runs on Fable
 
@@ -61,7 +130,9 @@ override) and label the verdict "ADVISOR RUNNING DEGRADED" — a degraded
 verdict is never presented as Fable judgment. A dispatch that *succeeds* on
 the wrong model is caught by the MODEL line the advisor prints at the top of
 every verdict, and `/fable-advisor:health` treats "answered as another
-model" as degraded, not as operational.
+model" as degraded, not as operational. The injected policy carries the same
+rules, so autonomous consultations handle a degraded verdict the same way
+the commands do.
 
 Since Claude Code 2.1.247 a successful-but-substituted dispatch is the
 common failure, not the rare one, because Claude Code itself re-routes
@@ -85,30 +156,31 @@ In all four cases the MODEL line is the signal. `/tasks` also shows the
 model and effort each subagent actually ran on, which is a useful
 cross-check when a verdict looks off.
 
-## How proactive invocation works (no command needed)
+## The four layers, in increasing reliability
 
-Claude Code decides on its own when to delegate to an agent by reading the
-agent's `description` frontmatter. This plugin's description uses explicit
-trigger conditions ("MUST BE USED before any architectural decision, plans
-touching >3 files, after two failed fix attempts..."), which is the supported
-mechanism for autonomous consultation. The slash commands exist only as
-deterministic triggers when you don't want to leave it to judgment.
+1. **Agent description** — Claude Code's own delegation heuristic reads the
+   trigger conditions in `agents/advisor.md` ("use PROACTIVELY", "MUST BE
+   USED before …"). Autonomous, not guaranteed.
+2. **Hooks** — the policy is in context every session and after every
+   compaction, prompts that call for advice are flagged as they arrive, and
+   the plan gate and stop audit refuse to let the two most consequential
+   moments pass unadvised. Strongly steered, with hard stops.
+3. **CLAUDE.md policy** — optional now, but still useful if you want the
+   policy visible in the repo for people as well as for the model:
 
-Description-driven triggering is real but not guaranteed. To make
-consultation near-mandatory, add this to your project's `CLAUDE.md`:
+   ```markdown
+   ## Advisor policy
+   Before any architectural decision, any plan touching more than 3 files, or
+   after two failed attempts at the same bug, consult the fable-advisor:advisor
+   agent and present its verdict. If the built-in advisor tool is unavailable,
+   use the fable-advisor:advisor agent — do not skip consultation because the
+   built-in tool refused. Do not proceed on major decisions without either an
+   advisor verdict or an explicit note that both advisor paths failed.
+   ```
 
-```markdown
-## Advisor policy
-Before any architectural decision, any plan touching more than 3 files, or
-after two failed attempts at the same bug, consult the fable-advisor:advisor
-agent and present its verdict. If the built-in advisor tool is unavailable,
-use the fable-advisor:advisor agent — do not skip consultation because the
-built-in tool refused. Do not proceed on major decisions without either an
-advisor verdict or an explicit note that both advisor paths failed.
-```
-
-Three layers, in increasing reliability: agent description (autonomous),
-CLAUDE.md policy (strongly steered), slash command (deterministic).
+4. **Slash commands** — `/fable-advisor:consult` and
+   `/fable-advisor:review-plan` when you want the consultation now,
+   deterministically.
 
 ## About the built-in advisor being unavailable
 

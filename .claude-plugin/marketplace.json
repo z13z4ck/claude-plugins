@@ -8,25 +8,44 @@
     {
       "name": "fable-advisor",
       "source": "./plugins/fable-advisor",
-      "description": "Read-only Fable advisor subagent for decisions, plan reviews, and stalled debugging — tracks the newest Fable release via the fable alias (Fable 5.1 today), with Opus fallback when Fable is unavailable.",
+      "description": "Read-only Fable advisor subagent for decisions, plan reviews, stalled debugging and change-set verification \u2014 tracks the newest Fable release via the fable alias (Fable 5.1 today), with Opus fallback when Fable is unavailable. Enforcement hooks inject the advisor policy every session, gate ExitPlanMode on a consultation, and hold unadvised multi-file turns for review.",
       "category": "productivity",
-      "keywords": ["advisor", "second-opinion", "fable", "fallback"],
+      "keywords": [
+        "advisor",
+        "second-opinion",
+        "fable",
+        "fallback",
+        "hooks",
+        "plan-review"
+      ],
       "license": "MIT"
     },
     {
       "name": "advisor-select",
       "source": "./plugins/advisor-select",
-      "description": "Pick which model advises the current session — e.g. main conversation on Sonnet, second opinions from Opus. Session-scoped selection with fallback and substitution detection.",
+      "description": "Pick which model advises the current session \u2014 e.g. main conversation on Sonnet, second opinions from Opus. Session-scoped selection with fallback and substitution detection.",
       "category": "productivity",
-      "keywords": ["advisor", "second-opinion", "model-selection", "session"],
+      "keywords": [
+        "advisor",
+        "second-opinion",
+        "model-selection",
+        "session"
+      ],
       "license": "MIT"
     },
     {
       "name": "pause-resume",
       "source": "./plugins/pause-resume",
-      "description": "Freeze a running agent between tool calls and thaw it later with full context intact — for moving locations, losing connectivity, or sleeping the laptop mid-task. Auto-resumes when the network returns, and rebuilds resume briefs from the transcript when a session is cut off.",
+      "description": "Freeze a running agent between tool calls and thaw it later with full context intact \u2014 for moving locations, losing connectivity, or sleeping the laptop mid-task. Auto-resumes when the network returns, and rebuilds resume briefs from the transcript when a session is cut off.",
       "category": "productivity",
-      "keywords": ["pause", "resume", "offline", "mobile", "checkpoint", "session"],
+      "keywords": [
+        "pause",
+        "resume",
+        "offline",
+        "mobile",
+        "checkpoint",
+        "session"
+      ],
       "license": "MIT"
     }
   ]

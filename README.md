@@ -6,7 +6,7 @@
 
 | Plugin | What it does |
 |---|---|
-| [fable-advisor](plugins/fable-advisor/README.md) | A read-only second-opinion advisor, always on Fable (the `fable` alias — Fable 5.1 today) at `xhigh` effort, with a labeled Opus fallback |
+| [fable-advisor](plugins/fable-advisor/README.md) | A read-only second-opinion advisor, always on Fable (the `fable` alias — Fable 5.1 today) at `xhigh` effort, with a labeled Opus fallback — and hooks that enforce consultation: policy injected every session, `ExitPlanMode` gated, unadvised multi-file turns held for review |
 | [advisor-select](plugins/advisor-select/README.md) | Pick which model advises this session (`opus`, `sonnet`, `haiku`, `fable`) — e.g. main conversation on Sonnet, second opinions from Opus |
 | [pause-resume](plugins/pause-resume/README.md) | Freeze a running agent between tool calls and thaw it later with context intact — for moving locations, losing connectivity, or sleeping the laptop mid-task |
 
@@ -29,15 +29,25 @@ second look rather than a capability jump.
 /fable-advisor:health               # run this FIRST — confirms Fable is reachable
 /fable-advisor:consult <question>   # second opinion (--model <alias> to override once)
 /fable-advisor:review-plan          # critique the current plan before executing it
+/fable-advisor:status               # consultations this session, unreviewed edits, active hooks
 ```
+
+Consultation is enforced, not just suggested. Hooks put the advisor policy in
+context at every session start and after every compaction, flag prompts that
+call for advice as they arrive, deny `ExitPlanMode` until the plan has been
+sent to the advisor, nudge once four distinct files have been edited without
+a consultation (Bash heredocs and `sed -i` count), and hold a turn that
+edited four or more files unadvised once at its end, instructing the model to
+get a verification review before it finishes. `FABLE_ADVISOR_ENFORCE=nudge`
+keeps the reminders and drops the gates.
 
 Every verdict opens with a MODEL line, so a silently substituted model can't
 pass as Fable — including when Claude Code's own safety-classifier fallback
 or `fallbackModel` chain re-runs the subagent on Opus. The health check
 treats "answered as another model" as degraded, not operational. A failed
 dispatch retries once on a fallback and labels the verdict "ADVISOR RUNNING
-DEGRADED". Full details, including
-proactive (no-command) invocation and a CLAUDE.md policy snippet:
+DEGRADED". Full details, including the hook table, configuration and a
+CLAUDE.md policy snippet:
 [plugins/fable-advisor](plugins/fable-advisor/README.md).
 
 # advisor-select — pick which model advises your session
