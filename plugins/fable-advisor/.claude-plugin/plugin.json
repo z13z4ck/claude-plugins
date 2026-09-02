@@ -2,7 +2,7 @@
   "name": "fable-advisor",
   "displayName": "Fable Advisor",
   "description": "A read-only Fable advisor subagent your session consults for architectural decisions, plan reviews, stalled debugging and change-set verification — dispatched through the fable alias, so it tracks the newest Fable release (Fable 5.1 today), with automatic Opus fallback when Fable is unavailable. Ships enforcement hooks: the advisor policy is injected every session (and after every compaction), ExitPlanMode is gated on a consultation, unreviewed edits trigger nudges, and a turn that edits 4+ files unadvised is held for a verification review. Replaces reliance on the built-in advisor tool.",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "author": {
     "name": "Aziz"
   },
@@ -15,6 +15,5 @@
     "hooks",
     "plan-review"
   ],
-  "license": "MIT",
-  "hooks": "./hooks/hooks.json"
+  "license": "MIT"
 }
