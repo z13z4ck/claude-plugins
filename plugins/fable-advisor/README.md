@@ -22,7 +22,7 @@ and the consultation is enforced rather than left to judgment.
 
 | Component | Purpose |
 |---|---|
-| `agents/advisor.md` | Read-only advisor, `model: fable`, `effort: xhigh` — consultations are high-stakes, so each one buys the deepest reasoning tier short of `max`. Reads files itself instead of trusting summaries. Every verdict starts with a MODEL line so a silently substituted model can't pass as Fable. |
+| `agents/advisor.md` | Read-only advisor, `model: fable`, `effort: high` — enforcement makes consultation routine rather than rare, so the default buys a deep tier at a per-call cost you can afford one or two times a turn; `xhigh` is a one-line opt-up. Reads files itself instead of trusting summaries. Every verdict starts with a MODEL line so a silently substituted model can't pass as Fable. |
 | `hooks/hooks.json` + `bin/` | Five enforcement hooks (below). Transcript-driven, fail-open, silent inside subagents. |
 | `/fable-advisor:consult <question>` | Deterministic consultation. `--model <alias>` overrides the advisor model per call. |
 | `/fable-advisor:review-plan` | Critique the session's current plan before execution. Takes the same `--model <alias>` override as consult. |
@@ -31,12 +31,15 @@ and the consultation is enforced rather than left to judgment.
 
 Effort is set in the agent's frontmatter because the Agent tool has no
 per-invocation effort override (unlike `model`) — changing it means editing
-`agents/advisor.md`. `xhigh` is valid on Fable 5.1 and on the Opus and
-Sonnet fallbacks. Fable 5.1 deliberately takes longer turns at higher
-effort, so a real consultation that reads several files can run for
-minutes — that is the advisor working, not a hang. If that is too slow for
-your workflow, `high` is the next step down and still ahead of what earlier
-models reached at `xhigh`.
+`agents/advisor.md`. The default is `high`. It was `xhigh` through 1.6.x,
+when consultations were rare and opt-in; the enforcement hooks made them
+routine — one or two per substantive turn — and at that cadence the
+per-call cost is what matters, so 1.7.0 moved the default down one tier.
+Fable 5.1 deliberately takes longer turns at higher effort, so even at
+`high` a real consultation that reads several files can run for minutes —
+that is the advisor working, not a hang. To buy the deepest tier short of
+`max` back, set `effort: xhigh` in `agents/advisor.md`; it is valid on
+Fable 5.1 and on the Opus and Sonnet fallbacks.
 
 ## Install
 
@@ -103,7 +106,7 @@ test suite: `bash plugins/fable-advisor/tests/run-tests.sh`.
 
 ### What this costs
 
-Each consultation is one Fable dispatch at `xhigh`, reading real files, so
+Each consultation is one Fable dispatch at `high`, reading real files, so
 expect minutes per consultation and one or two per substantive turn: a plan
 review before edits, and a verification review at the end if the turn grew
 past the threshold without one. Consulting early is cheaper than being held
@@ -120,7 +123,9 @@ session is itself on Fable 5.1, the advisor is the same model — what you get
 is a fresh-context, read-only, file-grounded review with none of the
 session's accumulated assumptions, which Anthropic's Fable guidance rates
 above self-critique. That is still worth it before large plans; just don't
-expect a capability jump.
+expect a capability jump. And if your session runs at `xhigh`, note that the
+default advisor is the same model at *lower* effort — a cheaper look, not a
+deeper one. Set `effort: xhigh` in `agents/advisor.md` if you want parity.
 
 ## Fallback and substitution detection
 

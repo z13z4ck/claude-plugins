@@ -6,7 +6,7 @@
 
 | Plugin | What it does |
 |---|---|
-| [fable-advisor](plugins/fable-advisor/README.md) | A read-only second-opinion advisor, always on Fable (the `fable` alias — Fable 5.1 today) at `xhigh` effort, with a labeled Opus fallback — and hooks that enforce consultation: policy injected every session, `ExitPlanMode` gated, unadvised multi-file turns held for review |
+| [fable-advisor](plugins/fable-advisor/README.md) | A read-only second-opinion advisor, always on Fable (the `fable` alias — Fable 5.1 today) at `high` effort, with a labeled Opus fallback — and hooks that enforce consultation: policy injected every session, `ExitPlanMode` gated, unadvised multi-file turns held for review |
 | [advisor-select](plugins/advisor-select/README.md) | Pick which model advises this session (`opus`, `sonnet`, `haiku`, `fable`) — e.g. main conversation on Sonnet, second opinions from Opus |
 | [pause-resume](plugins/pause-resume/README.md) | Freeze a running agent between tool calls and thaw it later with context intact — for moving locations, losing connectivity, or sleeping the laptop mid-task |
 
@@ -14,7 +14,7 @@
 
 Run your session on any model. Consult a read-only Fable advisor — dispatched
 through the `fable` alias, so Fable 5.1 on current Claude Code, running at
-`xhigh` reasoning effort since consultations are rare and high-stakes — for
+`high` reasoning effort, with `xhigh` a one-line opt-up — for
 architectural decisions, plan reviews, and stalled debugging. Built as a
 replacement path for sessions where Claude Code's built-in advisor tool is
 not attached (a Fable 5.1 main model accepts only a Fable 5.1 advisor, so a

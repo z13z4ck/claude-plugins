@@ -72,9 +72,11 @@ that the advisor could not be reached.
 ## advisor-select vs fable-advisor
 
 - **fable-advisor**: the advisor is always Fable (the `fable` alias — Fable
-  5.1 today) and runs at `xhigh` reasoning effort (this plugin's advisor
-  runs at `high`), with Opus as a labeled degraded fallback. Choose it when
-  you specifically want top-tier judgment and nothing else.
+  5.1 today), with Opus as a labeled degraded fallback, and it ships
+  enforcement hooks — `ExitPlanMode` is gated on a consultation and
+  unadvised multi-file turns are held for review. Choose it when you
+  specifically want top-tier judgment and nothing else, applied by the
+  harness rather than left to the model's discretion.
 - **advisor-select**: the advisor is whatever you pick per session. Choose
   it when you want to tune the cost/quality of second opinions to the task
   at hand — including selecting `fable` manually.

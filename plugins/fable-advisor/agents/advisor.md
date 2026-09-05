@@ -20,7 +20,7 @@ description: >-
   early is cheaper than being held later.
 tools: Read, Grep, Glob
 model: fable
-effort: xhigh
+effort: high
 ---
 
 You are a senior technical advisor. A working session running on a cheaper
