@@ -12,7 +12,32 @@ FAIL=0
 
 export CLAUDE_PAUSE_HOME
 CLAUDE_PAUSE_HOME="$(mktemp -d)"
+# PATH entries need the colon-free spelling of the same directory.
+SHIM_ROOT="$CLAUDE_PAUSE_HOME"
+# Git Bash: mktemp hands out MSYS paths (/tmp/...) that native Windows Python
+# cannot open. The mixed form (C:/...) works for bash and Python alike.
+case "$(uname -s)" in
+  MINGW* | MSYS*) CLAUDE_PAUSE_HOME="$(cygpath -m "$CLAUDE_PAUSE_HOME")" ;;
+esac
 trap 'rm -rf "$CLAUDE_PAUSE_HOME"' EXIT
+
+# Resolve Python exactly as the hooks do (python3, python, py -3 — the first
+# that really runs, since Windows' python3 is often the Store stub).
+# shellcheck source=../bin/lib.sh
+. "$BIN/lib.sh"
+PY="$(pr_python)"
+export PYTHONUTF8=1
+py() {
+  if [ -z "$PY" ]; then
+    echo "no Python 3 interpreter found" >&2
+    return 127
+  fi
+  # Windows Python writes \r\n even into a pipe; drop the \r so output
+  # compares the same as on Linux and macOS. Keep Python's exit status.
+  # shellcheck disable=SC2086 # $PY may be "py -3"
+  $PY "$@" | tr -d '\r'
+  return "${PIPESTATUS[0]}"
+}
 
 ok() {
   PASS=$((PASS + 1))
@@ -77,7 +102,7 @@ for f in "$BIN"/*.sh "$BIN/agent-pause"; do
     no "$(basename "$f") parses" "$(bash -n "$f" 2>&1 | head -3)"
   fi
 done
-if python3 -m py_compile "$BIN/make-checkpoint.py" 2>/dev/null; then
+if py -m py_compile "$BIN/make-checkpoint.py" 2>/dev/null; then
   ok "make-checkpoint.py compiles"
 else
   no "make-checkpoint.py compiles"
@@ -91,8 +116,6 @@ gate_bounded 5 "$(hook_input "$SID" "$CWD")"
 
 echo
 echo "== duration parsing =="
-# shellcheck source=../bin/lib.sh
-. "$BIN/lib.sh"
 check_dur() {
   local got
   got="$(pr_duration_to_secs "$1" 2>/dev/null)"
@@ -107,24 +130,55 @@ if pr_duration_to_secs "banana" >/dev/null 2>&1; then no "rejects 'banana'"; els
 
 echo
 echo "== connectivity probe uses the right ping flag for this OS =="
-# Linux ping treats -t as TTL (dies a few hops out), BSD/macOS as a timeout.
+# Linux ping treats -t as TTL (dies a few hops out), BSD/macOS as a timeout,
+# and Windows ping.exe (all Git Bash has) wants -n/-w and rejects -c.
 # Shim out curl/uname/ping so pr_is_online must fall back to ping, and capture
 # the flags it actually passes.
-SHIM="$CLAUDE_PAUSE_HOME/shim-ping"
+SHIM="$SHIM_ROOT/shim-ping"
 mkdir -p "$SHIM"
-printf '#!/bin/sh\necho "$@" >"%s"\nexit 0\n' "$CLAUDE_PAUSE_HOME/ping-args" >"$SHIM/ping"
+# printf, not echo: sh's echo would swallow ping.exe's leading -n.
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >"%s"\nexit 0\n' "$CLAUDE_PAUSE_HOME/ping-args" >"$SHIM/ping"
 printf '#!/bin/sh\necho %s\n' "$(uname -s)" >"$SHIM/uname"
 chmod +x "$SHIM/ping" "$SHIM/uname"
 (PATH="$SHIM" pr_is_online >/dev/null 2>&1)
 ping_args="$(cat "$CLAUDE_PAUSE_HOME/ping-args" 2>/dev/null)"
 case "$(uname -s)" in
   Darwin | FreeBSD | OpenBSD | NetBSD) want="-t" ;;
+  MINGW* | MSYS*) want="-w" ;;
   *) want="-W" ;;
 esac
 case " $ping_args " in
   *" $want "*) ok "ping fallback uses $want on $(uname -s)" ;;
   *) no "ping fallback uses $want on $(uname -s)" "got: ping $ping_args" ;;
 esac
+case "$(uname -s)" in
+  MINGW* | MSYS*)
+    case " $ping_args " in
+      *" -n "*) ok "ping fallback counts with -n for ping.exe" ;;
+      *) no "ping fallback counts with -n for ping.exe" "got: ping $ping_args" ;;
+    esac ;;
+esac
+
+echo
+echo "== JSON escaping without jq =="
+# Hosts without jq (Git Bash on Windows) build hook output with pr_json_str,
+# so it must round-trip anything a deny reason or resume brief can contain.
+nasty="$(printf 'back\134slash "quoted" tab\there\nnew line\r\001\037 & \134u0041 caf\303\251 $HOME `x`')"
+encoded="$(pr_json_str "$nasty")"
+if printf '%s' "$encoded" | NASTY="$nasty" py -c '
+import json, os, sys
+assert json.loads(sys.stdin.read()) == os.environ["NASTY"]
+' 2>/dev/null; then
+  ok "pr_json_str round-trips quotes, backslashes and control chars"
+else
+  no "pr_json_str round-trips quotes, backslashes and control chars" "got: $encoded"
+fi
+if shopt -q patsub_replacement 2>/dev/null; then
+  shopt -s patsub_replacement
+  pr_json_str 'x' >/dev/null
+  shopt -q patsub_replacement && ok "pr_json_str restores patsub_replacement" ||
+    no "pr_json_str restores patsub_replacement"
+fi
 
 echo
 echo "== pause holds the gate, resume releases it =="
@@ -178,7 +232,7 @@ echo "== re-pausing while frozen updates the live gate =="
 # pause, then switch to --until-online with a curl shim that reports online:
 # the gate must thaw itself.
 reset_state
-SHIM_ON="$CLAUDE_PAUSE_HOME/shim-online"
+SHIM_ON="$SHIM_ROOT/shim-online"
 mkdir -p "$SHIM_ON"
 printf '#!/bin/sh\nexit 0\n' >"$SHIM_ON/curl"
 chmod +x "$SHIM_ON/curl"
@@ -221,7 +275,7 @@ if printf '%s' "$GATE_OUT" | grep -q '"permissionDecision": *"deny"'; then
 else
   no "deadline denies the pending tool call" "got: $GATE_OUT"
 fi
-if printf '%s' "$GATE_OUT" | python3 -c 'import json,sys; json.load(sys.stdin)' 2>/dev/null; then
+if printf '%s' "$GATE_OUT" | py -c 'import json,sys; json.load(sys.stdin)' 2>/dev/null; then
   ok "deny payload is valid JSON"
 else
   no "deny payload is valid JSON" "got: $GATE_OUT"
@@ -393,7 +447,7 @@ if [ -f "$CLAUDE_PAUSE_HOME/paused/_all" ]; then
 else
   ok "an orphaned global flag is cleared at session start"
 fi
-if printf '%s' "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["hookSpecificOutput"]["hookEventName"]=="SessionStart"' 2>/dev/null; then
+if printf '%s' "$out" | py -c 'import json,sys; d=json.load(sys.stdin); assert d["hookSpecificOutput"]["hookEventName"]=="SessionStart"' 2>/dev/null; then
   ok "session-start emits valid SessionStart JSON"
 else
   no "session-start emits valid SessionStart JSON" "got: $out"
@@ -411,7 +465,7 @@ cat >"$FAKE" <<'EOF'
 {"type":"user","sessionId":"abc","isSidechain":true,"message":{"role":"user","content":"sidechain subagent prompt must not surface"}}
 { this line is deliberately corrupt
 EOF
-cp_out="$(python3 "$BIN/make-checkpoint.py" --transcript "$FAKE" --note "unit test" 2>&1)"
+cp_out="$(py "$BIN/make-checkpoint.py" --transcript "$FAKE" --note "unit test" 2>&1)"
 rc=$?
 [ "$rc" -eq 0 ] && ok "checkpoint builds despite a truncated final line" || no "checkpoint builds from a transcript" "$cp_out"
 printf '%s' "$cp_out" | grep -q "refactor the parser" && ok "captures the user instruction" || no "captures the user instruction"
@@ -440,7 +494,7 @@ echo
 echo "== the queued brief reaches the next session =="
 printf '%s' "$end_input" | bash "$BIN/session-end.sh" >/dev/null 2>&1
 out="$(printf '%s' "$se_input" | bash "$BIN/session-start.sh" 2>&1)"
-if printf '%s' "$out" | python3 -c '
+if printf '%s' "$out" | py -c '
 import json,sys
 ctx = json.load(sys.stdin)["hookSpecificOutput"]["additionalContext"]
 assert "Resume brief" in ctx, "brief body missing"

@@ -190,7 +190,7 @@ bin/make-checkpoint.py   Rebuild a brief from a transcript
 bin/lib.sh               Shared state layout and helpers
 hooks/hooks.json         Hook registration
 commands/                Slash commands
-tests/run-tests.sh       59 tests, isolated state, no network
+tests/run-tests.sh       60+ tests, isolated state, no network
 ```
 
 ```bash
@@ -200,7 +200,8 @@ bash tests/run-tests.sh
 Covers the freeze/release cycle, deadline expiry, killed-gate detection,
 concurrent gates, session targeting, orphaned-flag cleanup and its live-gate
 veto, mid-freeze re-pause (`--until-online` picked up by a frozen gate), the
-per-OS ping fallback, armed-pause visibility and cancellation, checkpoint
+per-OS ping fallback (including Windows `ping.exe`), the jq-free JSON escaper
+used where `jq` is missing, armed-pause visibility and cancellation, checkpoint
 rendering against a deliberately corrupted transcript (subagent sidechains
 excluded), and brief delivery.
 

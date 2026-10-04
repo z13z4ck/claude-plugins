@@ -139,10 +139,17 @@ pr_is_online() {
   if command -v ping >/dev/null 2>&1; then
     # Timeout flags differ by ping flavour: BSD/macOS takes -t <secs>, but on
     # Linux -t is TTL — a TTL of 3 dies a few hops out and reports offline
-    # forever. Linux wants -W <secs>.
+    # forever. Linux wants -W <secs>. Git Bash on Windows has no ping of its
+    # own, so this is ping.exe: -n <count>, -w <millisecs>, and -c is rejected
+    # outright. ping.exe also exits 0 when a router answers "Destination host
+    # unreachable", so only an echo reply (it carries TTL=) counts as online.
     case "$(uname -s 2>/dev/null)" in
       Darwin | FreeBSD | OpenBSD | NetBSD)
         ping -c 1 -t 3 1.1.1.1 >/dev/null 2>&1 && return 0 ;;
+      MINGW* | MSYS*)
+        case "$(ping -n 1 -w 3000 1.1.1.1 2>/dev/null)" in
+          *TTL=*) return 0 ;;
+        esac ;;
       *)
         ping -c 1 -W 3 1.1.1.1 >/dev/null 2>&1 && return 0 ;;
     esac
@@ -150,6 +157,41 @@ pr_is_online() {
   fi
   # No way to check — treat as online so we never wedge on a probe we can't run.
   return 0
+}
+
+# --- JSON -------------------------------------------------------------------
+
+# Print $1 as a JSON string literal, quotes included. Pure bash so hooks can
+# still emit their full message where jq is missing (Git Bash on Windows ships
+# without it). Escapes backslash, double quote and every control character;
+# everything else, UTF-8 included, is legal inside a JSON string as-is.
+pr_json_str() {
+  local s="$1" bs='\' q='"' i=1 oct hex c patsub=0
+  # bash 5.2 enables patsub_replacement, which makes '\' and '&' special in a
+  # ${s//pat/rep} replacement and would swallow the escapes built below.
+  # Switch it off for the duration so bash 3.2 through 5.x all agree.
+  if shopt -q patsub_replacement 2>/dev/null; then
+    patsub=1
+    shopt -u patsub_replacement
+  fi
+  s=${s//"$bs"/$bs$bs}
+  s=${s//"$q"/$bs$q}
+  s=${s//$'\n'/${bs}n}
+  s=${s//$'\r'/${bs}r}
+  s=${s//$'\t'/${bs}t}
+  while [ "$i" -lt 32 ]; do
+    printf -v oct '%03o' "$i"
+    printf -v c "\\$oct"
+    case "$s" in
+      *"$c"*)
+        printf -v hex '%04x' "$i"
+        s=${s//"$c"/${bs}u$hex}
+        ;;
+    esac
+    i=$((i + 1))
+  done
+  [ "$patsub" -eq 1 ] && shopt -s patsub_replacement
+  printf '"%s"' "$s"
 }
 
 # --- session registry -------------------------------------------------------

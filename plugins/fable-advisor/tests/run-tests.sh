@@ -14,6 +14,14 @@ FAIL=0
 export FABLE_ADVISOR_HOME
 FABLE_ADVISOR_HOME="$(mktemp -d)"
 WORK="$(mktemp -d)"
+# Git Bash: mktemp hands out MSYS paths (/tmp/...) that native Windows Python
+# cannot open. The mixed form (C:/...) works for bash and Python alike.
+case "$(uname -s)" in
+  MINGW* | MSYS*)
+    FABLE_ADVISOR_HOME="$(cygpath -m "$FABLE_ADVISOR_HOME")"
+    WORK="$(cygpath -m "$WORK")"
+    ;;
+esac
 trap 'rm -rf "$FABLE_ADVISOR_HOME" "$WORK"' EXIT
 unset FABLE_ADVISOR_ENFORCE FABLE_ADVISOR_FILE_THRESHOLD FABLE_ADVISOR_PLAN_GATE \
   FABLE_ADVISOR_EDIT_WATCH FABLE_ADVISOR_STOP_AUDIT FABLE_ADVISOR_PROMPT_NUDGE
@@ -30,6 +38,28 @@ no() {
 }
 section() { printf '\n%s\n' "$1"; }
 
+# Resolve Python the way the hooks do (python3, python, py -3 — the first that
+# really runs, since Windows' python3 is often the Store stub).
+PY=""
+for c in python3 python "py -3"; do
+  if $c -c 'import sys; sys.exit(sys.version_info[0] != 3)' >/dev/null 2>&1; then
+    PY="$c"
+    break
+  fi
+done
+export PYTHONUTF8=1
+py() {
+  if [ -z "$PY" ]; then
+    echo "no Python 3 interpreter found" >&2
+    return 127
+  fi
+  # Windows Python writes \r\n even into a pipe; drop the \r so output
+  # compares the same as on Linux and macOS. Keep Python's exit status.
+  # shellcheck disable=SC2086 # $PY may be "py -3"
+  $PY "$@" | tr -d '\r'
+  return "${PIPESTATUS[0]}"
+}
+
 contains() { case "$1" in *"$2"*) return 0 ;; esac; return 1; }
 
 # --- transcript builders ------------------------------------------------------
@@ -37,7 +67,7 @@ T=""
 SID="11111111-2222-3333-4444-555555555555"
 NEXT_ID=0
 
-json_str() { python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1"; }
+json_str() { py -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1"; }
 
 new_transcript() {
   T="$WORK/$1.jsonl"
@@ -84,7 +114,7 @@ run_hook() {
 }
 jget() {
   # jget <json> <dotted.path>  -> prints value or empty
-  printf '%s' "$1" | python3 -c '
+  printf '%s' "$1" | py -c '
 import json, sys
 try:
     d = json.load(sys.stdin)

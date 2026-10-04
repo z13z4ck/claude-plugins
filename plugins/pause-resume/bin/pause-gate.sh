@@ -45,7 +45,8 @@ deny() {
     jq -n --arg r "$msg" \
       '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}'
   else
-    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Session is paused; the pending tool call was blocked. Stop and wait for the user."}}\n'
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":%s}}\n' \
+      "$(pr_json_str "$msg")"
   fi
   exit 0
 }

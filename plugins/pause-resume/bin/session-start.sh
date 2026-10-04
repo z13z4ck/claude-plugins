@@ -81,12 +81,13 @@ if [ -n "$brief" ]; then
 $brief"
 fi
 
-# jq does the escaping; this hook is not in a hot path so the cost is fine.
+# jq does the escaping where installed; otherwise the pure-bash escaper, so
+# the brief still arrives on systems without jq (Git Bash on Windows).
 if command -v jq >/dev/null 2>&1; then
   jq -n --arg ctx "$context" \
     '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $ctx}}'
 else
-  # Without jq, degrade to a pointer rather than risk emitting broken JSON.
-  printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"[pause-resume] A resume brief from an interrupted session is available. Run: agent-pause checkpoints"}}\n'
+  printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":%s}}\n' \
+    "$(pr_json_str "$context")"
 fi
 exit 0
