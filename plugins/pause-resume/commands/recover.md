@@ -28,7 +28,8 @@ timestamps and ask which — do not guess when the choice is ambiguous.
 ```bash
 MK="${CLAUDE_PLUGIN_ROOT}/bin/make-checkpoint.py"
 [ -f "$MK" ] || MK="$(find "$HOME/.claude/plugins" -name make-checkpoint.py -type f 2>/dev/null | head -1)"
-python3 "$MK" --transcript "<path>" --note "Recovered after an interrupted session"
+PY=python3; python3 -c '' 2>/dev/null || PY=python  # Windows: python3 is often the Store stub
+PYTHONUTF8=1 $PY "$MK" --transcript "<path>" --note "Recovered after an interrupted session"
 ```
 
 Add `--out <path>` to save it. Without `--transcript`, pass `--cwd "$(pwd)"` to

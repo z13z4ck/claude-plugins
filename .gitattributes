@@ -1,0 +1,4 @@
+# Hook scripts run under bash everywhere, including Git Bash on Windows, where
+# core.autocrlf=true would otherwise check them out with CRLF line endings and
+# break them ($'\r': command not found). Keep every text file LF on checkout.
+* text=auto eol=lf

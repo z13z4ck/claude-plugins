@@ -43,6 +43,7 @@ import os
 import re
 import shlex
 import sys
+import tempfile
 import time
 
 ADVISOR = "fable-advisor:advisor"
@@ -221,15 +222,32 @@ def _config_dir():
     return os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
 
 
+def _norm_path(p):
+    """Comparable form of a path. On Windows the same file arrives as
+    C:\\Users\\x, C:/Users/x or (from Git Bash) /c/Users/x, in any case."""
+    if os.name != "nt":
+        return p
+    p = p.replace("\\", "/")
+    m = re.match(r"^/([A-Za-z])(/|$)", p)
+    if m:
+        p = m.group(1) + ":/" + p[m.end():]
+    return p.lower()
+
+
 def counts_as_edit(fp):
     """Project edits only: not temp/device paths, not Claude's own plan files or
     memory notes (which live under the config dir and are written as a matter
     of course during ordinary work)."""
     if not fp or fp.startswith(_SKIP_WRITE_PREFIXES):
         return False
-    cfg = _config_dir().rstrip("/") + "/"
-    if fp.startswith(cfg + "plans/") or fp.startswith(cfg + "projects/"):
+    p = _norm_path(fp)
+    cfg = _norm_path(_config_dir()).rstrip("/") + "/"
+    if p.startswith(cfg + "plans/") or p.startswith(cfg + "projects/"):
         return False
+    if os.name == "nt":
+        tmp = _norm_path(tempfile.gettempdir()).rstrip("/") + "/"
+        if p.startswith(tmp):
+            return False
     return True
 
 

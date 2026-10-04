@@ -244,3 +244,18 @@ pr_reap_dead_sessions() {
     fi
   done
 }
+
+# Echo a command that runs Python 3, or nothing. On Windows (Git Bash)
+# `python3` is usually the Microsoft Store stub, which is on PATH but exits 49
+# without running anything, and python.org installs ship only python.exe /
+# py.exe — so probe each candidate. Callers word-split the result: $(pr_python).
+pr_python() {
+  local c
+  for c in python3 python "py -3"; do
+    if $c -c 'import sys; sys.exit(sys.version_info[0] != 3)' >/dev/null 2>&1; then
+      printf '%s' "$c"
+      return 0
+    fi
+  done
+  return 1
+}

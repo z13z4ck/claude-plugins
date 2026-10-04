@@ -55,8 +55,9 @@ alias resolves to it from 2.1.257 (`claude update`). On plans where Fable
 bills to usage credits, accept the one-time consent by running `/model fable`
 once before the first consultation — otherwise a dismissed consent prompt
 hands the dispatch to your default model (see below). The hooks need
-`python3` on `PATH`; without it every hook is a silent no-op and the plugin
-falls back to description-driven consultation.
+Python 3 on `PATH` (`python3`, or on Windows `python` / `py -3` — the Microsoft
+Store `python3` stub is skipped); without it every hook is a silent no-op and
+the plugin falls back to description-driven consultation.
 
 ## Enforcement hooks
 

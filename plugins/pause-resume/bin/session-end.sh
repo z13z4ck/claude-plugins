@@ -42,8 +42,12 @@ out="$PR_CHECKPOINTS/${slug}__${sid:-unknown}.md"
 note="Session ended (reason: ${reason:-unknown})."
 [ "$was_paused" -eq 1 ] && note="Session ended while still paused (reason: ${reason:-unknown})."
 
-if [ -n "$transcript" ] && [ -f "$transcript" ]; then
-  if python3 "$SCRIPT_DIR/make-checkpoint.py" \
+py="$(pr_python)"
+if [ -z "$py" ]; then
+  pr_log "END session=$sid reason=${reason:-unknown} — brief not written (no python3)"
+elif [ -n "$transcript" ] && [ -f "$transcript" ]; then
+  # shellcheck disable=SC2086 # $py may be "py -3"
+  if PYTHONUTF8=1 $py "$SCRIPT_DIR/make-checkpoint.py" \
     --transcript "$transcript" --out "$out" --note "$note" >/dev/null 2>&1; then
     printf '%s' "$out" >"$PR_PENDING/$slug" 2>/dev/null
     pr_log "END session=$sid reason=${reason:-unknown} paused=$was_paused brief=$out"

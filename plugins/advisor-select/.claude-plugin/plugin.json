@@ -1,8 +1,7 @@
 {
   "name": "advisor-select",
-  "displayName": "Advisor Select",
   "description": "Pick which model advises the current session — e.g. run your main conversation on Sonnet and consult an Opus advisor. Same read-only advisor workflow as fable-advisor, with per-session model selection that survives compaction and resets on a new session.",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "author": {
     "name": "Aziz"
   },
