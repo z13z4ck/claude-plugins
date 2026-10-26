@@ -110,8 +110,9 @@ Talk to one session; it hands each feature or revision to a background
 worktree, and your conversation stays free. The main session keeps a roster,
 relays a worker's `NEEDS-ANSWER` question to you, resumes that same worker
 with your answer, and reports each `DONE` with branch, changes and what was
-verified. With `fable-advisor` installed, branches with 4+ changed files are
-reviewed by the advisor before they're reported. Nothing is merged, pushed or
+verified. With `fable-advisor` installed, workers consult the advisor
+themselves — on design calls, stalled bugs, and a review of any 4+-file
+diff — and the main session checks for that verdict before reporting. Nothing is merged, pushed or
 deleted unless you ask.
 
 ```

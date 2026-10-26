@@ -12,7 +12,7 @@ No commands to learn. Install, enable in a project, and talk normally.
 
 | Component | Purpose |
 |---|---|
-| `agents/feature-builder.md` | The worker. `background: true`, `isolation: worktree`, `model: inherit`. Branches as `crew/<slug>`, stays in its assigned files, runs tests, commits, and ends with a fixed `DONE` or `NEEDS-ANSWER` block. |
+| `agents/feature-builder.md` | The worker. `background: true`, `isolation: worktree`, `model: inherit`. Branches as `crew/<slug>`, stays in its assigned files, consults `fable-advisor:advisor` itself when installed, runs tests, commits, and ends with a fixed `DONE` or `NEEDS-ANSWER` block that carries an `advisor:` line. |
 | `hooks/hooks.json` | One `SessionStart` hook, on every start source, that runs `bin/session-start.sh`. |
 | `bin/session-start.sh` | Injects `policy/orchestrator.md` so the main session delegates instead of implementing, keeps a roster, and resumes workers with your answers. Adds a session note after `compact` (re-read the roster), and after `resume`, `fork` or `clear` (earlier workers are gone or out of reach; here are the `crew/*` branches that exist, with their worktrees). Outside a git work tree it prints a one-line "inactive" note instead, since workers need worktrees. Bash and git only, no jq or Python. |
 | `policy/orchestrator.md` | The orchestrator rules. Edit this file to change how the main session behaves. |
@@ -41,9 +41,14 @@ it is active into an orchestrator. Either install with project scope, or set
   the main session shows you the question and options. You answer; the main
   session resumes the same worker with `SendMessage`.
 - **A worker finishes:** you get branch, files changed, what it reports it
-  ran, and open items. With `fable-advisor` installed, a branch with 4+
-  changed files goes to the advisor first, and you get the report together
-  with its MODEL, VERDICT and RISKS lines.
+  ran, its advisor verdict, and open items.
+- **With `fable-advisor` installed, workers consult it themselves:** before
+  design decisions their brief doesn't settle, after two failed fixes, and
+  for a verification review of their own diff when it touches 4+ files. They
+  are the only ones who can — the advisor reads files by path, and the
+  branch's files exist only in the worker's worktree. The main session checks
+  each 4+-file DONE for a Fable verdict and runs the review itself, against
+  the worker's worktree, if it is missing, degraded or unaddressed.
 - **Revisions:** the main session resumes the original worker, or starts a new
   one from that feature's branch.
 - **Merging:** never automatic. Ask the main session to review a branch; it
@@ -65,12 +70,21 @@ it is active into an orchestrator. Either install with project scope, or set
   and build commands in `permissions.allow` to keep them rare. Plugin agents
   ignore `permissionMode`, so this can't be set from the plugin.
 - `fable-advisor`'s hooks deliberately stay silent inside subagents, so its
-  edit counters and end-of-turn hold never see workers' changes. The
-  orchestrator policy replaces them: the main session reviews each DONE
-  branch with 4+ changed files through `fable-advisor:advisor` before
-  reporting it. It also settles the two policies' overlap: dispatching a
-  brief does not need a consultation first unless the brief makes an
-  architectural, data-model, interface or dependency decision you have not.
+  edit counters and end-of-turn hold never see workers' changes. Workers
+  consult the advisor on instruction, not under a hook: a worker could skip
+  it, which is why the main session checks every 4+-file DONE for a verdict.
+  Dispatching a brief does not need a consultation first unless the brief
+  makes an architectural, data-model, interface or dependency decision you
+  have not made.
+- Workers reach the advisor as a nested subagent (worker = layer 1, advisor =
+  layer 2). `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1` turns that off; workers
+  then report `advisor: not consulted` and the main session reviews instead.
+- The main session checks the worker's review on every 4+-file DONE, but on
+  smaller changes it only catches a skipped design consultation when the
+  DONE names a migration, schema, new dependency or public interface.
+- Revision branches (`crew/<slug>-r<N>`) are reviewed against the original
+  feature's base before merge, so a chain of small revisions can't add up to
+  an unreviewed large change.
 - Workers are branched from the default branch, not the main session's HEAD,
   unless you set `worktree.baseRef` to `"head"` in settings. The policy has
   the main session state the base branch in every brief either way.

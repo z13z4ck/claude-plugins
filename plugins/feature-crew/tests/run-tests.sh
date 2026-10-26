@@ -222,6 +222,43 @@ else
   no "policy names the worker and the advisor by their qualified agent names"
 fi
 
+W="$PLUGIN/agents/feature-builder.md"
+if grep -q 'subagent_type: "fable-advisor:advisor"' "$W" && grep -q "absolute-git-dir" "$W"; then
+  ok "worker consults the advisor and writes its review diff outside the tree"
+else
+  no "worker consults the advisor and writes its review diff outside the tree"
+fi
+
+if [ "$(grep -c '^advisor: ' "$W")" -eq 2 ]; then
+  ok "both final blocks (DONE, NEEDS-ANSWER) carry an advisor: line"
+else
+  no "both final blocks (DONE, NEEDS-ANSWER) carry an advisor: line" "found $(grep -c '^advisor: ' "$W")"
+fi
+
+steps="$(grep -o '^[0-9]\. \*\*' "$W" | cut -c1 | tr -d '\n')"
+if [ "$steps" = 12345678 ]; then ok "worker steps are numbered 1-8 in order"; else no "worker steps are numbered 1-8 in order" "got $steps"; fi
+
+# The review must come after the commit: <base>...HEAD only sees commits.
+c="$(grep -n '^6\. \*\*Commit' "$W" | cut -d: -f1)"
+r="$(grep -n '^7\. \*\*Review' "$W" | cut -d: -f1)"
+if [ -n "$c" ] && [ -n "$r" ] && [ "$c" -lt "$r" ]; then
+  ok "worker reviews after committing"
+else
+  no "worker reviews after committing" "commit=$c review=$r"
+fi
+
+if grep -q "accept only \`advisor: reviewed" "$PLUGIN/policy/orchestrator.md" && grep -q "advisor: <one of: reviewed" "$W"; then
+  ok "orchestrator accepts only a 'reviewed' advisor line, which the worker can emit"
+else
+  no "orchestrator accepts only a 'reviewed' advisor line, which the worker can emit"
+fi
+
+if grep -q "Fallback review" "$PLUGIN/policy/orchestrator.md" && grep -q "worktree list --porcelain" "$PLUGIN/policy/orchestrator.md"; then
+  ok "orchestrator falls back to its own review against the worker's worktree"
+else
+  no "orchestrator falls back to its own review against the worker's worktree"
+fi
+
 if grep -rl $'\r' "$PLUGIN" >/dev/null 2>&1; then
   no "no CRLF line endings in the plugin" "$(grep -rl $'\r' "$PLUGIN")"
 else
