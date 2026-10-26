@@ -1,0 +1,136 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="520" viewBox="0 0 1200 520" role="img" aria-labelledby="title desc">
+  <title id="title">feature-crew</title>
+  <desc id="desc">One main session acts as orchestrator while you keep talking. It dispatches background feature-builder workers, each in its own worktree on a crew/slug branch. Workers consult the Fable advisor before reporting, then return DONE, or NEEDS-ANSWER, which you answer and the worker is resumed.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0f1419"/>
+      <stop offset="1" stop-color="#161b22"/>
+    </linearGradient>
+    <marker id="arrowTeal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#2dd4bf"/>
+    </marker>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#8b949e"/>
+    </marker>
+    <marker id="arrowAmber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#f0b429"/>
+    </marker>
+  </defs>
+
+  <rect x="1" y="1" width="1198" height="518" rx="18" fill="url(#bg)" stroke="#30363d" stroke-width="1.5"/>
+
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+    <!-- header -->
+    <text x="40" y="54" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="22" font-weight="700" fill="#2dd4bf">feature-crew</text>
+    <text x="40" y="82" font-size="16" fill="#8b949e">You keep talking to one session. Features are built by background workers, each on its own branch in its own worktree.</text>
+
+    <g font-size="14" font-weight="600" letter-spacing="2" fill="#8b949e">
+      <text x="40" y="124">FOREGROUND</text>
+      <text x="520" y="124">BACKGROUND WORKERS</text>
+      <text x="880" y="124">ADVISOR</text>
+    </g>
+
+    <!-- connectors: orchestrator <-> workers -->
+    <g fill="none" stroke-width="2">
+      <!-- lane 1 (cy 190) -->
+      <path d="M340 168 H518" stroke="#2dd4bf" marker-end="url(#arrowTeal)"/>
+      <path d="M520 212 H342" stroke="#8b949e" marker-end="url(#arrow)"/>
+      <!-- lane 2 (cy 310) -->
+      <path d="M340 288 H518" stroke="#2dd4bf" marker-end="url(#arrowTeal)"/>
+      <path d="M520 332 H342" stroke="#8b949e" marker-end="url(#arrow)"/>
+      <!-- lane 3 (cy 430) -->
+      <path d="M340 430 H518" stroke="#2dd4bf" marker-end="url(#arrowTeal)"/>
+      <!-- workers <-> advisor -->
+      <path d="M840 182 H878" stroke="#f0b429" marker-end="url(#arrowAmber)"/>
+      <path d="M880 198 H842" stroke="#f0b429" marker-end="url(#arrowAmber)"/>
+      <path d="M840 302 H878" stroke="#f0b429" marker-end="url(#arrowAmber)"/>
+      <path d="M880 318 H842" stroke="#f0b429" marker-end="url(#arrowAmber)"/>
+      <path d="M840 430 H878" stroke="#f0b429" stroke-dasharray="4 4" marker-end="url(#arrowAmber)"/>
+    </g>
+
+    <!-- connector labels -->
+    <g font-size="14" fill="#8b949e" text-anchor="middle">
+      <text x="430" y="158">dispatch</text>
+      <text x="430" y="278" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">SendMessage</text>
+      <text x="430" y="420">dispatch</text>
+    </g>
+    <!-- DONE chip -->
+    <rect x="394" y="199" width="72" height="26" rx="13" fill="#11201f" stroke="#2dd4bf" stroke-width="1.5"/>
+    <text x="430" y="217" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" font-weight="600" fill="#2dd4bf">DONE</text>
+    <!-- NEEDS-ANSWER chip -->
+    <rect x="358" y="308" width="156" height="50" rx="12" fill="#211c10" stroke="#f0b429" stroke-width="1.5"/>
+    <text x="436" y="328" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" font-weight="600" fill="#f0b429">NEEDS-ANSWER</text>
+    <text x="436" y="348" text-anchor="middle" font-size="14" fill="#e6edf3">you answer → resumed</text>
+
+    <!-- orchestrator -->
+    <rect x="40" y="140" width="300" height="340" rx="16" fill="#2dd4bf" fill-opacity="0.06" stroke="#2dd4bf" stroke-width="1.5"/>
+    <text x="64" y="176" font-size="18" font-weight="700" fill="#e6edf3">Main session</text>
+    <text x="64" y="198" font-size="14" fill="#2dd4bf">orchestrator · keeps a roster</text>
+
+    <rect x="56" y="216" width="268" height="128" rx="10" fill="#0d1117" fill-opacity="0.7" stroke="#30363d" stroke-width="1"/>
+    <text x="72" y="242" font-size="14" font-weight="600" letter-spacing="2" fill="#8b949e">ROSTER</text>
+    <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14">
+      <text x="72" y="272" fill="#e6edf3">credit-api</text>
+      <text x="308" y="272" text-anchor="end" fill="#2dd4bf">DONE</text>
+      <text x="72" y="298" fill="#e6edf3">credit-ui</text>
+      <text x="308" y="298" text-anchor="end" fill="#f0b429">NEEDS-ANSWER</text>
+      <text x="72" y="324" fill="#e6edf3">audit-log</text>
+      <text x="308" y="324" text-anchor="end" fill="#8b949e">running</text>
+    </g>
+
+    <rect x="56" y="358" width="268" height="106" rx="10" fill="#0d1117" fill-opacity="0.7" stroke="#30363d" stroke-width="1"/>
+    <text x="72" y="384" font-size="14" font-weight="600" letter-spacing="2" fill="#8b949e">YOU KEEP TALKING</text>
+    <text x="72" y="412" font-size="15" fill="#e6edf3">“Add an audit log, too.”</text>
+    <text x="72" y="444" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#2dd4bf">→ crew/audit-log</text>
+
+    <!-- workers -->
+    <!-- worker 1 -->
+    <rect x="520" y="140" width="320" height="100" rx="14" fill="#1c2128" stroke="#30363d" stroke-width="1.5"/>
+    <text x="540" y="170" font-size="15" font-weight="600" fill="#e6edf3">feature-builder</text>
+    <rect x="760" y="153" width="64" height="24" rx="12" fill="#2dd4bf" fill-opacity="0.14"/>
+    <text x="792" y="170" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#2dd4bf">DONE</text>
+    <g transform="translate(540 184)" fill="none" stroke="#2dd4bf" stroke-width="1.5" stroke-linecap="round">
+      <circle cx="4" cy="3" r="2"/><circle cx="4" cy="15" r="2"/><circle cx="13" cy="5" r="2"/>
+      <path d="M4 5 V13"/><path d="M13 7 C13 11 4 10 4 13"/>
+    </g>
+    <text x="562" y="198" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#2dd4bf">crew/credit-api</text>
+    <text x="540" y="224" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#8b949e">.claude/worktrees/agent-a1f3</text>
+
+    <!-- worker 2 -->
+    <rect x="520" y="260" width="320" height="100" rx="14" fill="#1c2128" stroke="#30363d" stroke-width="1.5"/>
+    <text x="540" y="290" font-size="15" font-weight="600" fill="#e6edf3">feature-builder</text>
+    <rect x="700" y="273" width="124" height="24" rx="12" fill="#f0b429" fill-opacity="0.14"/>
+    <text x="762" y="290" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#f0b429">NEEDS-ANSWER</text>
+    <g transform="translate(540 304)" fill="none" stroke="#2dd4bf" stroke-width="1.5" stroke-linecap="round">
+      <circle cx="4" cy="3" r="2"/><circle cx="4" cy="15" r="2"/><circle cx="13" cy="5" r="2"/>
+      <path d="M4 5 V13"/><path d="M13 7 C13 11 4 10 4 13"/>
+    </g>
+    <text x="562" y="318" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#2dd4bf">crew/credit-ui</text>
+    <text x="540" y="344" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#8b949e">.claude/worktrees/agent-b72c</text>
+
+    <!-- worker 3 -->
+    <rect x="520" y="380" width="320" height="100" rx="14" fill="#1c2128" stroke="#30363d" stroke-width="1.5"/>
+    <text x="540" y="410" font-size="15" font-weight="600" fill="#e6edf3">feature-builder</text>
+    <rect x="740" y="393" width="84" height="24" rx="12" fill="#8b949e" fill-opacity="0.14"/>
+    <text x="782" y="410" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#8b949e">running</text>
+    <g transform="translate(540 424)" fill="none" stroke="#2dd4bf" stroke-width="1.5" stroke-linecap="round">
+      <circle cx="4" cy="3" r="2"/><circle cx="4" cy="15" r="2"/><circle cx="13" cy="5" r="2"/>
+      <path d="M4 5 V13"/><path d="M13 7 C13 11 4 10 4 13"/>
+    </g>
+    <text x="562" y="438" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#2dd4bf">crew/audit-log</text>
+    <text x="540" y="464" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#8b949e">.claude/worktrees/agent-c09e</text>
+
+    <!-- advisor chips -->
+    <rect x="880" y="160" width="280" height="60" rx="12" fill="#f0b429" fill-opacity="0.07" stroke="#f0b429" stroke-opacity="0.7" stroke-width="1.5"/>
+    <text x="900" y="185" font-size="15" font-weight="600" fill="#f0b429">Fable advisor</text>
+    <text x="900" y="207" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#e6edf3">advisor: reviewed</text>
+
+    <rect x="880" y="280" width="280" height="60" rx="12" fill="#f0b429" fill-opacity="0.07" stroke="#f0b429" stroke-opacity="0.7" stroke-width="1.5"/>
+    <text x="900" y="305" font-size="15" font-weight="600" fill="#f0b429">Fable advisor</text>
+    <text x="900" y="327" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#e6edf3">advisor: consulted</text>
+
+    <rect x="880" y="400" width="280" height="60" rx="12" fill="none" stroke="#f0b429" stroke-opacity="0.55" stroke-width="1.5" stroke-dasharray="5 5"/>
+    <text x="900" y="425" font-size="15" font-weight="600" fill="#f0b429" fill-opacity="0.85">Fable advisor</text>
+    <text x="900" y="447" font-size="14" fill="#8b949e">reviews the diff before DONE</text>
+  </g>
+</svg>

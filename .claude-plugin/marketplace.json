@@ -8,7 +8,7 @@
     {
       "name": "fable-advisor",
       "source": "./plugins/fable-advisor",
-      "description": "Read-only Fable advisor subagent for decisions, plan reviews, stalled debugging and change-set verification \u2014 tracks the newest Fable release via the fable alias (Fable 5.1 today), with Opus fallback when Fable is unavailable. Enforcement hooks inject the advisor policy every session, gate ExitPlanMode on a consultation, and hold unadvised multi-file turns for review.",
+      "description": "Read-only Fable advisor subagent for decisions, plan reviews, stalled debugging and change-set verification \u2014 tracks the newest Fable release via the fable alias (Fable 5.1 today), with Opus fallback when Fable is unavailable. Enforcement hooks inject the advisor policy every session, gate ExitPlanMode on a consultation, hold unadvised multi-file turns for review, and enforce consultation inside background worker subagents.",
       "category": "productivity",
       "keywords": [
         "advisor",
@@ -45,6 +45,21 @@
         "mobile",
         "checkpoint",
         "session"
+      ],
+      "license": "MIT"
+    },
+    {
+      "name": "feature-crew",
+      "source": "./plugins/feature-crew",
+      "description": "Turn one session into an orchestrator: features and revisions you ask for are built by background feature-builder subagents, each on its own crew/* branch in an isolated worktree, while the conversation stays free. The main session keeps a roster, relays workers' questions, resumes them with your answers, and reports when each is done.",
+      "category": "productivity",
+      "keywords": [
+        "orchestrator",
+        "subagents",
+        "background",
+        "worktree",
+        "parallel",
+        "features"
       ],
       "license": "MIT"
     }

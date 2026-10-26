@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">pause-resume</title>
+  <desc id="desc">Timeline: tool call, tool call, then the agent is frozen between tool calls (the PreToolUse hook holds, no network traffic, context intact) after running agent-pause pause --until-online; it resumes on its own when wifi returns, then the next tool call runs.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0f1419"/>
+      <stop offset="1" stop-color="#161b22"/>
+    </linearGradient>
+    <pattern id="hatch" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <path d="M0 0 V10" stroke="#58a6ff" stroke-opacity="0.07" stroke-width="4"/>
+    </pattern>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#6e7681"/>
+    </marker>
+  </defs>
+
+  <rect x="1" y="1" width="1198" height="358" rx="18" fill="url(#bg)" stroke="#30363d" stroke-width="1.5"/>
+
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+    <!-- header -->
+    <text x="40" y="52" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="22" font-weight="700" fill="#58a6ff">pause-resume</text>
+    <text x="40" y="80" font-size="16" fill="#8b949e">Hold a running agent between tool calls, then let it carry on with its context intact.</text>
+
+    <!-- time axis -->
+    <g fill="none" stroke="#6e7681" stroke-width="2">
+      <path d="M48 213 H64"/>
+      <path d="M176 213 H216"/>
+      <path d="M328 213 H370"/>
+      <path d="M850 213 H895"/>
+      <path d="M935 213 H980"/>
+      <path d="M1092 213 H1150" marker-end="url(#arrow)"/>
+    </g>
+    <circle cx="46" cy="213" r="4" fill="#6e7681"/>
+    <text x="1150" y="196" text-anchor="end" font-size="14" fill="#6e7681">time</text>
+
+    <!-- tool calls before -->
+    <rect x="64" y="191" width="112" height="44" rx="22" fill="#1c2128" stroke="#30363d" stroke-width="1.5"/>
+    <text x="120" y="218" text-anchor="middle" font-size="15" fill="#e6edf3">tool call</text>
+    <text x="120" y="260" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#8b949e">Read</text>
+
+    <rect x="216" y="191" width="112" height="44" rx="22" fill="#1c2128" stroke="#30363d" stroke-width="1.5"/>
+    <text x="272" y="218" text-anchor="middle" font-size="15" fill="#e6edf3">tool call</text>
+    <text x="272" y="260" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#8b949e">Edit</text>
+
+    <!-- command chip -->
+    <rect x="370" y="100" width="356" height="34" rx="9" fill="#0d1117" stroke="#58a6ff" stroke-opacity="0.6" stroke-width="1.5"/>
+    <text x="388" y="122" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#e6edf3"><tspan fill="#6e7681">$ </tspan>agent-pause pause <tspan fill="#58a6ff">--until-online</tspan></text>
+    <text x="742" y="122" font-size="14" fill="#8b949e">run from another terminal</text>
+
+    <!-- frozen band -->
+    <rect x="370" y="150" width="480" height="126" rx="14" fill="#58a6ff" fill-opacity="0.07"/>
+    <rect x="370" y="150" width="480" height="126" rx="14" fill="url(#hatch)" stroke="#58a6ff" stroke-opacity="0.7" stroke-width="1.5"/>
+    <g fill="#58a6ff">
+      <rect x="392" y="166" width="4" height="13" rx="1.5"/>
+      <rect x="400" y="166" width="4" height="13" rx="1.5"/>
+    </g>
+    <text x="414" y="178" font-size="14" font-weight="600" letter-spacing="2" fill="#58a6ff">FROZEN BETWEEN TOOL CALLS</text>
+
+    <g stroke="#58a6ff" stroke-opacity="0.3" stroke-width="1">
+      <path d="M530 204 V256"/>
+      <path d="M690 204 V256"/>
+    </g>
+    <g text-anchor="middle">
+      <text x="450" y="226" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#e6edf3">PreToolUse</text>
+      <text x="450" y="250" font-size="14" fill="#8b949e">hook holds</text>
+      <text x="610" y="226" font-size="15" font-weight="600" fill="#e6edf3">No network</text>
+      <text x="610" y="250" font-size="14" fill="#8b949e">nothing to drop</text>
+      <text x="770" y="226" font-size="15" font-weight="600" fill="#e6edf3">Context intact</text>
+      <text x="770" y="250" font-size="14" fill="#8b949e">same live process</text>
+    </g>
+
+    <!-- wifi returns -->
+    <circle cx="915" cy="213" r="20" fill="#58a6ff" fill-opacity="0.15" stroke="#58a6ff" stroke-width="1.5"/>
+    <g fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round">
+      <path d="M906 210 A13 13 0 0 1 924 210"/>
+      <path d="M910 214.5 A7 7 0 0 1 920 214.5"/>
+    </g>
+    <circle cx="915" cy="219.5" r="2" fill="#58a6ff"/>
+    <text x="915" y="178" text-anchor="middle" font-size="14" fill="#e6edf3">wifi returns</text>
+    <text x="915" y="260" text-anchor="middle" font-size="14" font-weight="600" fill="#58a6ff">resumes</text>
+
+    <!-- tool call after -->
+    <rect x="980" y="191" width="112" height="44" rx="22" fill="#1c2128" stroke="#58a6ff" stroke-opacity="0.6" stroke-width="1.5"/>
+    <text x="1036" y="218" text-anchor="middle" font-size="15" fill="#e6edf3">tool call</text>
+    <text x="1036" y="260" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#8b949e">Bash</text>
+
+    <!-- caption -->
+    <text x="610" y="314" text-anchor="middle" font-size="14" fill="#8b949e">Anything already running finishes first; the pause lands at the next tool boundary.</text>
+  </g>
+</svg>

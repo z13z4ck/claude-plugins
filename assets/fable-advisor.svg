@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="460" viewBox="0 0 1200 460" role="img" aria-labelledby="title desc">
+  <title id="title">fable-advisor</title>
+  <desc id="desc">Your session passes through enforcement hooks (policy at start, plan gate on ExitPlanMode, edit watch at 4 files, stop audit) to a read-only Fable advisor that reads files by path and returns a verdict with MODEL, VERDICT, REASONING and RISKS lines. If Fable is refused, an Opus fallback answers, labelled DEGRADED.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0f1419"/>
+      <stop offset="1" stop-color="#161b22"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#8b949e"/>
+    </marker>
+    <marker id="arrowAccent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#f0b429"/>
+    </marker>
+    <marker id="arrowMuted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#6e7681"/>
+    </marker>
+  </defs>
+
+  <rect x="1" y="1" width="1198" height="458" rx="18" fill="url(#bg)" stroke="#30363d" stroke-width="1.5"/>
+
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+    <!-- header -->
+    <text x="40" y="54" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="22" font-weight="700" fill="#f0b429">fable-advisor</text>
+    <text x="40" y="82" font-size="16" fill="#8b949e">Hooks make the consultation happen. A read-only Fable advisor answers from the files themselves.</text>
+
+    <!-- connectors (drawn first, under boxes) -->
+    <g fill="none" stroke-width="2">
+      <path d="M210 230 H248" stroke="#8b949e" marker-end="url(#arrow)"/>
+      <path d="M566 230 H604" stroke="#f0b429" marker-end="url(#arrowAccent)"/>
+      <path d="M816 230 H854" stroke="#f0b429" marker-end="url(#arrowAccent)"/>
+      <path d="M711 300 V338" stroke="#6e7681" stroke-dasharray="5 5" marker-end="url(#arrowMuted)"/>
+      <path d="M830 376 H1008 V340" stroke="#6e7681" stroke-dasharray="5 5" marker-end="url(#arrowMuted)"/>
+    </g>
+
+    <!-- A: your session -->
+    <rect x="40" y="170" width="170" height="120" rx="14" fill="#1c2128" stroke="#30363d" stroke-width="1.5"/>
+    <text x="125" y="214" text-anchor="middle" font-size="17" font-weight="600" fill="#e6edf3">Your session</text>
+    <text x="125" y="240" text-anchor="middle" font-size="14" fill="#8b949e">any model</text>
+    <text x="125" y="262" text-anchor="middle" font-size="14" fill="#8b949e">Sonnet, Opus or Fable</text>
+
+    <!-- B: enforcement hooks -->
+    <rect x="250" y="116" width="316" height="304" rx="14" fill="#1c2128" stroke="#30363d" stroke-width="1.5"/>
+    <text x="270" y="148" font-size="16" font-weight="600" fill="#e6edf3">Enforcement hooks</text>
+
+    <g font-size="15">
+      <!-- row 1 -->
+      <rect x="266" y="164" width="284" height="54" rx="10" fill="#0d1117" fill-opacity="0.6" stroke="#30363d" stroke-width="1"/>
+      <text x="282" y="187" font-weight="600" fill="#e6edf3">Policy at start</text>
+      <text x="282" y="208" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#8b949e">SessionStart</text>
+      <rect x="474" y="174" width="64" height="22" rx="11" fill="#f0b429" fill-opacity="0.12"/>
+      <text x="506" y="190" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#f0b429">inject</text>
+      <!-- row 2 -->
+      <rect x="266" y="226" width="284" height="54" rx="10" fill="#0d1117" fill-opacity="0.6" stroke="#30363d" stroke-width="1"/>
+      <text x="282" y="249" font-weight="600" fill="#e6edf3">Plan gate</text>
+      <text x="282" y="270" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#8b949e">PreToolUse · ExitPlanMode</text>
+      <rect x="474" y="236" width="64" height="22" rx="11" fill="#f0b429" fill-opacity="0.12"/>
+      <text x="506" y="252" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#f0b429">deny</text>
+      <!-- row 3 -->
+      <rect x="266" y="288" width="284" height="54" rx="10" fill="#0d1117" fill-opacity="0.6" stroke="#30363d" stroke-width="1"/>
+      <text x="282" y="311" font-weight="600" fill="#e6edf3">Edit watch at 4 files</text>
+      <text x="282" y="332" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#8b949e">PostToolUse · Edit/Write/Bash</text>
+      <rect x="474" y="298" width="64" height="22" rx="11" fill="#f0b429" fill-opacity="0.12"/>
+      <text x="506" y="314" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#f0b429">nudge</text>
+      <!-- row 4 -->
+      <rect x="266" y="350" width="284" height="54" rx="10" fill="#0d1117" fill-opacity="0.6" stroke="#30363d" stroke-width="1"/>
+      <text x="282" y="373" font-weight="600" fill="#e6edf3">Stop audit</text>
+      <text x="282" y="394" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#8b949e">Stop</text>
+      <rect x="474" y="360" width="64" height="22" rx="11" fill="#f0b429" fill-opacity="0.12"/>
+      <text x="506" y="376" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#f0b429">hold</text>
+    </g>
+
+    <!-- C: Fable advisor -->
+    <rect x="606" y="160" width="210" height="140" rx="14" fill="#f0b429" fill-opacity="0.08" stroke="#f0b429" stroke-width="1.5"/>
+    <text x="711" y="198" text-anchor="middle" font-size="17" font-weight="700" fill="#f0b429">Fable advisor</text>
+    <text x="711" y="222" text-anchor="middle" font-size="14" fill="#8b949e">read-only · effort high</text>
+    <text x="711" y="246" text-anchor="middle" font-size="14" fill="#e6edf3">reads files by path</text>
+    <text x="711" y="276" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#8b949e">Read  Grep  Glob</text>
+
+    <!-- F: Opus fallback -->
+    <rect x="592" y="340" width="238" height="72" rx="12" fill="#1c2128" stroke="#6e7681" stroke-width="1.5" stroke-dasharray="5 5"/>
+    <text x="608" y="370" font-size="15" font-weight="600" fill="#e6edf3">Opus fallback</text>
+    <text x="608" y="396" font-size="14" fill="#8b949e">only if Fable is refused</text>
+    <rect x="724" y="352" width="94" height="24" rx="12" fill="#ff7b72" fill-opacity="0.12" stroke="#ff7b72" stroke-opacity="0.6" stroke-width="1"/>
+    <text x="771" y="369" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" font-weight="600" fill="#ff7b72">DEGRADED</text>
+
+    <!-- D: verdict card -->
+    <rect x="856" y="124" width="304" height="212" rx="14" fill="#0d1117" stroke="#f0b429" stroke-opacity="0.55" stroke-width="1.5"/>
+    <text x="880" y="158" font-size="14" font-weight="600" letter-spacing="2" fill="#8b949e">ADVISOR VERDICT</text>
+    <path d="M856 174 H1160" stroke="#30363d" stroke-width="1"/>
+    <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14">
+      <text x="880" y="206" fill="#f0b429">MODEL:</text>
+      <text x="976" y="206" fill="#e6edf3">Fable 5.1</text>
+      <text x="880" y="238" fill="#f0b429">VERDICT:</text>
+      <text x="976" y="238" fill="#e6edf3">change X, then go</text>
+      <text x="880" y="270" fill="#f0b429">REASONING:</text>
+      <text x="976" y="270" fill="#e6edf3">3 facts, by file</text>
+      <text x="880" y="302" fill="#f0b429">RISKS:</text>
+      <text x="976" y="302" fill="#e6edf3">if wrong, watch X</text>
+    </g>
+  </g>
+</svg>
