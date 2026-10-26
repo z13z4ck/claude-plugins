@@ -104,11 +104,14 @@ t_sidechain_edit() { printf '{"type":"assistant","isSidechain":true,"message":{"
 # --- hook driver -------------------------------------------------------------
 HOOK_OUT=""
 HOOK_RC=0
+HOOK_CWD="/work/project"
 run_hook() {
   # run_hook <subcommand> <extra-json-fields>
   local extra="${2:-}"
   local input
-  input="$(printf '{"session_id":"%s","transcript_path":"%s","cwd":"%s"%s}' "$SID" "$T" "$WORK" "${extra:+,$extra}")"
+  # cwd is a project-like path, not $WORK: $WORK is under the OS temp dir, and
+  # relative Bash writes resolve against cwd, so temp would hide them.
+  input="$(printf '{"session_id":"%s","transcript_path":"%s","cwd":"%s"%s}' "$SID" "$T" "$HOOK_CWD" "${extra:+,$extra}")"
   HOOK_OUT="$(printf '%s' "$input" | bash "$BIN/hook.sh" "$1" 2>"$WORK/stderr")"
   HOOK_RC=$?
 }
@@ -183,10 +186,24 @@ run_hook prompt "\"prompt\":$(json_str "bump the fable-advisor version to 1.6.0"
 run_hook prompt "\"prompt\":$(json_str "ask the advisor whether this is safe")"
 contains "$(context_of "$HOOK_OUT")" "review or second opinion" && ok "'ask the advisor' is a review request" || no "explicit advisor request missed"
 
+NOTE="$(printf '<task-notification>\n<task-id>abc</task-id>\n<status>completed</status>\n<summary>Agent "Verification review of the diff" finished</summary>\n</task-notification>')"
+run_hook prompt "\"prompt\":$(json_str "$NOTE")"
+[ -z "$HOOK_OUT" ] && ok "a background agent's completion notice is not classified as a review request" || no "notification classified" "$HOOK_OUT"
+run_hook prompt "\"prompt\":$(json_str "[SYSTEM NOTIFICATION - NOT USER INPUT] should we decide which approach")"
+[ -z "$HOOK_OUT" ] && ok "harness system notifications are not classified" || no "system notification classified" "$HOOK_OUT"
+
+new_transcript p1b
+t_prompt "the build still fails with the same error"
+t_prompt "$NOTE"
+run_hook prompt "\"prompt\":$(json_str "nope, still broken, same error")"
+contains "$(context_of "$HOOK_OUT")" "Second consecutive" && ok "a notification between two stalled reports does not hide the repeat" || no "notification broke stalled escalation" "$HOOK_OUT"
+
 new_transcript p2
 t_prompt "go"; t_edit a.py; t_edit b.py; t_edit c.py; t_edit d.py
 run_hook prompt "\"prompt\":$(json_str "ok carry on")"
 contains "$(context_of "$HOOK_OUT")" "4 distinct files have been edited since the last advisor consultation" && ok "pending unreviewed edits are surfaced on the next prompt" || no "pending edits not surfaced" "$HOOK_OUT"
+run_hook prompt "\"prompt\":$(json_str "$NOTE")"
+[ -z "$HOOK_OUT" ] && ok "a notification gets no nudge even with pending edits (the stop audit covers them)" || no "notification nudged about pending edits" "$HOOK_OUT"
 
 T="$WORK/sess/subagents/agent-x.jsonl"; mkdir -p "$WORK/sess/subagents"; : >"$T"
 run_hook prompt "\"prompt\":$(json_str "should we use redis or postgres?")"
@@ -327,6 +344,36 @@ run_hook edit-watch "\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$(json_s
 x > y
 EOF")}"
 contains "$(context_of "$HOOK_OUT")" "d.py" && ok "heredoc with the redirect on the << line counts" || no "same-line heredoc redirect missed" "$HOOK_OUT"
+
+# cd: relative targets resolve against a cd to a known dir; after a cd we
+# cannot resolve ($VAR, -) they are skipped rather than guessed.
+bw() { py -c 'import sys; sys.path.insert(0, sys.argv[1]); import advisor_hooks as h; print(" ".join(h.bash_write_targets(sys.argv[2])))' "$BIN" "$1"; }
+[ -z "$(bw 'cd $R && cat > tests/t.py')" ] && ok "cd \$VAR: relative writes after it are not counted" || no "cd \$VAR relative write counted" "$(bw 'cd $R && cat > tests/t.py')"
+[ -z "$(bw 'cd /private/tmp/x && echo a > f.txt')" ] && ok "cd into a temp dir: relative writes there are not project edits" || no "temp-dir relative write counted"
+[ "$(bw 'cd /work/proj && echo a > f.txt')" = "/work/proj/f.txt" ] && ok "cd to an absolute dir: relative writes resolve against it" || no "cd abs resolution wrong" "$(bw 'cd /work/proj && echo a > f.txt')"
+[ "$(bw 'cd sub && echo a > f.txt')" = "sub/f.txt" ] && ok "relative cd from the session dir keeps project-relative paths" || no "relative cd wrong" "$(bw 'cd sub && echo a > f.txt')"
+[ "$(bw '(cd /tmp/a && echo > z) ; echo > y')" = "y" ] && ok "a cd inside ( ... ) ends with the subshell" || no "subshell cd leaked" "$(bw '(cd /tmp/a && echo > z) ; echo > y')"
+[ -z "$(bw 'cd ~/.claude/plans && cat > p.md')" ] && ok "cd into Claude's plans dir: relative writes are not project edits" || no "plans-dir write counted" "$(bw 'cd ~/.claude/plans && cat > p.md')"
+[ "$(bw 'cat > f && cd $R && cat > g')" = "f" ] && ok "writes before an unresolvable cd still count" || no "pre-cd write lost" "$(bw 'cat > f && cd $R && cat > g')"
+[ -z "$(bw 'if true; then cd $R; cat > g; fi')" ] && ok "cd after 'then' is recognised" || no "cd after then missed" "$(bw 'if true; then cd $R; cat > g; fi')"
+[ "$(bw 'cd ./ && echo > ./f')" = "f" ] && ok "joined paths are normalised (./f == f)" || no "join not normalised" "$(bw 'cd ./ && echo > ./f')"
+bwc() { py -c 'import sys; sys.path.insert(0, sys.argv[1]); import advisor_hooks as h; print(" ".join(h.bash_write_targets(sys.argv[2], sys.argv[3])))' "$BIN" "$1" "$2"; }
+[ "$(bwc "sed -i '' s/a/b/ assets/x.svg" /work/repo)" = "/work/repo/assets/x.svg" ] && ok "with the command's cwd, relative targets come back absolute (dedupes with Edit/Write paths)" || no "cwd not applied" "$(bwc "sed -i '' s/a/b/ assets/x.svg" /work/repo)"
+[ -z "$(bwc 'echo > f' /private/tmp/scratch)" ] && ok "a relative write in a temp cwd is not a project edit" || no "temp cwd write counted"
+new_transcript e4f
+t_prompt "go"; t_edit "$HOOK_CWD/a.py"; t_edit "$HOOK_CWD/b.py"; t_edit "$HOOK_CWD/x.svg"
+run_hook edit-watch "\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$(json_str "sed -i '' s/a/b/ x.svg")}"
+[ -z "$HOOK_OUT" ] && ok "the same file via Write (absolute) and sed (relative) counts once" || no "relative/absolute duplicate counted" "$HOOK_OUT"
+[ -z "$(bwc "$(printf 'mkdir -p /tmp/scratch\ncd /tmp/scratch\necho x > f')" /work/project)" ] && ok "a cd on its own line is followed (multi-line scripts)" || no "multi-line cd missed" "$(bwc "$(printf 'mkdir -p /tmp/scratch\ncd /tmp/scratch\necho x > f')" /work/project)"
+[ "$(bwc "$(printf 'echo a > f\ncd $R\necho > g')" /work/project)" = "/work/project/f" ] && ok "multi-line: writes before an unresolvable cd count, after it do not" || no "multi-line cd \$R wrong" "$(bwc "$(printf 'echo a > f\ncd $R\necho > g')" /work/project)"
+[ "$(bwc "$(printf 'git commit -m "a\nb" && echo > f')" /work/project)" = "/work/project/f" ] && ok "a newline inside quotes is not a command break" || no "quoted newline broke parsing" "$(bwc "$(printf 'git commit -m "a\nb" && echo > f')" /work/project)"
+[ "$(bw 'echo cd > out.txt')" = "out.txt" ] && ok "'cd' as an argument is not a directory change" || no "cd argument misparsed"
+new_transcript e4e
+t_prompt "go"; t_edit a.py; t_edit b.py; t_edit c.py
+run_hook edit-watch "\"tool_name\":\"Bash\",\"tool_input\":{\"command\":$(json_str 'R=/private/tmp/scratch; cd $R && cat > tests/test_calc.py <<EOF
+x
+EOF')}"
+[ -z "$HOOK_OUT" ] && ok "the live false positive (cd \$R && cat > tests/...) no longer nudges" || no "cd \$R write still counted" "$HOOK_OUT"
 
 new_transcript e5
 t_prompt "go"; t_edit a.py; t_sidechain_edit s1.py; t_sidechain_edit s2.py; t_sidechain_edit s3.py

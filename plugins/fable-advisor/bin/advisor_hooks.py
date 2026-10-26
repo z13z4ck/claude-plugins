@@ -284,6 +284,8 @@ _RE_REDIRECT_TOKEN = re.compile(r"^(>>|>\||&>>|&>|>)(.+)$")
 _SKIP_WRITE_PREFIXES = ("/dev/", "/tmp/", "/private/tmp/", "/var/folders/", "/private/var/folders/", "$", "&", "=")
 _REDIRECT_OPS = (">", ">>", "&>", "&>>", ">|")
 _PUNCT_CHARS = set("();<>|&")
+_UNKNOWN_DIR = object()
+_CMD_PREFIX_WORDS = {"then", "do", "else", "elif", "{", "!", "time"}
 
 
 def _is_punct(tok):
@@ -400,26 +402,79 @@ def _sed_inplace_files(toks, i):
     return i, (files if inplace else [])
 
 
-def bash_write_targets(command):
-    """Files a shell command overwrites or appends to. Best effort."""
+def bash_write_targets(command, cwd=None):
+    """Files a shell command overwrites or appends to. Best effort. With `cwd`
+    (the directory the command ran in), relative targets come back absolute,
+    so a file written by Bash and by the Edit tool counts once."""
     if not command or not isinstance(command, str):
         return []
     # Blank heredoc bodies but keep the rest of the "<<" line: "cat <<'EOF' > f" redirects.
     cmd = _RE_HEREDOC.sub(lambda m: "<<HEREDOC" + m.group(2), command)
+    # A newline ends a command just like ";" (shlex would treat it as plain
+    # whitespace and miss a `cd` on its own line); a quoted newline stays
+    # inside its quoted token either way.
+    cmd = cmd.replace("\\\n", " ").replace("\n", " ; ")
     try:
         toks = _shell_tokens(cmd)
     except ValueError:
         return []
     found = []
+    # Effective directory after `cd`/`pushd`: None = the session's own (relative
+    # targets stay relative, as before), a path = known, UNKNOWN = a cd we cannot
+    # resolve ($VAR, -, ...), whose relative targets are skipped rather than
+    # guessed into the project.
+    state = {"dir": os.path.normpath(cwd) if cwd and os.path.isabs(cwd) else None}
 
     def add(tok):
         t = _unquote(tok)
-        if _plausible_write_target(t) and t not in found:
+        if not _plausible_write_target(t):
+            return
+        if not os.path.isabs(t) and not t.startswith("~"):
+            d = state["dir"]
+            if d is _UNKNOWN_DIR:
+                return
+            if d is not None:
+                t = os.path.normpath(os.path.join(d, t))
+                if not _plausible_write_target(t):
+                    return
+        if counts_as_edit(t) and t not in found:
             found.append(t)
 
+    def cd(arg):
+        a = _unquote(arg) if arg is not None else ""
+        if not a or a == "-" or any(ch in a for ch in "$`*?"):
+            state["dir"] = _UNKNOWN_DIR
+            return
+        a = os.path.expanduser(a)
+        d = state["dir"]
+        if os.path.isabs(a):
+            state["dir"] = os.path.normpath(a)
+        elif d is _UNKNOWN_DIR:
+            return
+        else:
+            state["dir"] = os.path.normpath(os.path.join(d, a)) if d else os.path.normpath(a)
+
+    stack = []  # a `cd` inside ( ... ) ends with the subshell
     i, n = 0, len(toks)
     while i < n:
         t = toks[i]
+        if _is_punct(t):
+            stack.extend([state["dir"]] * t.count("("))
+            for _ in range(t.count(")")):
+                if stack:
+                    state["dir"] = stack.pop()
+        at_cmd = i == 0 or _is_punct(toks[i - 1]) or toks[i - 1] in _CMD_PREFIX_WORDS
+        if at_cmd and t == "popd":
+            state["dir"] = _UNKNOWN_DIR
+            i += 1
+            continue
+        if at_cmd and t in ("cd", "pushd"):
+            arg = toks[i + 1] if i + 1 < n and not _is_punct(toks[i + 1]) else None
+            if arg is not None and arg.startswith("-") and arg != "-":
+                arg = toks[i + 2] if i + 2 < n and not _is_punct(toks[i + 2]) else None  # cd -P dir
+            cd(arg)
+            i += 1
+            continue
         if t in _REDIRECT_OPS:
             if i + 1 < n and not _is_punct(toks[i + 1]):
                 add(toks[i + 1])
@@ -563,7 +618,7 @@ class Scan:
                 if fp and counts_as_edit(str(fp)):
                     self.edits.append((n, str(fp)))
             elif name == "Bash":
-                for fp in bash_write_targets(inp.get("command")):
+                for fp in bash_write_targets(inp.get("command"), d.get("cwd")):
                     self.edits.append((n, fp))
             elif name == "EnterPlanMode":
                 self.plan_marks.append(n)
@@ -721,6 +776,13 @@ _RE_STALLED = re.compile(
     r"(failed|failing|broke|broken|crash\w*|error\w*) again|nothing (changed|works)|why (does|is) (it|this) still)\b", re.I)
 
 
+_HARNESS_PREFIXES = ("<task-notification", "<side-sessions-event", "[SYSTEM NOTIFICATION")
+
+
+def is_harness_message(text):
+    return text.lstrip().startswith(_HARNESS_PREFIXES)
+
+
 def classify(text):
     cats = []
     if _RE_STALLED.search(text):
@@ -768,17 +830,23 @@ def prompt(inp):
     if not text or text.startswith("/"):
         return
     sid = inp.get("session_id", "")
+    # A background agent's completion notice (or another harness message) is
+    # not a request from the user. No nudge at all: the stop audit already
+    # covers pending edits, and a feature-crew run gets one per worker.
+    if is_harness_message(text):
+        return
     cats = classify(text)
     scan = Scan(tp)
     parts = []
     primary = None
     if "stalled" in cats:
         primary = "stalled"
-        prev = scan.prompts[-1][1] if scan.prompts else ""
-        # The current prompt may or may not be in the transcript yet; look at the
-        # newest prompt that is not this one.
-        if prev.strip() == text and len(scan.prompts) > 1:
-            prev = scan.prompts[-2][1]
+        # The newest earlier prompt from the user: the current one may already
+        # be in the transcript, and harness notices in between do not count.
+        human = [t for _, t in scan.prompts if not is_harness_message(t)]
+        prev = human[-1] if human else ""
+        if prev.strip() == text and len(human) > 1:
+            prev = human[-2]
         if prev and _RE_STALLED.search(prev):
             parts.append(
                 "[fable-advisor] Second consecutive report of the same problem. Policy: consult NOW, "
@@ -902,7 +970,7 @@ def edit_watch(inp):
     if not isinstance(tool_input, dict):
         tool_input = {}
     if inp.get("tool_name") == "Bash":
-        current = bash_write_targets(tool_input.get("command"))
+        current = bash_write_targets(tool_input.get("command"), inp.get("cwd"))
         if not current:
             return  # a Bash call that wrote nothing is not an edit
     else:

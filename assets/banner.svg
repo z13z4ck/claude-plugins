@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="360" viewBox="0 0 1280 360" role="img" aria-labelledby="title desc">
+  <title id="title">z13z4ck-plugins</title>
+  <desc id="desc">Claude Code plugins for second opinions, background feature work, and pausing agents mid-task: fable-advisor, feature-crew, advisor-select and pause-resume.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0f1419"/>
+      <stop offset="1" stop-color="#161b22"/>
+    </linearGradient>
+    <radialGradient id="glowA" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#f0b429" stop-opacity="0.10"/>
+      <stop offset="1" stop-color="#f0b429" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowB" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#a78bfa" stop-opacity="0.10"/>
+      <stop offset="1" stop-color="#a78bfa" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1" fill="#e6edf3" fill-opacity="0.06"/>
+    </pattern>
+    <clipPath id="card">
+      <rect x="1" y="1" width="1278" height="358" rx="20"/>
+    </clipPath>
+  </defs>
+
+  <rect x="1" y="1" width="1278" height="358" rx="20" fill="url(#bg)"/>
+  <g clip-path="url(#card)">
+    <rect x="760" y="0" width="520" height="200" fill="url(#dots)"/>
+    <ellipse cx="1120" cy="40" rx="320" ry="200" fill="url(#glowB)"/>
+    <ellipse cx="880" cy="-20" rx="300" ry="180" fill="url(#glowA)"/>
+  </g>
+  <rect x="1" y="1" width="1278" height="358" rx="20" fill="none" stroke="#30363d" stroke-width="1.5"/>
+
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+    <text x="64" y="76" font-size="14" font-weight="600" letter-spacing="2.5" fill="#8b949e">CLAUDE CODE PLUGIN MARKETPLACE</text>
+    <text x="62" y="130" font-size="52" font-weight="700" fill="#e6edf3" letter-spacing="-0.5">z13z4ck-plugins</text>
+    <text x="64" y="170" font-size="20" fill="#8b949e">Claude Code plugins for second opinions, background feature work, and pausing agents mid-task</text>
+
+    <!-- install command chip -->
+    <g>
+      <rect x="748" y="98" width="468" height="38" rx="10" fill="#0d1117" fill-opacity="0.75" stroke="#30363d" stroke-width="1.5"/>
+      <text x="768" y="123" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#8b949e"><tspan fill="#6e7681">/</tspan><tspan fill="#e6edf3">plugin</tspan> marketplace add <tspan fill="#e6edf3">z13z4ck/claude-plugins</tspan></text>
+    </g>
+
+    <!-- tiles -->
+    <!-- fable-advisor -->
+    <g transform="translate(64 212)">
+      <rect x="0" y="0" width="270" height="108" rx="14" fill="#1c2128" stroke="#f0b429" stroke-opacity="0.45" stroke-width="1.5"/>
+      <rect x="12" y="12" width="40" height="40" rx="10" fill="#f0b429" fill-opacity="0.12"/>
+      <g transform="translate(20 20)" fill="none" stroke="#f0b429" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2 L21 5.5 V11.5 C21 16.8 17.2 20.6 12 22 C6.8 20.6 3 16.8 3 11.5 V5.5 Z"/>
+        <path d="M8 12 L11 15 L16 9"/>
+      </g>
+      <text x="20" y="72" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" font-weight="600" fill="#e6edf3">fable-advisor</text>
+      <text x="20" y="94" font-size="15" fill="#8b949e">Hook-enforced Fable reviews</text>
+    </g>
+    <!-- advisor-select -->
+    <g transform="translate(652 212)">
+      <rect x="0" y="0" width="270" height="108" rx="14" fill="#1c2128" stroke="#a78bfa" stroke-opacity="0.45" stroke-width="1.5"/>
+      <rect x="12" y="12" width="40" height="40" rx="10" fill="#a78bfa" fill-opacity="0.12"/>
+      <g transform="translate(20 20)" fill="none" stroke="#a78bfa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="3" width="20" height="8" rx="4"/>
+        <circle cx="6.5" cy="7" r="1.8" fill="#a78bfa" stroke="none"/>
+        <rect x="2" y="14" width="20" height="8" rx="4" stroke-opacity="0.55"/>
+      </g>
+      <text x="20" y="72" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" font-weight="600" fill="#e6edf3">advisor-select</text>
+      <text x="20" y="94" font-size="15" fill="#8b949e">Pick the advisor, per session</text>
+    </g>
+    <!-- feature-crew -->
+    <g transform="translate(358 212)">
+      <rect x="0" y="0" width="270" height="108" rx="14" fill="#1c2128" stroke="#2dd4bf" stroke-opacity="0.45" stroke-width="1.5"/>
+      <rect x="12" y="12" width="40" height="40" rx="10" fill="#2dd4bf" fill-opacity="0.12"/>
+      <g transform="translate(20 20)" fill="none" stroke="#2dd4bf" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="6" cy="5" r="2.5"/>
+        <circle cx="6" cy="19" r="2.5"/>
+        <circle cx="18" cy="7" r="2.5"/>
+        <path d="M6 7.5 V16.5"/>
+        <path d="M18 9.5 C18 14 6 12 6 16.5"/>
+      </g>
+      <text x="20" y="72" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" font-weight="600" fill="#e6edf3">feature-crew</text>
+      <text x="20" y="94" font-size="15" fill="#8b949e">Background feature workers</text>
+    </g>
+    <!-- pause-resume -->
+    <g transform="translate(946 212)">
+      <rect x="0" y="0" width="270" height="108" rx="14" fill="#1c2128" stroke="#58a6ff" stroke-opacity="0.45" stroke-width="1.5"/>
+      <rect x="12" y="12" width="40" height="40" rx="10" fill="#58a6ff" fill-opacity="0.12"/>
+      <g transform="translate(20 20)" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <path d="M9.5 8 V16"/>
+        <path d="M14.5 8 V16"/>
+      </g>
+      <text x="20" y="72" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" font-weight="600" fill="#e6edf3">pause-resume</text>
+      <text x="20" y="94" font-size="15" fill="#8b949e">Freeze mid-task, resume later</text>
+    </g>
+  </g>
+</svg>
