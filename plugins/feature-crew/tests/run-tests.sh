@@ -238,6 +238,14 @@ fi
 steps="$(grep -o '^[0-9]\. \*\*' "$W" | cut -c1 | tr -d '\n')"
 if [ "$steps" = 12345678 ]; then ok "worker steps are numbered 1-8 in order"; else no "worker steps are numbered 1-8 in order" "got $steps"; fi
 
+# Claude Code's worktree guard refuses nested $(git ...) in an isolated
+# worker (seen live), so the worker's instructions must not use it.
+if ! grep -q '"\$(git ' "$W" && grep -q 'git -C <worktree> rev-parse --absolute-git-dir' "$W"; then
+  ok "worker's diff instructions use plain git -C commands, no nested \$(git ...)"
+else
+  no "worker's diff instructions use plain git -C commands, no nested \$(git ...)"
+fi
+
 # The review must come after the commit: <base>...HEAD only sees commits.
 c="$(grep -n '^6\. \*\*Commit' "$W" | cut -d: -f1)"
 r="$(grep -n '^7\. \*\*Review' "$W" | cut -d: -f1)"

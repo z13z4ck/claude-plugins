@@ -65,11 +65,14 @@ Work in this order:
 
 7. **Review.** After committing, if `git diff --name-only <base>...HEAD`
    lists four or more files and the advisor is reachable, get a verification
-   review of the committed change: write the diff with
-   `git diff <base>...HEAD > "$(git rev-parse --absolute-git-dir)/crew-review.diff"`
-   (outside the working tree, so it is never committed) and send the advisor
-   that file's path, your worktree path, the brief's goal and acceptance
-   criteria, and what you ran. Fix what it flags inside your scope, re-run
+   review of the committed change. Write the diff outside the working tree,
+   so it is never committed, using two plain commands with literal paths
+   (Claude Code refuses a worktree-isolated agent's git commands that nest
+   `$(git ...)` or `cd ... &&`):
+   1. `git -C <worktree> rev-parse --absolute-git-dir` prints `<gitdir>`;
+   2. `git -C <worktree> diff <base>...HEAD > <gitdir>/crew-review.diff`.
+   Send the advisor that file's absolute path, your worktree path, the
+   brief's goal and acceptance criteria, and what you ran. Fix what it flags inside your scope, re-run
    your checks, commit the fixes, and ask it once more if they were
    substantive. Anything it flags outside your scope goes under `open`.
 

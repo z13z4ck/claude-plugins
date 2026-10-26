@@ -126,13 +126,17 @@ cases:
 | The advisor itself | Silent. |
 | Anything else (`general-purpose`, `Explore`, your own agents) | Counted for the parent, as before: it works in the parent's tree, so a turn that delegates six edits to a subagent is still held. |
 
-Not yet verified live: whether a `SubagentStop` block re-prompts a
-**background** worker. The docs say a block "keeps the subagent running" with
-the reason as its next instruction; for a background worker the signal to
-watch is a `subagent-stop-hold` line in `events.log` followed by the reason
-appearing in `agent-<id>.jsonl` and a single completion notification. If it
-does not, the policy and the nudges still apply, and feature-crew's main
-session still checks each worker's `advisor:` line.
+Verified live on Claude Code 2.1.308 with a background `feature-builder`
+that wrote four files and was told not to consult: `subagent-start
+agent_type=feature-crew:feature-builder enforced=1`, an `edit-nudge` at four
+files tagged with the worker's id, then `subagent-stop-hold` when it tried to
+finish. The hold arrived in the worker's transcript as a `Stop hook
+feedback` row, the worker wrote its diff, consulted the advisor, and
+re-issued its DONE with `advisor: reviewed`; the parent got a single
+completion notification and was never held for the worker's edits. One
+thing the run surfaced: a worktree-isolated agent's git commands are refused
+when they nest `$(git ...)`, so the worker policy and the hold give the diff
+step as two plain `git -C <worktree>` commands with literal paths.
 
 ### What this costs
 

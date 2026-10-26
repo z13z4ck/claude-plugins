@@ -1033,8 +1033,10 @@ def worker_policy_text():
         "your brief does not settle, and before choosing between two viable approaches; AFTER two failed "
         "attempts at the same bug or a test failure you cannot explain. Before you finish a change of %d+ "
         "files, get a verification review of the committed diff: write it to a file outside the working "
-        "tree and give the advisor that file's absolute path and your worktree path (it reads files only, "
-        "by path, and cannot run git)." % (DISPATCH, CFG.threshold),
+        "tree (run `git -C <worktree> rev-parse --absolute-git-dir`, then `git -C <worktree> diff "
+        "<base>...HEAD > <that dir>/crew-review.diff` with literal paths; a worktree-isolated agent's git "
+        "commands are refused when they nest $(git ...)) and give the advisor that file's absolute path and "
+        "your worktree path (it reads files only, by path, and cannot run git)." % (DISPATCH, CFG.threshold),
         "",
         "HOOKS IN FORCE: a nudge once %d distinct files were edited since your last consultation; if you "
         "try to finish with %d+ unreviewed files, you are held once and asked for that review. A decision "
@@ -1087,7 +1089,10 @@ def subagent_stop(inp):
         "reason": (
             "[fable-advisor] You edited %d files since your last advisor consultation: %s. Before "
             "finishing, get a verification review: commit, write the committed diff against your base "
-            "branch to a file outside the working tree, and %s with that file's absolute path, your "
+            "branch to a file outside the working tree (two plain commands with literal paths: "
+            "`git -C <worktree> rev-parse --absolute-git-dir`, then `git -C <worktree> diff <base>...HEAD > "
+            "<that dir>/crew-review.diff`; nesting $(git ...) is refused in an isolated worktree), and %s "
+            "with that file's absolute path, your "
             "worktree path, the goal and acceptance criteria, and what you ran. Fix what it flags inside "
             "your scope and commit. Then end with your final report again (for feature-builder: the DONE "
             "block, its advisor: line now reading \"reviewed\"). This hold fires once."
