@@ -17,7 +17,23 @@ context compaction because the policy is re-injected on every SessionStart.
                  consultation; PostToolUse Agent|Task: record a consultation
   stop-audit     Stop: hold the turn once when it edited >= N files with no
                  consultation, asking for a verification review of the change set
+  subagent-start SubagentStart: inject a worker policy into enforced subagent
+                 types (feature-crew:feature-builder by default)
+  subagent-stop  SubagentStop: hold an enforced worker once when it edited >= N
+                 files since its last consultation, asking for a review first
   status         plain-text summary for /fable-advisor:status
+
+Subagents. Claude Code reports a subagent's tool calls with the parent's
+session_id and transcript_path plus agent_id/agent_type; the subagent's own
+transcript is <transcript minus .jsonl>/subagents/agent-<id>.jsonl, every row
+marked isSidechain. Three cases:
+  - enforced worker types (FABLE_ADVISOR_SUBAGENTS): their own state file and
+    transcript, their own nudges and end-of-run hold; never counted for the
+    parent, whose own checks (e.g. feature-crew's orchestrator) stay separate
+  - the advisor itself, and legacy builds that passed the subagent transcript
+    as transcript_path: silent
+  - every other subagent (general-purpose, Explore, ...): counted for the
+    parent, as before, since it works in the parent's tree
 
 Every hook reads the session transcript (JSONL) as ground truth, so counts
 cannot drift from what actually happened. But the transcript is flushed lazily
@@ -34,6 +50,9 @@ Configuration (environment variables, e.g. via settings.json "env"):
   FABLE_ADVISOR_EDIT_WATCH      0 disables the edit-count nudge
   FABLE_ADVISOR_STOP_AUDIT      0 disables the end-of-turn hold
   FABLE_ADVISOR_PROMPT_NUDGE    0 disables per-prompt nudges
+  FABLE_ADVISOR_SUBAGENTS       comma list of enforced subagent types
+                                (feature-crew:feature-builder); none disables
+  FABLE_ADVISOR_SUBAGENT_STOP   0 disables the worker end-of-run hold
   FABLE_ADVISOR_HOME            state + events.log dir (~/.claude/fable-advisor)
 """
 import calendar
@@ -50,6 +69,7 @@ ADVISOR = "fable-advisor:advisor"
 DISPATCH_TOOLS = {"Agent", "Task"}
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 STATE_MAX_AGE = 7 * 86400
+DEFAULT_WORKERS = "feature-crew:feature-builder"
 
 DISPATCH = (
     'dispatch the fable-advisor:advisor agent (Agent tool, subagent_type '
@@ -78,6 +98,12 @@ class Config:
         self.edit_watch = _flag("FABLE_ADVISOR_EDIT_WATCH")
         self.stop_audit = _flag("FABLE_ADVISOR_STOP_AUDIT")
         self.prompt_nudge = _flag("FABLE_ADVISOR_PROMPT_NUDGE")
+        self.subagent_stop = _flag("FABLE_ADVISOR_SUBAGENT_STOP")
+        raw = os.environ.get("FABLE_ADVISOR_SUBAGENTS")
+        if raw is None:
+            raw = DEFAULT_WORKERS
+        self.workers = [w.strip() for w in raw.split(",")
+                        if w.strip() and w.strip().lower() not in ("none", "off", "0")]
         self.home = os.environ.get("FABLE_ADVISOR_HOME") or os.path.join(
             os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude"),
             "fable-advisor",
@@ -91,6 +117,7 @@ class Config:
             "edit watch " + ("on at %d files" % self.threshold if self.edit_watch else "off"),
             "stop audit " + ("on at %d files" % self.threshold if self.stop_audit and self.mode == "full" else "off"),
             "prompt nudges " + ("on" if self.prompt_nudge else "off"),
+            "workers " + (", ".join(self.workers) if self.workers else "off"),
         ]
         return "%s (%s)" % (self.mode, ", ".join(layers))
 
@@ -143,7 +170,7 @@ def save_state(sid, state):
         pass
 
 
-def record_consult(sid, tool_use_id=None, note=""):
+def record_consult(sid, tool_use_id=None, note="", agent=""):
     """Remember that the advisor was dispatched, for gates that run before the
     transcript has caught up. Also resets the edit-watch tally."""
     state = load_state(sid)
@@ -152,7 +179,10 @@ def record_consult(sid, tool_use_id=None, note=""):
     state["consults"] = int(state.get("consults") or 0) + 1
     state["edit_watch"] = {"boundary": "consult", "consult_id": tool_use_id, "bucket": 0, "seen": []}
     save_state(sid, state)
-    log("consult-recorded", sid, note=note)
+    if agent:
+        log("consult-recorded", sid, note=note, agent=agent)
+    else:
+        log("consult-recorded", sid, note=note)
 
 
 def remember_turn_edit(state, prompt_id, files):
@@ -192,6 +222,54 @@ def reap_state():
 
 def is_subagent(path):
     return bool(path) and ("/subagents/" in path or os.sep + "subagents" + os.sep in path)
+
+
+def enforced(agent_type):
+    """True for subagent types listed in FABLE_ADVISOR_SUBAGENTS. Plugin agents
+    arrive plugin-scoped (feature-crew:feature-builder); the bare name matches
+    too, in case a build reports only the frontmatter name."""
+    t = str(agent_type or "")
+    if not t or t == ADVISOR:
+        return False
+    for w in CFG.workers:
+        if t == w or t.split(":")[-1] == w.split(":")[-1]:
+            return True
+    return False
+
+
+class Scope:
+    """Who a hook call belongs to: the main session, an in-tree subagent whose
+    work counts for the parent ("inherit"), an enforced worker with its own
+    tally ("worker"), or nobody ("silent")."""
+
+    def __init__(self, inp):
+        self.sid = inp.get("session_id", "")
+        self.agent_id = str(inp.get("agent_id") or "")
+        self.agent_type = str(inp.get("agent_type") or "")
+        tp = inp.get("transcript_path")
+        self.transcript = tp
+        self.key = self.sid
+        self.sidechain = False
+        if is_subagent(tp):
+            self.kind = "silent"  # legacy builds: transcript_path was the subagent's own
+        elif not self.agent_id:
+            self.kind = "main"
+        elif self.agent_type == ADVISOR:
+            self.kind = "silent"
+        elif enforced(self.agent_type):
+            self.kind = "worker"
+            self.key = "%s--%s" % (self.sid, self.agent_id)
+            self.sidechain = True
+            self.transcript = inp.get("agent_transcript_path") or self._derive(tp)
+        else:
+            self.kind = "inherit"
+
+    def _derive(self, tp):
+        if not tp:
+            return None
+        aid = self.agent_id[6:] if self.agent_id.startswith("agent-") else self.agent_id
+        root = tp[:-6] if tp.endswith(".jsonl") else tp
+        return os.path.join(root, "subagents", "agent-%s.jsonl" % aid)
 
 
 # Sessions in bypass-permissions mode are steered to edit through Bash (heredocs,
@@ -397,8 +475,9 @@ def _block_text(block):
 class Scan:
     """One pass over the session transcript, keeping only what the hooks need."""
 
-    def __init__(self, path):
+    def __init__(self, path, sidechain=False):
         self.path = path
+        self.sidechain = sidechain  # True when scanning a subagent's own transcript
         self.lines = 0
         self.consults = []       # line numbers of advisor dispatches (health checks excluded)
         self.consult_lines = {}  # tool_use_id -> line, to match state-recorded consults
@@ -411,6 +490,7 @@ class Scan:
         self.exit_done = []      # line numbers of completed ExitPlanMode results
         self._last_mode = None   # permission-mode rows are written per prompt, not per change
         self.ts_of = {}          # line -> epoch, for rows that carry a timestamp
+        self.last_text = ""      # newest assistant text (sidechain scans only)
         self._last_ts = None
         if path and os.path.isfile(path):
             self._parse()
@@ -420,6 +500,8 @@ class Scan:
             for n, line in enumerate(f):
                 self.lines = n + 1
                 if '"type":"assistant"' in line or '"type": "assistant"' in line:
+                    if self.sidechain:
+                        self._assistant_text(line)
                     self._assistant(n, line)
                 elif '"type":"user"' in line or '"type": "user"' in line:
                     self._user(n, line)
@@ -441,11 +523,24 @@ class Scan:
             self.ts_of[n] = self._last_ts
         return d
 
+    def _assistant_text(self, line):
+        try:
+            d = json.loads(line)
+        except ValueError:
+            return
+        content = ((d or {}).get("message") or {}).get("content") if isinstance(d, dict) else None
+        if isinstance(content, str):
+            content = [{"type": "text", "text": content}]
+        texts = [str(b.get("text") or "") for b in content or []
+                 if isinstance(b, dict) and b.get("type") == "text"]
+        if any(t.strip() for t in texts):
+            self.last_text = "\n".join(texts)
+
     def _assistant(self, n, line):
         if '"tool_use"' not in line:
             return
         d = self._load(line, n)
-        if not d or d.get("type") != "assistant" or d.get("isSidechain"):
+        if not d or d.get("type") != "assistant" or (d.get("isSidechain") and not self.sidechain):
             return
         msg = d.get("message") or {}
         for b in msg.get("content") or []:
@@ -480,7 +575,7 @@ class Scan:
 
     def _user(self, n, line):
         d = self._load(line, n)
-        if not d or d.get("type") != "user" or d.get("isSidechain"):
+        if not d or d.get("type") != "user" or (d.get("isSidechain") and not self.sidechain):
             return
         msg = d.get("message") or {}
         content = msg.get("content")
@@ -667,7 +762,7 @@ def prompt(inp):
     if CFG.mode == "off" or not CFG.prompt_nudge:
         return
     tp = inp.get("transcript_path")
-    if is_subagent(tp):
+    if Scope(inp).kind != "main":
         return
     text = (inp.get("prompt") or "").strip()
     if not text or text.startswith("/"):
@@ -733,7 +828,7 @@ def plan_gate(inp):
     if CFG.mode == "off" or not CFG.plan_gate:
         return
     tp = inp.get("transcript_path")
-    if is_subagent(tp):
+    if Scope(inp).kind != "main":
         return
     sid = inp.get("session_id", "")
     scan = Scan(tp)
@@ -779,8 +874,8 @@ def plan_gate(inp):
 def post_tool(inp):
     if CFG.mode == "off":
         return
-    tp = inp.get("transcript_path")
-    if is_subagent(tp):
+    sc = Scope(inp)
+    if sc.kind == "silent":
         return
     tool = inp.get("tool_name")
     tool_input = inp.get("tool_input") or {}
@@ -789,8 +884,9 @@ def post_tool(inp):
     if tool in DISPATCH_TOOLS:
         if tool_input.get("subagent_type") == ADVISOR and \
                 not re.match(r"\s*health check\b", str(tool_input.get("prompt") or ""), re.I):
-            record_consult(inp.get("session_id", ""), tool_use_id=inp.get("tool_use_id"),
-                           note=str(tool_input.get("description") or "")[:60])
+            record_consult(sc.key, tool_use_id=inp.get("tool_use_id"),
+                           note=str(tool_input.get("description") or "")[:60],
+                           agent=sc.agent_id if sc.kind == "worker" else "")
         return
     edit_watch(inp)
 
@@ -798,10 +894,10 @@ def post_tool(inp):
 def edit_watch(inp):
     if CFG.mode == "off" or not CFG.edit_watch:
         return
-    tp = inp.get("transcript_path")
-    if is_subagent(tp):
+    sc = Scope(inp)
+    if sc.kind == "silent":
         return
-    sid = inp.get("session_id", "")
+    sid = sc.key
     tool_input = inp.get("tool_input") or {}
     if not isinstance(tool_input, dict):
         tool_input = {}
@@ -814,14 +910,51 @@ def edit_watch(inp):
         current = [str(fp)] if fp and counts_as_edit(str(fp)) else []
         if not current:
             return  # plan files, memory notes and temp paths are not project edits
-    scan = Scan(tp)
+    scan = Scan(sc.transcript, sidechain=sc.sidechain)
+    state = load_state(sid)
+    if sc.kind != "worker":
+        # Inside a worker prompt_id is the parent's, so a per-turn tally is meaningless.
+        remember_turn_edit(state, inp.get("prompt_id"), current)
+    files, ew, boundary, from_transcript = pending_edits(scan, state, current)
+    n = len(files)
+    bucket = n // CFG.threshold
+    if os.environ.get("FABLE_ADVISOR_DEBUG"):
+        log("edit-watch", sid, files=n, transcript=len(from_transcript), current=",".join(current))
+    if n < CFG.threshold or bucket <= int(ew.get("bucket") or 0):
+        state["edit_watch"] = ew
+        save_state(sid, state)
+        return
+    ew["bucket"] = bucket
+    state["edit_watch"] = ew
+    save_state(sid, state)
+    if sc.kind == "worker":
+        text = (
+            "[fable-advisor] You have edited %d distinct files since your last advisor consultation "
+            "(threshold %d): %s. Policy: pause before further edits and %s with your worktree path "
+            "(absolute), the goal, the files changed so far and what remains; adjust course if its "
+            "VERDICT says so." % (n, CFG.threshold, _list_files(files), DISPATCH)
+        )
+    else:
+        text = (
+            "[fable-advisor] %d distinct files have now been edited since the last advisor consultation "
+            "(threshold %d): %s. Policy: pause before further edits and %s with the goal, the files changed "
+            "so far and what remains; present its VERDICT and adjust course if it says so."
+            % (n, CFG.threshold, _list_files(files), DISPATCH)
+        )
+    context("PostToolUse", text)
+    if sc.kind == "worker":
+        log("edit-nudge", sid, files=n, boundary=boundary, agent=sc.agent_id)
+    else:
+        log("edit-nudge", sid, files=n, boundary=boundary)
+
+
+def pending_edits(scan, state, current=()):
+    """Distinct files edited since the last consultation, from the transcript
+    and from what this hook already saw (the transcript can lag the tool calls
+    by a few entries at PostToolUse time, so the scan alone can undercount a
+    burst of edits). Returns (files, edit_watch_state, boundary, from_transcript)."""
     boundary = scan.last_consult()
     from_transcript = scan.edited_since(boundary)
-    # The transcript can lag the tool calls by a few entries at PostToolUse time,
-    # so remember every file this hook has already seen since the boundary and
-    # union it with the scan; the scan alone can undercount a burst of edits.
-    state = load_state(sid)
-    remember_turn_edit(state, inp.get("prompt_id"), current)
     ew = state.get("edit_watch") or {}
     if ew.get("boundary") == "consult":
         # A consultation was recorded by post_tool before the transcript showed
@@ -840,29 +973,11 @@ def edit_watch(inp):
     elif ew.get("boundary") != boundary:
         ew = {"boundary": boundary, "bucket": 0, "seen": []}
     files = [f for f in (ew.get("seen") or []) if isinstance(f, str)]
-    for fp in from_transcript + current:
+    for fp in list(from_transcript) + list(current):
         if fp not in files:
             files.append(fp)
     ew["seen"] = files[-500:]
-    n = len(files)
-    bucket = n // CFG.threshold
-    if os.environ.get("FABLE_ADVISOR_DEBUG"):
-        log("edit-watch", sid, files=n, transcript=len(from_transcript), current=",".join(current))
-    if n < CFG.threshold or bucket <= int(ew.get("bucket") or 0):
-        state["edit_watch"] = ew
-        save_state(sid, state)
-        return
-    ew["bucket"] = bucket
-    state["edit_watch"] = ew
-    save_state(sid, state)
-    context(
-        "PostToolUse",
-        "[fable-advisor] %d distinct files have now been edited since the last advisor consultation "
-        "(threshold %d): %s. Policy: pause before further edits and %s with the goal, the files changed "
-        "so far and what remains; present its VERDICT and adjust course if it says so."
-        % (n, CFG.threshold, _list_files(files), DISPATCH),
-    )
-    log("edit-nudge", sid, files=n, boundary=boundary)
+    return files, ew, boundary, from_transcript
 
 
 def stop_audit(inp):
@@ -871,7 +986,7 @@ def stop_audit(inp):
     if inp.get("stop_hook_active"):
         return
     tp = inp.get("transcript_path")
-    if is_subagent(tp):
+    if Scope(inp).kind != "main":
         return
     sid = inp.get("session_id", "")
     scan = Scan(tp)
@@ -907,6 +1022,79 @@ def stop_audit(inp):
         ),
     })
     log("stop-hold", sid, files=len(files), turn=turn)
+
+
+def worker_policy_text():
+    return "\n".join([
+        "[fable-advisor] Advisor policy for this worker (enforced by fable-advisor hooks: %s)." % CFG.describe(),
+        "",
+        "You work in your own tree; the session that started you cannot see your files. CONSULT THE "
+        "ADVISOR yourself — %s — BEFORE an architectural, data-model, interface or dependency decision "
+        "your brief does not settle, and before choosing between two viable approaches; AFTER two failed "
+        "attempts at the same bug or a test failure you cannot explain. Before you finish a change of %d+ "
+        "files, get a verification review of the committed diff: write it to a file outside the working "
+        "tree and give the advisor that file's absolute path and your worktree path (it reads files only, "
+        "by path, and cannot run git)." % (DISPATCH, CFG.threshold),
+        "",
+        "HOOKS IN FORCE: a nudge once %d distinct files were edited since your last consultation; if you "
+        "try to finish with %d+ unreviewed files, you are held once and asked for that review. A decision "
+        "only the user can make is still a question for the user, not for the advisor."
+        % (CFG.threshold, CFG.threshold),
+    ])
+
+
+def subagent_start(inp):
+    if CFG.mode == "off":
+        return
+    sc = Scope(inp)
+    log("subagent-start", sc.sid, agent_type=sc.agent_type or "-", enforced=int(sc.kind == "worker"))
+    if sc.kind != "worker":
+        return
+    context("SubagentStart", worker_policy_text())
+
+
+_RE_NEEDS_ANSWER = re.compile(r"^\s*`*\s*NEEDS-ANSWER\b", re.M)
+
+
+def subagent_stop(inp):
+    if CFG.mode != "full" or not CFG.subagent_stop:
+        return
+    if inp.get("stop_hook_active"):
+        return
+    sc = Scope(inp)
+    if sc.kind != "worker":
+        return
+    scan = Scan(sc.transcript, sidechain=True)
+    last = inp.get("last_assistant_message")
+    if last is None:
+        last = scan.last_text  # builds that leave the field out
+    if _RE_NEEDS_ANSWER.search(str(last or "")):
+        # Stopping to ask the user. The count is cumulative, so the DONE stop
+        # that follows the answer still catches an unreviewed change.
+        log("subagent-stop-pass", sc.key, reason="needs-answer", agent=sc.agent_id)
+        return
+    state = load_state(sc.key)
+    files, _, _, _ = pending_edits(scan, state)
+    if len(files) < CFG.threshold:
+        return
+    held_at = scan.last_prompt()
+    if state.get("subagent_stop_held") == held_at:
+        return
+    state["subagent_stop_held"] = held_at
+    save_state(sc.key, state)
+    emit({
+        "decision": "block",
+        "reason": (
+            "[fable-advisor] You edited %d files since your last advisor consultation: %s. Before "
+            "finishing, get a verification review: commit, write the committed diff against your base "
+            "branch to a file outside the working tree, and %s with that file's absolute path, your "
+            "worktree path, the goal and acceptance criteria, and what you ran. Fix what it flags inside "
+            "your scope and commit. Then end with your final report again (for feature-builder: the DONE "
+            "block, its advisor: line now reading \"reviewed\"). This hold fires once."
+            % (len(files), _list_files(files), DISPATCH)
+        ),
+    })
+    log("subagent-stop-hold", sc.key, files=len(files), agent_type=sc.agent_type, agent=sc.agent_id)
 
 
 def _newest_transcript(cwd):
@@ -977,6 +1165,8 @@ HOOKS = {
     "post-tool": post_tool,
     "edit-watch": edit_watch,  # alias kept for the tests and older hooks.json files
     "stop-audit": stop_audit,
+    "subagent-start": subagent_start,
+    "subagent-stop": subagent_stop,
     "status": status,
 }
 

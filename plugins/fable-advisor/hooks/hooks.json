@@ -59,6 +59,29 @@
           }
         ]
       }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/hook.sh\" subagent-start",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/hook.sh\" subagent-stop",
+            "timeout": 30,
+            "statusMessage": "Checking the worker's advisor coverage..."
+          }
+        ]
+      }
     ]
   }
 }

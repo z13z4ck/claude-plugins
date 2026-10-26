@@ -8,7 +8,7 @@
     {
       "name": "fable-advisor",
       "source": "./plugins/fable-advisor",
-      "description": "Read-only Fable advisor subagent for decisions, plan reviews, stalled debugging and change-set verification \u2014 tracks the newest Fable release via the fable alias (Fable 5.1 today), with Opus fallback when Fable is unavailable. Enforcement hooks inject the advisor policy every session, gate ExitPlanMode on a consultation, and hold unadvised multi-file turns for review.",
+      "description": "Read-only Fable advisor subagent for decisions, plan reviews, stalled debugging and change-set verification \u2014 tracks the newest Fable release via the fable alias (Fable 5.1 today), with Opus fallback when Fable is unavailable. Enforcement hooks inject the advisor policy every session, gate ExitPlanMode on a consultation, hold unadvised multi-file turns for review, and enforce consultation inside background worker subagents.",
       "category": "productivity",
       "keywords": [
         "advisor",

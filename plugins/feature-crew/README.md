@@ -69,10 +69,12 @@ it is active into an orchestrator. Either install with project scope, or set
 - Workers' permission prompts appear in the main session. Pre-allow your test
   and build commands in `permissions.allow` to keep them rare. Plugin agents
   ignore `permissionMode`, so this can't be set from the plugin.
-- `fable-advisor`'s hooks deliberately stay silent inside subagents, so its
-  edit counters and end-of-turn hold never see workers' changes. Workers
-  consult the advisor on instruction, not under a hook: a worker could skip
-  it, which is why the main session checks every 4+-file DONE for a verdict.
+- With `fable-advisor` 1.8.0 or later, workers are enforced by its hooks:
+  each `feature-builder` gets the worker policy at start, a nudge at 4 files
+  edited since its last consultation, and one hold if it tries to finish 4+
+  unreviewed files. Older fable-advisor versions don't enforce inside
+  workers, so there the worker consults on instruction only. Either way the
+  main session checks every 4+-file DONE for a verdict.
   Dispatching a brief does not need a consultation first unless the brief
   makes an architectural, data-model, interface or dependency decision you
   have not made.

@@ -68,10 +68,10 @@ session.
 
 ## With fable-advisor
 Applies when `fable-advisor:advisor` is among your available agent types.
-Its hooks do not see work done inside subagents, so in this session the
-checks below replace its edit counters and end-of-turn hold. Workers consult
-the advisor themselves: they sit on the changed files, and the advisor can
-only read files by path. You check that they did.
+Workers consult the advisor themselves: they sit on the changed files, and
+the advisor can only read files by path. fable-advisor 1.8.0+ enforces that
+inside workers with its own hooks, and a worker's consultations never count
+for this session. You still check each DONE, below.
 - **Dispatching is not executing a plan.** Sending a brief to a worker does
   not need an advisor consultation first, unless the brief makes an
   architectural, data-model, interface or dependency decision the user has

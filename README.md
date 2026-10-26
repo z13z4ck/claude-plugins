@@ -39,7 +39,9 @@ call for advice as they arrive, deny `ExitPlanMode` until the plan has been
 sent to the advisor, nudge once four distinct files have been edited without
 a consultation (Bash heredocs and `sed -i` count), and hold a turn that
 edited four or more files unadvised once at its end, instructing the model to
-get a verification review before it finishes. `FABLE_ADVISOR_ENFORCE=nudge`
+get a verification review before it finishes. Background workers (by default
+feature-crew's `feature-builder`) get the same treatment inside their own
+worktrees, with their own tally that never counts for the parent. `FABLE_ADVISOR_ENFORCE=nudge`
 keeps the reminders and drops the gates.
 
 Every verdict opens with a MODEL line, so a silently substituted model can't

@@ -490,6 +490,156 @@ contains "$HOOK_OUT" "since last consultation: 2 (a.py, b.md)" && ok "counts Edi
 contains "$HOOK_OUT" "enforcement: full" && ok "reports the enforcement mode" || no "mode missing"
 
 # =============================================================================
+section "subagents (live 2.1.308 input: parent transcript_path + agent_id)"
+WK="feature-crew:feature-builder"
+# new_worker <name> <agent_id>: MT = parent transcript, WT = the worker's own,
+# at the path Claude Code uses: <parent minus .jsonl>/subagents/agent-<id>.jsonl
+new_worker() {
+  new_transcript "$1"
+  MT="$T"
+  local id="${2#agent-}"
+  WT="$WORK/$1/subagents/agent-$id.jsonl"
+  mkdir -p "$WORK/$1/subagents"
+  : >"$WT"
+}
+# in_worker <builder> [args...]: append rows to WT, marked as sidechain rows.
+in_worker() {
+  local before
+  T="$WT"
+  before="$(wc -l <"$WT")"
+  "$@"
+  py -c '
+import sys
+p, skip = sys.argv[1], int(sys.argv[2])
+rows = open(p).read().splitlines()
+out = rows[:skip] + [r.replace("{", "{\"isSidechain\":true,", 1) for r in rows[skip:]]
+open(p, "w").write("\n".join(out) + "\n")' "$WT" "$before"
+  T="$MT"
+}
+worker_hook() {
+  # worker_hook <subcommand> <agent_id> <agent_type> [extra-json]
+  run_hook "$1" "\"agent_id\":\"$2\",\"agent_type\":\"$3\"${4:+,$4}"
+}
+wstate() { printf '%s' "$FABLE_ADVISOR_HOME/state/$SID--$1.json"; }
+
+new_worker w1 aw1
+t_prompt "dispatch a worker"
+in_worker t_prompt "Build the credit API"
+for f in a.py b.py c.py; do in_worker t_edit "$f"; done
+worker_hook post-tool aw1 "$WK" '"tool_name":"Edit","prompt_id":"p-main","tool_input":{"file_path":"d.py"}'
+contains "$(context_of "$HOOK_OUT")" "You have edited 4 distinct files" && ok "enforced worker: its own transcript is scanned and it is nudged at 4" || no "worker not nudged" "$HOOK_OUT"
+[ -f "$(wstate aw1)" ] && ok "enforced worker: state lives in its own file (sid--agent_id)" || no "no worker state file"
+if [ ! -f "$FABLE_ADVISOR_HOME/state/$SID.json" ]; then ok "enforced worker edits never touch the parent's state (leak fix)"; else no "parent state written by worker" "$(cat "$FABLE_ADVISOR_HOME/state/$SID.json")"; fi
+run_hook stop-audit '"stop_hook_active":false,"prompt_id":"p-main"'
+[ -z "$HOOK_OUT" ] && ok "parent turn is not held for a worker's edits" || no "parent held for worker edits" "$HOOK_OUT"
+worker_hook post-tool aw1 "$WK" '"tool_name":"Agent","tool_use_id":"toolu_w1","tool_input":{"subagent_type":"fable-advisor:advisor","prompt":"review my diff","description":"w review"}'
+grep -q '"last_consult_ts"' "$(wstate aw1)" && ok "worker's advisor dispatch is recorded for the worker" || no "worker consult not recorded"
+[ ! -f "$FABLE_ADVISOR_HOME/state/$SID.json" ] && ok "worker's consult does not count for the parent" || no "worker consult leaked to parent"
+
+new_worker w2 agent-aw2
+in_worker t_prompt "Build it"
+in_worker t_edit a.py
+worker_hook post-tool agent-aw2 "$WK" '"tool_name":"Edit","tool_input":{"file_path":"b.py"}'
+grep -q '"a.py"' "$(wstate agent-aw2)" && ok "agent_id with an agent- prefix finds agent-<id>.jsonl" || no "prefixed agent_id path wrong" "$(cat "$(wstate agent-aw2)" 2>/dev/null)"
+
+new_worker w3 aw3
+in_worker t_prompt "Build it"
+in_worker t_edit a.py; in_worker t_edit b.py; in_worker t_edit c.py
+worker_hook post-tool aw3 "feature-builder" '"tool_name":"Edit","tool_input":{"file_path":"d.py"}'
+contains "$(context_of "$HOOK_OUT")" "You have edited 4" && ok "bare agent_type 'feature-builder' is enforced too" || no "bare name not matched" "$HOOK_OUT"
+
+new_worker w4 aw4
+t_prompt "go"
+for f in a.py b.py c.py d.py; do
+  worker_hook post-tool aw4 general-purpose "\"tool_name\":\"Write\",\"prompt_id\":\"turn-gp\",\"tool_input\":{\"file_path\":\"$f\"}"
+done
+grep -q '"d.py"' "$FABLE_ADVISOR_HOME/state/$SID.json" 2>/dev/null && ok "in-tree subagent edits still count for the parent" || no "general-purpose edits not attributed to parent"
+run_hook stop-audit '"stop_hook_active":false,"prompt_id":"turn-gp"'
+[ "$(jget "$HOOK_OUT" decision)" = "block" ] && ok "parent is held for edits it delegated to an in-tree subagent" || no "delegated edits laundered" "$HOOK_OUT"
+[ ! -f "$(wstate aw4)" ] && ok "in-tree subagents get no worker state" || no "worker state for general-purpose"
+
+new_worker w5 aw5
+worker_hook post-tool aw5 fable-advisor:advisor '"tool_name":"Bash","tool_input":{"command":"echo x > out.txt"}'
+[ -z "$HOOK_OUT" ] && [ ! -f "$FABLE_ADVISOR_HOME/state/$SID.json" ] && ok "the advisor's own tool calls are silent" || no "advisor calls counted"
+
+new_worker w6 aw6
+in_worker t_prompt "Build it"
+in_worker t_edit a.py; in_worker t_edit b.py; in_worker t_edit c.py
+FABLE_ADVISOR_SUBAGENTS=none worker_hook post-tool aw6 "$WK" '"tool_name":"Edit","tool_input":{"file_path":"d.py"}'
+[ ! -f "$(wstate aw6)" ] && ok "FABLE_ADVISOR_SUBAGENTS=none: no worker enforcement" || no "worker enforced despite none"
+FABLE_ADVISOR_SUBAGENTS="my:agent" worker_hook post-tool aw6 "my:agent" '"tool_name":"Edit","tool_input":{"file_path":"d.py"}'
+[ -f "$(wstate aw6)" ] && ok "FABLE_ADVISOR_SUBAGENTS selects other agent types" || no "custom worker list ignored"
+
+new_transcript ss-w
+worker_hook subagent-start aw7 "$WK"
+[ "$(jget "$HOOK_OUT" hookSpecificOutput.hookEventName)" = "SubagentStart" ] && contains "$(context_of "$HOOK_OUT")" "Advisor policy for this worker" && ok "subagent-start injects the worker policy into enforced types" || no "no worker policy" "$HOOK_OUT"
+contains "$(context_of "$HOOK_OUT")" "absolute path" && ok "worker policy says the advisor reads by absolute path" || no "path guidance missing"
+worker_hook subagent-start aw8 Explore
+[ -z "$HOOK_OUT" ] && ok "subagent-start is silent for other types" || no "policy injected into Explore"
+grep -q "event=subagent-start agent_type=Explore enforced=0" "$FABLE_ADVISOR_HOME/events.log" && ok "subagent-start logs the raw agent_type" || no "agent_type not logged"
+FABLE_ADVISOR_ENFORCE=off worker_hook subagent-start aw7 "$WK"
+[ -z "$HOOK_OUT" ] && ok "ENFORCE=off: no worker policy" || no "worker policy despite off"
+
+new_worker st1 as1
+in_worker t_prompt "Build it"
+for f in a.py b.py c.py d.py; do in_worker t_edit "$f"; done
+worker_hook subagent-stop as1 "$WK" '"stop_hook_active":false,"last_assistant_message":"DONE\nbranch: crew/x"'
+[ "$(jget "$HOOK_OUT" decision)" = "block" ] && contains "$(jget "$HOOK_OUT" reason)" "edited 4 files since your last advisor consultation" && ok "subagent-stop holds an unreviewed 4-file worker" || no "worker not held" "$HOOK_OUT"
+contains "$(jget "$HOOK_OUT" reason)" "absolute path" && ok "hold reason asks for a diff file by absolute path" || no "hold reason lacks path guidance"
+worker_hook subagent-stop as1 "$WK" '"stop_hook_active":false,"last_assistant_message":"DONE"'
+[ -z "$HOOK_OUT" ] && ok "the worker hold fires once per prompt" || no "held twice" "$HOOK_OUT"
+grep -q "event=subagent-stop-hold" "$FABLE_ADVISOR_HOME/events.log" && ok "events.log records worker holds" || no "worker hold not logged"
+
+new_worker st2 as2
+in_worker t_prompt "Build it"
+for f in a.py b.py c.py d.py; do in_worker t_edit "$f"; done
+worker_hook subagent-stop as2 "$WK" '"stop_hook_active":true'
+[ -z "$HOOK_OUT" ] && ok "stop_hook_active: no second hold" || no "held on stop_hook_active"
+worker_hook subagent-stop as2 "$WK" "\"stop_hook_active\":false,\"last_assistant_message\":$(json_str "NEEDS-ANSWER
+branch: crew/x
+question: which?")"
+[ -z "$HOOK_OUT" ] && ok "a worker stopping with NEEDS-ANSWER is not held" || no "held a NEEDS-ANSWER" "$HOOK_OUT"
+worker_hook subagent-stop as2 "$WK" "\"stop_hook_active\":false,\"last_assistant_message\":$(json_str '```
+NEEDS-ANSWER
+```')"
+[ -z "$HOOK_OUT" ] && ok "NEEDS-ANSWER inside a code fence is recognised" || no "fenced NEEDS-ANSWER held"
+in_worker t_tool_use Bash '{"command":"git commit -m wip"}'
+printf '{"type":"assistant","isSidechain":true,"message":{"role":"assistant","content":[{"type":"text","text":"NEEDS-ANSWER\\nbranch: crew/x\\nquestion: which?"}]}}\n' >>"$WT"
+worker_hook subagent-stop as2 "$WK" '"stop_hook_active":false'
+[ -z "$HOOK_OUT" ] && ok "without last_assistant_message, NEEDS-ANSWER is read from the worker transcript" || no "fallback missed NEEDS-ANSWER" "$HOOK_OUT"
+grep -q "event=subagent-stop-pass reason=needs-answer agent=as2" "$FABLE_ADVISOR_HOME/events.log" && ok "worker log lines carry agent=<id>" || no "agent tag missing in worker log"
+worker_hook subagent-stop as2 Explore '"stop_hook_active":false'
+[ -z "$HOOK_OUT" ] && ok "subagent-stop ignores other agent types" || no "held an Explore agent"
+FABLE_ADVISOR_SUBAGENT_STOP=0 worker_hook subagent-stop as2 "$WK" '"stop_hook_active":false'
+[ -z "$HOOK_OUT" ] && ok "SUBAGENT_STOP=0 disables the worker hold" || no "held despite SUBAGENT_STOP=0"
+FABLE_ADVISOR_ENFORCE=nudge worker_hook subagent-stop as2 "$WK" '"stop_hook_active":false'
+[ -z "$HOOK_OUT" ] && ok "ENFORCE=nudge never holds a worker" || no "worker held in nudge mode"
+
+new_worker st3 as3
+in_worker t_prompt "Build it"
+for f in a.py b.py c.py d.py; do in_worker t_edit "$f"; done
+in_worker t_consult
+in_worker t_edit e.py
+worker_hook subagent-stop as3 "$WK" '"stop_hook_active":false'
+[ -z "$HOOK_OUT" ] && ok "edits before the worker's consultation are not held" || no "held after a consultation" "$HOOK_OUT"
+
+new_worker st4 as4
+in_worker t_prompt "Build it"
+for f in a.py b.py; do in_worker t_edit "$f"; done
+in_worker t_prompt "Answer: use option A"
+for f in c.py d.py; do in_worker t_edit "$f"; done
+worker_hook subagent-stop as4 "$WK" '"stop_hook_active":false'
+[ "$(jget "$HOOK_OUT" decision)" = "block" ] && ok "the count spans resumes (since last consult, not last prompt)" || no "resume reset the count" "$HOOK_OUT"
+
+new_worker st5 as5
+OTHER="$WORK/elsewhere/agent-as5.jsonl"; mkdir -p "$WORK/elsewhere"; : >"$OTHER"
+WT="$OTHER"
+in_worker t_prompt "Build it"
+for f in a.py b.py c.py d.py; do in_worker t_edit "$f"; done
+worker_hook subagent-stop as5 "$WK" "\"stop_hook_active\":false,\"agent_transcript_path\":\"$OTHER\""
+[ "$(jget "$HOOK_OUT" decision)" = "block" ] && ok "agent_transcript_path wins over the derived path" || no "agent_transcript_path ignored" "$HOOK_OUT"
+
+# =============================================================================
 section "robustness"
 HOOK_OUT="$(printf 'not json' | bash "$BIN/hook.sh" prompt 2>/dev/null)"; rc=$?
 [ "$rc" -eq 0 ] && [ -z "$HOOK_OUT" ] && ok "garbage stdin: exit 0, no output" || no "garbage stdin misbehaved" "rc=$rc out=$HOOK_OUT"

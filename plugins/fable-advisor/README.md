@@ -23,7 +23,7 @@ and the consultation is enforced rather than left to judgment.
 | Component | Purpose |
 |---|---|
 | `agents/advisor.md` | Read-only advisor, `model: fable`, `effort: high` — enforcement makes consultation routine rather than rare, so the default buys a deep tier at a per-call cost you can afford one or two times a turn; `xhigh` is a one-line opt-up. Reads files itself instead of trusting summaries. Every verdict starts with a MODEL line so a silently substituted model can't pass as Fable. |
-| `hooks/hooks.json` + `bin/` | Five enforcement hooks (below). Transcript-driven, fail-open, silent inside subagents. |
+| `hooks/hooks.json` + `bin/` | Seven enforcement hooks (below). Transcript-driven and fail-open. Background workers of the types you list (default `feature-crew:feature-builder`) get their own policy, tally and end-of-run hold; see [Subagents](#subagents). |
 | `/fable-advisor:consult <question>` | Deterministic consultation. `--model <alias>` overrides the advisor model per call. |
 | `/fable-advisor:review-plan` | Critique the session's current plan before execution. Takes the same `--model <alias>` override as consult. |
 | `/fable-advisor:status` | How many consultations this session, which edits are still unreviewed, which hooks are active, and the last hook events. |
@@ -73,6 +73,8 @@ harness applies:
 | Plan gate | `PreToolUse` on `ExitPlanMode` | **Denies** exiting plan mode until the advisor was dispatched during this planning episode (an `EnterPlanMode` call or a switch into plan mode starts one; a successful `ExitPlanMode` or a switch out of plan mode ends it — a denied attempt does not). Health checks don't count. Headless (`-p`) sessions have no `ExitPlanMode` tool, so this gate only ever fires interactively. After two denials it stops denying and only adds context, so a session where the Agent tool is unavailable cannot wedge; the normal plan-approval prompt still runs, so the user keeps their veto. |
 | Edit watch | `PostToolUse` on `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `Bash` | Counts distinct files edited since the last consultation and nudges at every multiple of the threshold (4, 8, 12 …). Bash writes count too — heredocs, `>`/`>>` redirects, `tee`, `sed -i` — because sessions in bypass-permissions mode are steered to edit through Bash, which the Edit/Write tools never see. Temp and device paths, Claude's own plan files and memory notes are ignored. The same hook records advisor dispatches, so a consultation counts the moment it is made even before the transcript has caught up. |
 | Stop audit | `Stop` | If the turn that is ending edited at least the threshold of distinct files and the advisor was not consulted during that turn, **holds the turn once** with an instruction to get a verification review of the change set. It is a hold, not a lock: after the model has acted on it (or explained why it could not), the next stop goes through. Honours `stop_hook_active`, never holds the same turn twice, and never fires inside a subagent. |
+| Worker policy | `SubagentStart` | For enforced worker types only: puts a worker version of the policy into the subagent before its first prompt — consult before design calls its brief doesn't settle and after two failed fixes, get a review of the committed diff before finishing a change of threshold+ files, and hand the advisor absolute paths, since it reads files only. Logs every subagent start with its raw `agent_type`. |
+| Worker hold | `SubagentStop` | For enforced worker types only: if the worker edited at least the threshold of distinct files since **its own** last consultation (counted across resumes, not per prompt), **holds it once** and asks for a verification review before it reports. Skipped when the worker is stopping with `NEEDS-ANSWER` (the later `DONE` stop still catches it). Honours `stop_hook_active`. |
 
 Ground truth is the session transcript on disk (the same JSONL
 `/pause-resume:recover` reads), so a count cannot drift from what actually
@@ -98,12 +100,39 @@ Set these in the environment Claude Code runs in — the `env` block of
 | `FABLE_ADVISOR_EDIT_WATCH` | `1` | `0` disables the edit-count nudge. |
 | `FABLE_ADVISOR_STOP_AUDIT` | `1` | `0` disables the end-of-turn hold. |
 | `FABLE_ADVISOR_PROMPT_NUDGE` | `1` | `0` disables per-prompt nudges. |
+| `FABLE_ADVISOR_SUBAGENTS` | `feature-crew:feature-builder` | Comma-separated subagent types enforced as workers (plugin-scoped name or bare frontmatter name). `none` turns worker enforcement off. |
+| `FABLE_ADVISOR_SUBAGENT_STOP` | `1` | `0` disables the worker hold; the worker policy and nudges stay. |
 | `FABLE_ADVISOR_HOME` | `~/.claude/fable-advisor` | Where `events.log` and per-session state live. State files are reaped after 7 days. |
 
 `~/.claude/fable-advisor/events.log` records every injection, nudge, denial,
 release and hold with the session id, so you can see the hooks working;
 `/fable-advisor:status` summarises the current session. The hooks have a
 test suite: `bash plugins/fable-advisor/tests/run-tests.sh`.
+
+### Subagents
+
+Claude Code reports a subagent's tool calls with the **parent's** session id
+and transcript path, plus `agent_id` and `agent_type`; the subagent's own
+transcript is `<parent>/subagents/agent-<id>.jsonl`. Before 1.8.0 the hooks
+looked for `/subagents/` in the transcript path to stay out of subagents,
+which current builds never send — so a subagent's edits were added to the
+parent's tally and a subagent's advisor call counted as the parent's
+consultation. Since 1.8.0 every subagent call is sorted into one of three
+cases:
+
+| Subagent | Treatment |
+|---|---|
+| An enforced worker type (`FABLE_ADVISOR_SUBAGENTS`) | Its own state file (`<session>--<agent_id>.json`) and its own transcript. Its edits, nudges, consultations and hold are its own and never count for the parent — a worker's review does not excuse the parent from its own, and a worker's edits never hold the parent. |
+| The advisor itself | Silent. |
+| Anything else (`general-purpose`, `Explore`, your own agents) | Counted for the parent, as before: it works in the parent's tree, so a turn that delegates six edits to a subagent is still held. |
+
+Not yet verified live: whether a `SubagentStop` block re-prompts a
+**background** worker. The docs say a block "keeps the subagent running" with
+the reason as its next instruction; for a background worker the signal to
+watch is a `subagent-stop-hold` line in `events.log` followed by the reason
+appearing in `agent-<id>.jsonl` and a single completion notification. If it
+does not, the policy and the nudges still apply, and feature-crew's main
+session still checks each worker's `advisor:` line.
 
 ### What this costs
 
