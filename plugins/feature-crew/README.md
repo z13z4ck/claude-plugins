@@ -13,8 +13,10 @@ No commands to learn. Install, enable in a project, and talk normally.
 | Component | Purpose |
 |---|---|
 | `agents/feature-builder.md` | The worker. `background: true`, `isolation: worktree`, `model: inherit`. Branches as `crew/<slug>`, stays in its assigned files, runs tests, commits, and ends with a fixed `DONE` or `NEEDS-ANSWER` block. |
-| `hooks/hooks.json` | One `SessionStart` hook (startup, resume, clear, compact) that injects `policy/orchestrator.md` so the main session delegates instead of implementing, keeps a roster in the task list, and resumes workers with your answers. |
+| `hooks/hooks.json` | One `SessionStart` hook, on every start source, that runs `bin/session-start.sh`. |
+| `bin/session-start.sh` | Injects `policy/orchestrator.md` so the main session delegates instead of implementing, keeps a roster, and resumes workers with your answers. Adds a session note after `compact` (re-read the roster), and after `resume`, `fork` or `clear` (earlier workers are gone or out of reach; here are the `crew/*` branches that exist, with their worktrees). Outside a git work tree it prints a one-line "inactive" note instead, since workers need worktrees. Bash and git only, no jq or Python. |
 | `policy/orchestrator.md` | The orchestrator rules. Edit this file to change how the main session behaves. |
+| `tests/run-tests.sh` | `bash tests/run-tests.sh` — exercises the hook against throwaway repos and checks the plugin files agree. |
 
 ## Install
 
@@ -39,12 +41,17 @@ it is active into an orchestrator. Either install with project scope, or set
   the main session shows you the question and options. You answer; the main
   session resumes the same worker with `SendMessage`.
 - **A worker finishes:** you get branch, files changed, what it reports it
-  ran, and open items.
+  ran, and open items. With `fable-advisor` installed, a branch with 4+
+  changed files goes to the advisor first, and you get the report together
+  with its MODEL, VERDICT and RISKS lines.
 - **Revisions:** the main session resumes the original worker, or starts a new
   one from that feature's branch.
-- **Merging:** never automatic. Ask the main session to review a branch; with
-  `fable-advisor` installed it sends branches with 4+ changed files to the
-  advisor first.
+- **Merging:** never automatic. Ask the main session to review a branch; it
+  won't call a branch ready while an advisor review it qualifies for is
+  missing or negative.
+- **Resuming the session later:** workers from the old conversation are gone.
+  The session note lists the `crew/*` branches that exist, and the main
+  session offers to continue unfinished ones from their branches.
 
 ## Limits (from the Claude Code docs)
 
@@ -58,9 +65,16 @@ it is active into an orchestrator. Either install with project scope, or set
   and build commands in `permissions.allow` to keep them rare. Plugin agents
   ignore `permissionMode`, so this can't be set from the plugin.
 - `fable-advisor`'s hooks deliberately stay silent inside subagents, so its
-  enforcement does not apply to workers; the orchestrator policy compensates
-  at review time.
-- Workers are branched from the default branch, not the main session's HEAD.
+  edit counters and end-of-turn hold never see workers' changes. The
+  orchestrator policy replaces them: the main session reviews each DONE
+  branch with 4+ changed files through `fable-advisor:advisor` before
+  reporting it. It also settles the two policies' overlap: dispatching a
+  brief does not need a consultation first unless the brief makes an
+  architectural, data-model, interface or dependency decision you have not.
+- Workers are branched from the default branch, not the main session's HEAD,
+  unless you set `worktree.baseRef` to `"head"` in settings. The policy has
+  the main session state the base branch in every brief either way.
+- Worktrees need git. Outside a git work tree the plugin stays inactive.
 - Every worker draws on your plan's usage; N workers use it roughly N times as
   fast.
 

@@ -110,7 +110,9 @@ Talk to one session; it hands each feature or revision to a background
 worktree, and your conversation stays free. The main session keeps a roster,
 relays a worker's `NEEDS-ANSWER` question to you, resumes that same worker
 with your answer, and reports each `DONE` with branch, changes and what was
-verified. Nothing is merged, pushed or deleted unless you ask.
+verified. With `fable-advisor` installed, branches with 4+ changed files are
+reviewed by the advisor before they're reported. Nothing is merged, pushed or
+deleted unless you ask.
 
 ```
 /plugin install feature-crew@z13z4ck-plugins   # project scope recommended

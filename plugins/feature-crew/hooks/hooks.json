@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ \"${FEATURE_CREW:-on}\" = off ] || cat \"${CLAUDE_PLUGIN_ROOT}/policy/orchestrator.md\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/session-start.sh\"",
             "timeout": 10,
             "statusMessage": "Loading feature-crew orchestrator policy..."
           }

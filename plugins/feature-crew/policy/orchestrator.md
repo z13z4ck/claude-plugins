@@ -15,8 +15,8 @@ session.
   branch name `crew/<slug>`, base branch, and every decision the user already
   made. Give each worker a short name when you spawn it so you can message it
   later.
-- Workers start from the repository's default branch, not from this session's
-  HEAD. Always state the base branch in the brief.
+- By default workers start from the repository's default branch, not from
+  this session's HEAD. Always state the base branch in the brief.
 - Run independent features in parallel. Before dispatching, compare what each
   active worker owns. If two would touch the same files (routes, migrations,
   shared layouts or components, global config, lockfiles), run them one after
@@ -27,16 +27,21 @@ session.
   arrives as a completion notification in a later turn.
 
 ## Keep a roster
-- Keep one task-list item per worker (TaskCreate/TaskUpdate): subject is the
-  feature; description holds the worker's name or ID, its branch, and its
-  status (running / waiting on you / done / failed). Update it on every event.
-- After a compaction or resume, re-read the roster with TaskList before
-  answering anything about worker status.
+- Keep one task-list item per worker in this session's task-list tool
+  (TaskCreate/TaskUpdate/TaskList in the CLI; use whatever task list the host
+  provides instead if those are absent). The item names the feature and holds
+  the worker's name or ID, its branch, and its status (running / waiting on
+  you / under review / done / failed). Update it on every event. If no
+  task-list tool exists, restate the roster in your reply after each event.
+- After a compaction or resume, re-read the roster before answering anything
+  about worker status. A session note at the end of this policy says what
+  changed.
 
 ## Handle worker events
-- **DONE**: tell the user in at most five lines: branch, what changed, what
-  the worker reports it verified (say "reported", you did not re-run it), and
-  anything left open. Mark the roster item done.
+- **DONE**: if the branch qualifies for an advisor review (see "With
+  fable-advisor"), run that first. Then tell the user in at most five lines:
+  branch, what changed, what the worker reports it verified (say "reported",
+  you did not re-run it), and anything left open. Mark the roster item done.
 - **NEEDS-ANSWER**: relay the question and options to the user as the worker
   wrote them, and mark the roster item "waiting on you". When the user
   answers, resume that same worker with SendMessage (to: its name or ID) and
@@ -53,10 +58,30 @@ session.
 
 ## Review and merge
 - Never merge crew branches, push, or delete branches unless the user asks.
-- When the user asks for a review, read `git diff <default-branch>...crew/<slug>`
-  yourself. If the `fable-advisor` plugin is installed, dispatch
-  `fable-advisor:advisor` for a verification review of any crew branch that
-  changed four or more files before calling it ready to merge.
+- When the user asks for a review, read `git diff <base>...crew/<slug>`
+  yourself, where `<base>` is the base branch from that worker's brief.
+- Never call a crew branch ready to merge while an advisor review it
+  qualifies for is missing or returned a verdict against it.
+
+## With fable-advisor
+Applies when `fable-advisor:advisor` is among your available agent types.
+Its hooks do not see work done inside subagents, so in this session the
+checks below replace its edit counters and end-of-turn hold.
+- **Dispatching is not executing a plan.** Sending a brief to a worker does
+  not need an advisor consultation first, unless the brief makes an
+  architectural, data-model, interface or dependency decision the user has
+  not already made. Then consult the advisor (or ask the user) before
+  dispatching, and put the decision in the brief.
+- **Review on DONE.** When a worker reports DONE, count
+  `git diff --name-only <base>...<branch> | wc -l`. At four or more files,
+  mark the roster item "under review" and dispatch `fable-advisor:advisor`
+  with the brief's goal and acceptance criteria, the branch, the base, and
+  the diff command. If the Agent tool can run it in the background, do that
+  and end your turn; otherwise wait for it to return. Then report the DONE
+  together with the advisor's MODEL, VERDICT and RISKS lines intact. Under
+  four files, report DONE directly.
+- **Act on the verdict.** If the verdict asks for changes, tell the user and
+  offer to resume the same worker with them. Do not resume it unasked.
 
 ## Closing
 - Background workers stop when this session ends. When the user signals they
