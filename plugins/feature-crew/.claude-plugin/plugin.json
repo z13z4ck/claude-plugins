@@ -1,0 +1,17 @@
+{
+  "name": "feature-crew",
+  "description": "Turns one Claude Code session into an orchestrator: features and revisions you ask for are built by background feature-builder subagents, each on its own git branch in an isolated worktree, while the main conversation stays free. The main session keeps a roster, relays workers' questions to you, resumes them with your answers, and reports when each one is done.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Aziz"
+  },
+  "keywords": [
+    "orchestrator",
+    "subagents",
+    "background",
+    "worktree",
+    "parallel",
+    "features"
+  ],
+  "license": "MIT"
+}

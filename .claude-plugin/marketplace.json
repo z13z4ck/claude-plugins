@@ -47,6 +47,21 @@
         "session"
       ],
       "license": "MIT"
+    },
+    {
+      "name": "feature-crew",
+      "source": "./plugins/feature-crew",
+      "description": "Turn one session into an orchestrator: features and revisions you ask for are built by background feature-builder subagents, each on its own crew/* branch in an isolated worktree, while the conversation stays free. The main session keeps a roster, relays workers' questions, resumes them with your answers, and reports when each is done.",
+      "category": "productivity",
+      "keywords": [
+        "orchestrator",
+        "subagents",
+        "background",
+        "worktree",
+        "parallel",
+        "features"
+      ],
+      "license": "MIT"
     }
   ]
 }

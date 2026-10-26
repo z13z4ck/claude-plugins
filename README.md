@@ -9,6 +9,7 @@
 | [fable-advisor](plugins/fable-advisor/README.md) | A read-only second-opinion advisor, always on Fable (the `fable` alias — Fable 5.1 today) at `high` effort, with a labeled Opus fallback — and hooks that enforce consultation: policy injected every session, `ExitPlanMode` gated, unadvised multi-file turns held for review |
 | [advisor-select](plugins/advisor-select/README.md) | Pick which model advises this session (`opus`, `sonnet`, `haiku`, `fable`) — e.g. main conversation on Sonnet, second opinions from Opus |
 | [pause-resume](plugins/pause-resume/README.md) | Freeze a running agent between tool calls and thaw it later with context intact — for moving locations, losing connectivity, or sleeping the laptop mid-task |
+| [feature-crew](plugins/feature-crew/README.md) | Turn one session into an orchestrator: features you ask for are built by background subagents, each on its own `crew/*` branch in its own worktree, while your conversation stays free |
 
 # fable-advisor — a Fable second-opinion agent for Claude Code
 
@@ -101,6 +102,25 @@ When a session dies before you could pause it, `/pause-resume:recover` rebuilds
 a resume brief from the transcript Claude Code was writing to disk all along.
 Full details, including how it fails safe when the hook itself is killed:
 [plugins/pause-resume](plugins/pause-resume/README.md).
+
+# feature-crew — one session as an orchestrator for background feature work
+
+Talk to one session; it hands each feature or revision to a background
+`feature-builder` subagent on its own `crew/<slug>` branch in an isolated
+worktree, and your conversation stays free. The main session keeps a roster,
+relays a worker's `NEEDS-ANSWER` question to you, resumes that same worker
+with your answer, and reports each `DONE` with branch, changes and what was
+verified. Nothing is merged, pushed or deleted unless you ask.
+
+```
+/plugin install feature-crew@z13z4ck-plugins   # project scope recommended
+```
+
+No commands to learn — install, restart, and talk normally. The policy turns
+every session where it is active into an orchestrator, so enable it per
+project (`FEATURE_CREW=off` in user settings, `on` where you want it). Full
+details, limits and worktree housekeeping:
+[plugins/feature-crew](plugins/feature-crew/README.md).
 
 ## License
 

@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"${FEATURE_CREW:-on}\" = off ] || cat \"${CLAUDE_PLUGIN_ROOT}/policy/orchestrator.md\"",
+            "timeout": 10,
+            "statusMessage": "Loading feature-crew orchestrator policy..."
+          }
+        ]
+      }
+    ]
+  }
+}
