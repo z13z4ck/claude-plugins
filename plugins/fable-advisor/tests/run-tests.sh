@@ -24,7 +24,12 @@ case "$(uname -s)" in
 esac
 trap 'rm -rf "$FABLE_ADVISOR_HOME" "$WORK"' EXIT
 unset FABLE_ADVISOR_ENFORCE FABLE_ADVISOR_FILE_THRESHOLD FABLE_ADVISOR_PLAN_GATE \
-  FABLE_ADVISOR_EDIT_WATCH FABLE_ADVISOR_STOP_AUDIT FABLE_ADVISOR_PROMPT_NUDGE
+  FABLE_ADVISOR_EDIT_WATCH FABLE_ADVISOR_STOP_AUDIT FABLE_ADVISOR_PROMPT_NUDGE \
+  FABLE_ADVISOR_CLAUDE_MD
+# SessionStart(startup) writes into the user-level CLAUDE.md under the config
+# dir: point it at a throwaway one so no test ever touches the real ~/.claude.
+export CLAUDE_CONFIG_DIR="$WORK/claude-config"
+mkdir -p "$CLAUDE_CONFIG_DIR"
 
 ok() {
   PASS=$((PASS + 1))
@@ -154,6 +159,279 @@ FABLE_ADVISOR_ENFORCE=off run_hook session-start '"source":"startup"'
 
 FABLE_ADVISOR_FILE_THRESHOLD=6 run_hook session-start '"source":"startup"'
 contains "$(context_of "$HOOK_OUT")" "more than 5 files" && ok "threshold override is reflected in the policy" || no "threshold override ignored"
+
+# =============================================================================
+section "user CLAUDE.md block (SessionStart startup + claude-md command)"
+# Each case gets its own config dir and plugin home, so stamps never leak
+# between cases.
+MDC="" MDD="" MDF="" MDH="" MDOUT=""
+md_case() {
+  MDC="$WORK/md-$1"
+  MDD="$MDC/cfg"
+  MDF="$MDD/CLAUDE.md"
+  MDH="$MDC/home"
+  mkdir -p "$MDD"
+}
+md_start() { CLAUDE_CONFIG_DIR="$MDD" FABLE_ADVISOR_HOME="$MDH" run_hook session-start "\"source\":\"${1:-startup}\""; }
+md_cmd() { MDOUT="$(printf '' | CLAUDE_CONFIG_DIR="$MDD" FABLE_ADVISOR_HOME="$MDH" bash "$BIN/hook.sh" claude-md "$@" 2>&1 | tr -d '\r')"; }
+md_count() { grep -c 'fable-advisor:begin' "$MDF" 2>/dev/null || true; }
+BEGIN_V1='<!-- fable-advisor:begin v1 -->'
+
+new_transcript md
+md_case first
+md_start
+ctx="$(context_of "$HOOK_OUT")"
+[ -f "$MDF" ] && grep -qF "$BEGIN_V1" "$MDF" && grep -qF '<!-- fable-advisor:end -->' "$MDF" \
+  && ok "first startup creates CLAUDE.md with the v1 block" || no "block not written" "$(cat "$MDF" 2>/dev/null)"
+grep -q "## Advisor policy (fable-advisor)" "$MDF" && grep -q '\[fable-advisor\]' "$MDF" \
+  && ok "block has the heading and defers to an injected [fable-advisor] policy" || no "block content wrong" "$(cat "$MDF")"
+! grep -qE '[0-9]+ files' "$MDF" && ok "block hardcodes no file threshold" || no "block hardcodes a threshold"
+[ -f "$MDH/claude-md.json" ] && grep -q '"version": 1' "$MDH/claude-md.json" \
+  && ok "stamp records the block version" || no "stamp missing" "$(cat "$MDH/claude-md.json" 2>/dev/null)"
+contains "$ctx" "Advisor policy for this session" && ok "the policy is still injected" || no "policy lost" "$ctx"
+contains "$ctx" "$MDF" && contains "$ctx" "next session" && contains "$ctx" "FABLE_ADVISOR_CLAUDE_MD=off" \
+  && contains "$ctx" "/fable-advisor:claude-md remove" \
+  && ok "first write: context names the file, next-session effect and both opt-outs" || no "notice missing" "$ctx"
+cp "$MDF" "$MDC/after-first"
+md_start
+cmp -s "$MDF" "$MDC/after-first" && ok "second startup leaves the file untouched" || no "second startup changed the file"
+! contains "$(context_of "$HOOK_OUT")" "CLAUDE.md" && ok "second startup: no notice" || no "notice repeated" "$(context_of "$HOOK_OUT")"
+
+# The user deletes the block: the stamp remembers, it is not re-added.
+printf '# my notes\n' >"$MDF"
+md_start
+[ "$(md_count)" = "0" ] && [ "$(cat "$MDF")" = "# my notes" ] && ok "block removed by the user is not re-added" || no "block re-added" "$(cat "$MDF")"
+! contains "$(context_of "$HOOK_OUT")" "CLAUDE.md" && ok "no notice when respecting a removal" || no "unexpected notice"
+
+# Existing content is preserved byte for byte (unicode, CRLF, trailing spaces)
+# and a remove restores the original exactly.
+md_case nofinal
+printf 'no final newline \xc3\xa9' >"$MDF"
+cp "$MDF" "$MDC/orig"
+md_start
+size=$(wc -c <"$MDC/orig" | tr -d ' ')
+head -c "$size" "$MDF" | cmp -s - "$MDC/orig" && [ "$(md_count)" = "1" ] \
+  && ok "file without a final newline: kept byte for byte, block appended" || no "no-final-newline content changed" "$(od -c "$MDF" | head -3)"
+md_case preserve
+printf '# Mine \xe2\x80\x94 caf\xc3\xa9\r\nline two  \r\n\r\nlast\r\n' >"$MDF"
+cp "$MDF" "$MDC/orig"
+md_start
+size=$(wc -c <"$MDC/orig" | tr -d ' ')
+head -c "$size" "$MDF" | cmp -s - "$MDC/orig" && ok "existing content kept byte for byte, block appended after it" || no "existing content changed"
+[ "$(md_count)" = "1" ] && ok "exactly one block" || no "block count $(md_count)"
+grep -q "fable-advisor:end -->$(printf '\r')$" "$MDF" && ok "block follows the file's CRLF line endings" || no "line endings mixed" "$(od -c "$MDF" | tail -4)"
+md_cmd remove
+cmp -s "$MDF" "$MDC/orig" && ok "claude-md remove restores the original file exactly" || no "remove left residue" "$(od -c "$MDF" | tail -3)"
+contains "$MDOUT" "Removed" && ok "remove reports what it did" || no "remove output" "$MDOUT"
+md_start
+[ "$(md_count)" = "0" ] && ok "after remove, startup does not re-add" || no "re-added after remove"
+
+md_case append
+printf '# Mine\n\nkeep this\n' >"$MDF"
+md_start
+py -c '
+import sys
+t = open(sys.argv[1], encoding="utf-8", newline="").read()
+assert t.startswith("# Mine\n\nkeep this\n\n<!-- fable-advisor:begin v1 -->\n"), repr(t[:80])
+assert t.endswith("<!-- fable-advisor:end -->\n"), repr(t[-40:])
+' "$MDF" && ok "append uses one blank-line separator and ends with a newline" || no "append layout wrong" "$(cat "$MDF")"
+md_cmd remove
+[ "$(cat "$MDF")" = "$(printf '# Mine\n\nkeep this')" ] && [ "$(tail -c 1 "$MDF" | od -An -c | tr -d ' ')" = '\n' ] \
+  && ok "remove drops the blank separator it added" || no "remove layout wrong" "$(od -c "$MDF")"
+
+# An older block version is replaced in place, surrounding content untouched.
+md_case upgrade
+printf '# Top\n\nbefore\n\n<!-- fable-advisor:begin v0 -->\nold advice\n<!-- fable-advisor:end -->\n\nafter \xc3\xa9\n' >"$MDF"
+md_start
+py -c '
+import sys
+t = open(sys.argv[1], encoding="utf-8", newline="").read()
+assert t.startswith("# Top\n\nbefore\n\n<!-- fable-advisor:begin v1 -->\n"), repr(t[:60])
+assert t.endswith("<!-- fable-advisor:end -->\n\nafter é\n"), repr(t[-60:])
+assert "old advice" not in t and t.count("fable-advisor:begin") == 1
+' "$MDF" && ok "older block replaced in place, user content around it preserved exactly" || no "upgrade wrong" "$(cat "$MDF")"
+contains "$(context_of "$HOOK_OUT")" "Updated" && ok "upgrade announces itself" || no "no upgrade notice" "$(context_of "$HOOK_OUT")"
+grep -q '"version": 1' "$MDH/claude-md.json" && ok "upgrade updates the stamp" || no "stamp not updated"
+
+# A current block written elsewhere (no stamp yet): left alone, stamp written.
+md_case adopt
+printf '%s\nhand-edited\n<!-- fable-advisor:end -->\n' "$BEGIN_V1" >"$MDF"
+cp "$MDF" "$MDC/orig"
+md_start
+cmp -s "$MDF" "$MDC/orig" && [ -f "$MDH/claude-md.json" ] && ! contains "$(context_of "$HOOK_OUT")" "CLAUDE.md" \
+  && ok "current block present without a stamp: untouched, stamp written, no notice" || no "adopt wrong"
+
+# A begin marker without an end marker is never rewritten.
+md_case malformed
+printf 'x\n%s\nno end\n' "$BEGIN_V1" >"$MDF"
+cp "$MDF" "$MDC/orig"
+md_start
+cmp -s "$MDF" "$MDC/orig" && ok "unterminated block: file left alone" || no "malformed file rewritten" "$(cat "$MDF")"
+
+# Opt-outs and non-startup sources.
+md_case optout
+FABLE_ADVISOR_CLAUDE_MD=off md_start
+[ ! -e "$MDF" ] && [ ! -e "$MDH/claude-md.json" ] && ok "FABLE_ADVISOR_CLAUDE_MD=off writes nothing" || no "written despite opt-out"
+contains "$(context_of "$HOOK_OUT")" "Advisor policy" && ok "opt-out still injects the policy" || no "policy lost on opt-out"
+FABLE_ADVISOR_ENFORCE=off md_start
+[ ! -e "$MDF" ] && ok "FABLE_ADVISOR_ENFORCE=off writes nothing" || no "written with enforcement off"
+for src in resume compact clear; do
+  md_start "$src"
+  [ ! -e "$MDF" ] && ok "source=$src writes nothing" || no "written on $src"
+done
+
+md_case nodir
+rmdir "$MDD"
+md_start
+[ ! -e "$MDD" ] && ok "missing config dir: nothing created" || no "config dir created"
+contains "$(context_of "$HOOK_OUT")" "Advisor policy" && ok "missing config dir: policy still injected" || no "policy lost"
+md_cmd install
+[ ! -e "$MDD" ] && contains "$MDOUT" "does not exist" && ok "install never creates the config dir" || no "install created the dir" "$MDOUT"
+
+# The claude-md command.
+md_case cmd
+md_cmd status
+contains "$MDOUT" "$MDF" && contains "$MDOUT" "block: absent" && contains "$MDOUT" "auto-install: on" \
+  && ok "status: target path, no block, auto-install on" || no "status wrong" "$MDOUT"
+md_cmd
+contains "$MDOUT" "block: absent" && ok "no argument means status" || no "default not status" "$MDOUT"
+FABLE_ADVISOR_CLAUDE_MD=0 md_cmd status
+contains "$MDOUT" "auto-install: off" && ok "status reports the opt-out" || no "opt-out not reported" "$MDOUT"
+md_cmd install
+[ "$(md_count)" = "1" ] && contains "$MDOUT" "Wrote" && ok "install writes the block" || no "install failed" "$MDOUT"
+md_cmd install
+[ "$(md_count)" = "1" ] && ok "install is idempotent" || no "install duplicated the block"
+md_cmd status
+contains "$MDOUT" "block: present (v1, current)" && contains "$MDOUT" "stamp:" && ok "status: block version and stamp" || no "status after install" "$MDOUT"
+md_cmd remove
+[ "$(md_count)" = "0" ] && ok "remove deletes the block" || no "remove failed"
+md_cmd status
+contains "$MDOUT" "block: absent" && contains "$MDOUT" "will not re-add" && ok "status explains a removed block stays removed" || no "status after remove" "$MDOUT"
+md_cmd install
+[ "$(md_count)" = "1" ] && ok "install re-adds a block the user removed" || no "install refused after remove"
+md_cmd bogus
+contains "$MDOUT" "usage" && ok "unknown action prints usage" || no "bogus action" "$MDOUT"
+
+md_case cmdremove
+printf 'mine\n' >"$MDF"
+md_cmd remove
+[ "$(cat "$MDF")" = "mine" ] && [ -f "$MDH/claude-md.json" ] && ok "remove with no block records the opt-out" || no "remove without block"
+md_start
+[ "$(md_count)" = "0" ] && ok "...so startup never adds it" || no "added after pre-emptive remove"
+
+# Symlinked CLAUDE.md (dotfiles): the link survives, its target is edited.
+# Git Bash's ln -s copies instead of linking, so this case is POSIX-only.
+case "$(uname -s)" in
+  MINGW* | MSYS*) ;;
+  *)
+    md_case link
+    printf 'dotfile\n' >"$MDC/real.md"
+    ln -s "$MDC/real.md" "$MDF"
+    md_start
+    [ -L "$MDF" ] && grep -qF "$BEGIN_V1" "$MDC/real.md" && ok "symlinked CLAUDE.md: link kept, target updated" || no "symlink replaced"
+    ;;
+esac
+
+# Notepad saves UTF-8 with a BOM: kept, never added, and a block right after
+# it is still found.
+md_case bom
+printf '\xef\xbb\xbf# notes\r\nkept\r\n' >"$MDF"
+cp "$MDF" "$MDC/orig"
+md_start
+size=$(wc -c <"$MDC/orig" | tr -d ' ')
+head -c "$size" "$MDF" | cmp -s - "$MDC/orig" && [ "$(md_count)" = "1" ] && ok "BOM file: BOM and content kept, block appended" || no "BOM file changed" "$(od -c "$MDF" | head -3)"
+md_cmd remove
+cmp -s "$MDF" "$MDC/orig" && ok "BOM file: remove restores the original bytes" || no "BOM remove residue" "$(od -c "$MDF" | head -3)"
+[ "$(head -c 3 "$MDH/claude-md.json" 2>/dev/null | od -An -tx1 | tr -d ' ')" != "efbbbf" ] && ok "stamp is written without a BOM" || no "stamp has a BOM"
+md_case bomtop
+printf '\xef\xbb\xbf<!-- fable-advisor:begin v0 -->\nold\n<!-- fable-advisor:end -->\nafter\n' >"$MDF"
+md_start
+[ "$(head -c 3 "$MDF" | od -An -tx1 | tr -d ' ')" = "efbbbf" ] && [ "$(md_count)" = "1" ] && grep -qF "$BEGIN_V1" "$MDF" && [ "$(tail -n 1 "$MDF")" = "after" ] \
+  && ok "block at the very top after a BOM is found and replaced in place" || no "BOM-top block mishandled" "$(od -c "$MDF" | head -4)"
+md_case new
+md_start
+[ "$(head -c 3 "$MDF" | od -An -tx1 | tr -d ' ')" != "efbbbf" ] && ok "a new CLAUDE.md gets no BOM" || no "BOM added"
+
+# Duplicate blocks (e.g. pasted twice) collapse to one, other content kept.
+md_case dup
+printf 'top\n\n<!-- fable-advisor:begin v0 -->\na\n<!-- fable-advisor:end -->\n\nmiddle\n\n<!-- fable-advisor:begin v0 -->\nb\n<!-- fable-advisor:end -->\n\nend\n' >"$MDF"
+md_start
+[ "$(md_count)" = "1" ] && grep -qx middle "$MDF" && grep -qx end "$MDF" && grep -qx top "$MDF" \
+  && ok "duplicate blocks collapse to one on refresh" || no "duplicates kept" "$(cat "$MDF")"
+md_cmd install
+[ "$(md_count)" = "1" ] && ok "install after collapse stays at one block" || no "install duplicated"
+printf '\n%s\nx\n<!-- fable-advisor:end -->\n' "$BEGIN_V1" >>"$MDF"
+md_cmd install
+[ "$(md_count)" = "1" ] && ok "install collapses a current-version duplicate" || no "install kept duplicate" "$(cat "$MDF")"
+md_cmd remove
+[ "$(md_count)" = "0" ] && grep -qx middle "$MDF" && ok "remove deletes every block" || no "remove left a block" "$(cat "$MDF")"
+
+# A write that fails (read-only dir here; a locked file on Windows) fails open:
+# policy injected, no stamp, so the next startup tries again.
+if [ "$(id -u 2>/dev/null)" != "0" ]; then
+  case "$(uname -s)" in
+    MINGW* | MSYS*) ;;
+    *)
+      md_case locked
+      chmod 555 "$MDD"
+      md_start
+      chmod 755 "$MDD"
+      [ ! -e "$MDF" ] && [ ! -e "$MDH/claude-md.json" ] && contains "$(context_of "$HOOK_OUT")" "Advisor policy" \
+        && ok "failed write: policy still injected, no stamp" || no "failed write mishandled" "$HOOK_OUT"
+      grep -q "event=claude-md-error" "$MDH/events.log" && ok "failed write is logged" || no "failure not logged"
+      md_start
+      [ "$(md_count)" = "1" ] && ok "next startup retries and writes the block" || no "no retry after failure"
+      ls -a "$MDD" | grep -q '\.tmp' && no "tmp file left behind" || ok "no tmp files left behind"
+      ;;
+  esac
+fi
+
+# Windows details, exercised on any OS by forcing the Windows code path.
+py -c '
+import sys
+sys.path.insert(0, sys.argv[1])
+import advisor_hooks as h
+assert h._msys_to_win("/c/Users/x/.claude", nt=True) == "C:/Users/x/.claude", h._msys_to_win("/c/Users/x/.claude", nt=True)
+assert h._msys_to_win("/d", nt=True) == "D:/"
+assert h._msys_to_win("C:/Users/x", nt=True) == "C:/Users/x"
+assert h._msys_to_win("/home/x/.claude", nt=True) == "/home/x/.claude"
+assert h._msys_to_win("/c/Users/x/.claude", nt=False) == "/c/Users/x/.claude"
+n = lambda p: h._norm_path(p, nt=True)
+assert n("/c/Users/X/.claude/CLAUDE.md") == n("C:\\Users\\x\\.claude\\CLAUDE.md") == n("c:/users/x/.claude/claude.md")
+print("ok")
+' "$BIN" | grep -qx ok && ok "MSYS /c/Users/x/.claude maps to C:/Users/x/.claude; stamp paths compare Windows-style" || no "Windows path mapping wrong"
+py -c '
+import os, sys, tempfile
+sys.path.insert(0, sys.argv[1])
+import advisor_hooks as h
+h.REPLACE_DELAY = 0
+real = os.replace
+calls = []
+def flaky(a, b):
+    calls.append(1)
+    if len(calls) < 3:
+        raise PermissionError("locked")
+    real(a, b)
+os.replace = flaky
+d = tempfile.mkdtemp()
+src, dst = os.path.join(d, "s"), os.path.join(d, "t")
+open(src, "w").close()
+h._replace(src, dst)
+assert os.path.exists(dst) and len(calls) == 3
+def locked(a, b):
+    raise PermissionError("locked")
+os.replace = locked
+open(src, "w").close()
+try:
+    h._replace(src, dst)
+    raise SystemExit("no error")
+except PermissionError:
+    pass
+print("ok")
+' "$BIN" | grep -qx ok && ok "os.replace PermissionError is retried, and re-raised after 3 attempts" || no "replace retry wrong"
+
+# The shared session-start runs above wrote into the throwaway config dir only.
+grep -qF "$BEGIN_V1" "$CLAUDE_CONFIG_DIR/CLAUDE.md" && ok "suite-wide startup runs write to the temp CLAUDE_CONFIG_DIR" || no "temp config dir not used"
 
 # =============================================================================
 section "prompt nudges"
@@ -353,7 +631,8 @@ bw() { py -c 'import sys; sys.path.insert(0, sys.argv[1]); import advisor_hooks 
 [ "$(bw 'cd /work/proj && echo a > f.txt')" = "/work/proj/f.txt" ] && ok "cd to an absolute dir: relative writes resolve against it" || no "cd abs resolution wrong" "$(bw 'cd /work/proj && echo a > f.txt')"
 [ "$(bw 'cd sub && echo a > f.txt')" = "sub/f.txt" ] && ok "relative cd from the session dir keeps project-relative paths" || no "relative cd wrong" "$(bw 'cd sub && echo a > f.txt')"
 [ "$(bw '(cd /tmp/a && echo > z) ; echo > y')" = "y" ] && ok "a cd inside ( ... ) ends with the subshell" || no "subshell cd leaked" "$(bw '(cd /tmp/a && echo > z) ; echo > y')"
-[ -z "$(bw 'cd ~/.claude/plans && cat > p.md')" ] && ok "cd into Claude's plans dir: relative writes are not project edits" || no "plans-dir write counted" "$(bw 'cd ~/.claude/plans && cat > p.md')"
+# Pure path classification, nothing is written: the default config dir is safe here.
+[ -z "$(CLAUDE_CONFIG_DIR='' bw 'cd ~/.claude/plans && cat > p.md')" ] && ok "cd into Claude's plans dir: relative writes are not project edits" || no "plans-dir write counted" "$(CLAUDE_CONFIG_DIR='' bw 'cd ~/.claude/plans && cat > p.md')"
 [ "$(bw 'cat > f && cd $R && cat > g')" = "f" ] && ok "writes before an unresolvable cd still count" || no "pre-cd write lost" "$(bw 'cat > f && cd $R && cat > g')"
 [ -z "$(bw 'if true; then cd $R; cat > g; fi')" ] && ok "cd after 'then' is recognised" || no "cd after then missed" "$(bw 'if true; then cd $R; cat > g; fi')"
 [ "$(bw 'cd ./ && echo > ./f')" = "f" ] && ok "joined paths are normalised (./f == f)" || no "join not normalised" "$(bw 'cd ./ && echo > ./f')"
@@ -396,8 +675,8 @@ run_hook edit-watch '"tool_name":"Write","tool_input":{"file_path":"e.py"}'
 
 new_transcript e5c
 t_prompt "go"; t_edit a.py; t_edit b.py; t_edit c.py
-t_edit "$HOME/.claude/plans/some-plan.md"; t_edit "$HOME/.claude/projects/-x/memory/note.md"; t_edit "/tmp/scratch.txt"
-run_hook edit-watch "\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$HOME/.claude/plans/other-plan.md\"}"
+t_edit "$CLAUDE_CONFIG_DIR/plans/some-plan.md"; t_edit "$CLAUDE_CONFIG_DIR/projects/-x/memory/note.md"; t_edit "/tmp/scratch.txt"
+run_hook edit-watch "\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$CLAUDE_CONFIG_DIR/plans/other-plan.md\"}"
 [ -z "$HOOK_OUT" ] && ok "plan files, memory notes and temp paths are not project edits" || no "non-project paths counted" "$HOOK_OUT"
 run_hook stop-audit '"stop_hook_active":false'
 [ -z "$HOOK_OUT" ] && ok "stop audit ignores them too" || no "stop audit counted non-project paths" "$HOOK_OUT"

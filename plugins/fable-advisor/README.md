@@ -14,7 +14,9 @@ Since 1.6.0 the plugin also **enforces** consultation. Hooks inject the
 advisor policy into every session, gate `ExitPlanMode` on a consultation,
 nudge when unreviewed edits pile up, and hold a turn that edited four or more
 files without advice once at its end, with an instruction to get the change
-set reviewed before finishing. No CLAUDE.md snippet is needed. Same advisor workflow as
+set reviewed before finishing. Since 1.9.0 the first session on a device also
+writes a short fallback policy block into your user-level CLAUDE.md, once
+(see [layer 3](#the-four-layers-in-increasing-reliability)). Same advisor workflow as
 [advisor-select](../advisor-select), but the advisor model is fixed to Fable
 and the consultation is enforced rather than left to judgment.
 
@@ -27,6 +29,7 @@ and the consultation is enforced rather than left to judgment.
 | `/fable-advisor:consult <question>` | Deterministic consultation. `--model <alias>` overrides the advisor model per call. |
 | `/fable-advisor:review-plan` | Critique the session's current plan before execution. Takes the same `--model <alias>` override as consult. |
 | `/fable-advisor:status` | How many consultations this session, which edits are still unreviewed, which hooks are active, and the last hook events. |
+| `/fable-advisor:claude-md [install\|remove\|status]` | Show, (re)install or remove the advisor-policy block in your user-level CLAUDE.md. Never run by the model on its own. |
 | `/fable-advisor:health` | Verify Fable actually answers as itself and report which Fable version did; detects both failed dispatches and silent substitution, and reports whether the Opus fallback works. |
 
 Effort is set in the agent's frontmatter because the Agent tool has no
@@ -68,7 +71,7 @@ harness applies:
 
 | Hook | Event | What it does |
 |---|---|---|
-| Policy injection | `SessionStart` (startup, resume, clear, **compact**) | Puts the advisor policy — when to consult, how to dispatch, how to handle a degraded verdict — into context. Re-injected after every compaction, with a tally of consultations so far and files edited since the last one. |
+| Policy injection | `SessionStart` (startup, resume, clear, **compact**) | Puts the advisor policy — when to consult, how to dispatch, how to handle a degraded verdict — into context. Re-injected after every compaction, with a tally of consultations so far and files edited since the last one. On `startup` only, also writes the [user CLAUDE.md block](#the-four-layers-in-increasing-reliability) once per device. |
 | Prompt nudge | `UserPromptSubmit` | Recognises decision prompts ("should we", "which is better", "trade-offs"), planning prompts ("refactor", "migrate", "design"), stalled fixes ("still failing", "same error" — escalates on the second in a row) and review requests, and states that the policy applies to this turn. Also surfaces any unreviewed edits over the threshold. Silent on trivial prompts, slash commands, and harness messages such as a background agent's `<task-notification>` (which mentions "review" often enough to be mistaken for a request). |
 | Plan gate | `PreToolUse` on `ExitPlanMode` | **Denies** exiting plan mode until the advisor was dispatched during this planning episode (an `EnterPlanMode` call or a switch into plan mode starts one; a successful `ExitPlanMode` or a switch out of plan mode ends it — a denied attempt does not). Health checks don't count. Headless (`-p`) sessions have no `ExitPlanMode` tool, so this gate only ever fires interactively. After two denials it stops denying and only adds context, so a session where the Agent tool is unavailable cannot wedge; the normal plan-approval prompt still runs, so the user keeps their veto. |
 | Edit watch | `PostToolUse` on `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `Bash` | Counts distinct files edited since the last consultation and nudges at every multiple of the threshold (4, 8, 12 …). Bash writes count too — heredocs, `>`/`>>` redirects, `tee`, `sed -i` — because sessions in bypass-permissions mode are steered to edit through Bash, which the Edit/Write tools never see. Temp and device paths, Claude's own plan files and memory notes are ignored. A `cd` is followed: relative writes after `cd /some/dir` are resolved against it (so a scratch dir under `/tmp` drops out), and relative writes after a `cd` it cannot resolve (`cd $DIR`, `cd -`) are skipped rather than guessed into the project; a `cd` inside `( … )` ends with the subshell. Relative Bash writes are resolved against the session's directory, so a file written by `Write` and later by `sed -i` counts once — and a project that itself lives under the temp dir is not enforced, through Bash or the Edit tools. The same hook records advisor dispatches, so a consultation counts the moment it is made even before the transcript has caught up. |
@@ -102,7 +105,8 @@ Set these in the environment Claude Code runs in — the `env` block of
 | `FABLE_ADVISOR_PROMPT_NUDGE` | `1` | `0` disables per-prompt nudges. |
 | `FABLE_ADVISOR_SUBAGENTS` | `feature-crew:feature-builder` | Comma-separated subagent types enforced as workers (plugin-scoped name or bare frontmatter name). `none` turns worker enforcement off. |
 | `FABLE_ADVISOR_SUBAGENT_STOP` | `1` | `0` disables the worker hold; the worker policy and nudges stay. |
-| `FABLE_ADVISOR_HOME` | `~/.claude/fable-advisor` | Where `events.log` and per-session state live. State files are reaped after 7 days. |
+| `FABLE_ADVISOR_CLAUDE_MD` | `1` | `0`/`off` stops the automatic advisor-policy block in your user-level CLAUDE.md. It does not remove a block already written — `/fable-advisor:claude-md remove` does. |
+| `FABLE_ADVISOR_HOME` | `~/.claude/fable-advisor` | Where `events.log`, per-session state and the CLAUDE.md stamp (`claude-md.json`) live. State files are reaped after 7 days; the stamp is kept. |
 
 `~/.claude/fable-advisor/events.log` records every injection, nudge, denial,
 release and hold with the session id, so you can see the hooks working;
@@ -204,18 +208,39 @@ cross-check when a verdict looks off.
    compaction, prompts that call for advice are flagged as they arrive, and
    the plan gate and stop audit refuse to let the two most consequential
    moments pass unadvised. Strongly steered, with hard stops.
-3. **CLAUDE.md policy** — optional now, but still useful if you want the
-   policy visible in the repo for people as well as for the model:
+3. **User CLAUDE.md block** — written for you. Plugins have no install
+   hook, so the first session that starts on a device (`SessionStart` with
+   source `startup`) appends a short block to your **user-level**
+   `${CLAUDE_CONFIG_DIR:-~/.claude}/CLAUDE.md` — never a project's CLAUDE.md —
+   between `<!-- fable-advisor:begin v1 -->` and `<!-- fable-advisor:end -->`.
+   It is a fallback for sessions where the hooks did not run: it says to
+   consult `fable-advisor:advisor` before design decisions and multi-file
+   plans and after repeated failed fixes, and that an injected
+   `[fable-advisor]` policy (the session policy, or a worker's) is
+   authoritative whenever one is in context, so the two never conflict. It
+   names no thresholds; the hooks own those. That first session's context
+   says where the block went, and it takes effect from the next session
+   (CLAUDE.md is read before hooks run).
 
-   ```markdown
-   ## Advisor policy
-   Before any architectural decision, any plan touching more than 3 files, or
-   after two failed attempts at the same bug, consult the fable-advisor:advisor
-   agent and present its verdict. If the built-in advisor tool is unavailable,
-   use the fable-advisor:advisor agent — do not skip consultation because the
-   built-in tool refused. Do not proceed on major decisions without either an
-   advisor verdict or an explicit note that both advisor paths failed.
-   ```
+   It is written once. A stamp in `FABLE_ADVISOR_HOME/claude-md.json` records
+   the target path and block version, so if you delete the block it is
+   **not** re-added. When a plugin update changes the block, an older
+   version is replaced in place at the next startup. Nothing outside the
+   markers is ever touched, a missing config dir is never created, and
+   resume, clear and compact never write. `FABLE_ADVISOR_CLAUDE_MD=off` (or
+   `FABLE_ADVISOR_ENFORCE=off`) stops the automatic write;
+   `/fable-advisor:claude-md` shows the block's state, `install` writes or
+   refreshes it even after you removed it, and `remove` deletes it (with the
+   blank line it added) and keeps it from coming back.
+
+   On Windows the path is resolved like the rest of the plugin: a Git Bash
+   `CLAUDE_CONFIG_DIR=/c/Users/you/.claude` is read as `C:/Users/you/.claude`,
+   and the stamp compares paths case- and slash-insensitively. A CRLF file
+   gets a CRLF block, a UTF-8 BOM is kept (and never added), and everything
+   outside the markers stays byte for byte. A symlinked CLAUDE.md (dotfiles)
+   keeps its link; the real file is updated. Writes are atomic; if the file
+   is locked by an editor or antivirus, the hook retries briefly, then gives
+   up without stamping, so the next startup tries again.
 
 4. **Slash commands** — `/fable-advisor:consult` and
    `/fable-advisor:review-plan` when you want the consultation now,

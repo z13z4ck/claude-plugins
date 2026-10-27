@@ -3,11 +3,15 @@
 
 Claude Code decides on its own when to delegate to the advisor agent by reading
 the agent's description. That is real but not guaranteed. These hooks make
-consultation near-mandatory without a CLAUDE.md snippet, and they survive
-context compaction because the policy is re-injected on every SessionStart.
+consultation near-mandatory, and they survive context compaction because the
+policy is re-injected on every SessionStart. As a fallback for sessions where
+the hooks do not run, the first startup on a device also writes a short
+advisor-policy block into the user-level CLAUDE.md (once; a block the user
+deletes is never re-added; FABLE_ADVISOR_CLAUDE_MD=off opts out).
 
   session-start  SessionStart: inject the advisor policy (startup, resume,
-                 clear, compact) plus a one-line usage tally on resume/compact
+                 clear, compact) plus a one-line usage tally on resume/compact;
+                 on startup, write the CLAUDE.md block once per device
   prompt         UserPromptSubmit: recognise decision / planning / stalled-fix /
                  review prompts and state that the policy applies to this turn
   plan-gate      PreToolUse ExitPlanMode: deny until the plan was sent to the
@@ -22,6 +26,7 @@ context compaction because the policy is re-injected on every SessionStart.
   subagent-stop  SubagentStop: hold an enforced worker once when it edited >= N
                  files since its last consultation, asking for a review first
   status         plain-text summary for /fable-advisor:status
+  claude-md      claude-md [install|remove|status] for /fable-advisor:claude-md
 
 Subagents. Claude Code reports a subagent's tool calls with the parent's
 session_id and transcript_path plus agent_id/agent_type; the subagent's own
@@ -53,6 +58,7 @@ Configuration (environment variables, e.g. via settings.json "env"):
   FABLE_ADVISOR_SUBAGENTS       comma list of enforced subagent types
                                 (feature-crew:feature-builder); none disables
   FABLE_ADVISOR_SUBAGENT_STOP   0 disables the worker end-of-run hold
+  FABLE_ADVISOR_CLAUDE_MD       0 stops the automatic user CLAUDE.md block
   FABLE_ADVISOR_HOME            state + events.log dir (~/.claude/fable-advisor)
 """
 import calendar
@@ -79,6 +85,22 @@ DISPATCH = (
 # --- configuration ----------------------------------------------------------
 
 
+def _msys_to_win(p, nt=None):
+    """Git Bash hands native Windows Python MSYS paths (/c/Users/x) that it
+    cannot open: map /<drive>/... to <drive>:/... on Windows (nt=None means
+    "this OS"; tests force it). Anything else is returned unchanged."""
+    if not p or not (os.name == "nt" if nt is None else nt):
+        return p
+    m = re.match(r"^/([A-Za-z])(/|$)", p)
+    if m:
+        return m.group(1).upper() + ":/" + p[m.end():]
+    return p
+
+
+def _config_dir():
+    return _msys_to_win(os.environ.get("CLAUDE_CONFIG_DIR")) or os.path.expanduser("~/.claude")
+
+
 def _flag(name, default=True):
     v = os.environ.get(name)
     if v is None or v.strip() == "":
@@ -99,15 +121,14 @@ class Config:
         self.stop_audit = _flag("FABLE_ADVISOR_STOP_AUDIT")
         self.prompt_nudge = _flag("FABLE_ADVISOR_PROMPT_NUDGE")
         self.subagent_stop = _flag("FABLE_ADVISOR_SUBAGENT_STOP")
+        self.claude_md = _flag("FABLE_ADVISOR_CLAUDE_MD")
         raw = os.environ.get("FABLE_ADVISOR_SUBAGENTS")
         if raw is None:
             raw = DEFAULT_WORKERS
         self.workers = [w.strip() for w in raw.split(",")
                         if w.strip() and w.strip().lower() not in ("none", "off", "0")]
-        self.home = os.environ.get("FABLE_ADVISOR_HOME") or os.path.join(
-            os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude"),
-            "fable-advisor",
-        )
+        self.home = _msys_to_win(os.environ.get("FABLE_ADVISOR_HOME")) or os.path.join(
+            _config_dir(), "fable-advisor")
 
     def describe(self):
         if self.mode == "off":
@@ -298,20 +319,12 @@ def _unquote(tok):
     return tok
 
 
-def _config_dir():
-    return os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
-
-
-def _norm_path(p):
+def _norm_path(p, nt=None):
     """Comparable form of a path. On Windows the same file arrives as
     C:\\Users\\x, C:/Users/x or (from Git Bash) /c/Users/x, in any case."""
-    if os.name != "nt":
+    if not (os.name == "nt" if nt is None else nt):
         return p
-    p = p.replace("\\", "/")
-    m = re.match(r"^/([A-Za-z])(/|$)", p)
-    if m:
-        p = m.group(1) + ":/" + p[m.end():]
-    return p.lower()
+    return _msys_to_win(p.replace("\\", "/"), nt=True).lower()
 
 
 def counts_as_edit(fp):
@@ -755,6 +768,363 @@ def policy_text():
     return "\n".join(lines)
 
 
+# --- user CLAUDE.md block ---------------------------------------------------
+#
+# Plugins have no install hook, so the first SessionStart(startup) on a device
+# writes a short advisor-policy block into the user-level CLAUDE.md. It is a
+# fallback for sessions where these hooks did not run; when they did, the
+# injected "[fable-advisor]" policy is authoritative and the block says so.
+# A stamp in CFG.home remembers, per target path, that the block was written:
+# a block the user deletes is never re-added automatically.
+
+CLAUDE_MD_VERSION = 1  # bump whenever claude_md_block() changes
+CLAUDE_MD_END = "<!-- fable-advisor:end -->"
+_RE_MD_BEGIN = re.compile(r"<!-- fable-advisor:begin v(\d+) -->")
+_RE_MD_BLOCK = re.compile(r"<!-- fable-advisor:begin v(\d+) -->.*?" + re.escape(CLAUDE_MD_END), re.S)
+
+
+def claude_md_block(eol="\n"):
+    return eol.join([
+        "<!-- fable-advisor:begin v%d -->" % CLAUDE_MD_VERSION,
+        "## Advisor policy (fable-advisor)",
+        "",
+        "- When the fable-advisor plugin is enabled, consult the `fable-advisor:advisor` agent before "
+        "architectural, interface or dependency decisions and multi-file plans, and after repeated failed "
+        "fixes; present its verdict to the user. Do not skip a consultation because the built-in advisor "
+        "tool is unavailable.",
+        "- If a `[fable-advisor]` policy is already in your context (injected by the plugin's hooks, or a "
+        "worker policy for a background worker), that policy is authoritative and this section adds nothing.",
+        "- This section is only a fallback for sessions where those hooks did not run. The "
+        "`fable-advisor:advisor` agent itself ignores it.",
+        CLAUDE_MD_END,
+    ])
+
+
+def claude_md_path():
+    return os.path.abspath(os.path.join(_config_dir(), "CLAUDE.md"))
+
+
+def _stamp_path():
+    return os.path.join(CFG.home, "claude-md.json")
+
+
+def load_stamp():
+    try:
+        with open(_stamp_path(), encoding="utf-8") as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return d if isinstance(d, dict) else {}
+
+
+def stamp_entry(target, stamp=None):
+    """The stamp's record for `target`, matching paths the way Windows does
+    (case- and slash-insensitive, /c/ == C:/), never by raw string."""
+    targets = (stamp if stamp is not None else load_stamp()).get("targets")
+    if not isinstance(targets, dict):
+        return None
+    want = _norm_path(target)
+    for k, v in targets.items():
+        if _norm_path(k) == want and isinstance(v, dict):
+            return v
+    return None
+
+
+def save_stamp(target, version, action):
+    """Remember, per target path, which block version was written (0: the user
+    asked for none). Raises OSError; callers decide how to fail."""
+    d = load_stamp()
+    targets = d.get("targets") if isinstance(d.get("targets"), dict) else {}
+    want = _norm_path(target)
+    targets = {k: v for k, v in targets.items() if _norm_path(k) != want}
+    targets[target] = {
+        "version": version,
+        "action": action,
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    d["targets"] = targets
+    os.makedirs(CFG.home, exist_ok=True)
+    path = _stamp_path()
+    tmp = "%s.tmp.%d" % (path, os.getpid())
+    try:
+        with open(tmp, "w", encoding="utf-8", newline="") as f:
+            json.dump(d, f, indent=2, sort_keys=True)
+        _replace(tmp, path)
+    except OSError:
+        _discard(tmp)
+        raise
+
+
+def _read_text(path):
+    """File content as text that round-trips byte for byte: newline="" (no
+    translation), plain utf-8 so a BOM stays as U+FEFF, and undecodable bytes
+    survive as surrogates. None if missing."""
+    try:
+        with open(path, encoding="utf-8", errors="surrogateescape", newline="") as f:
+            return f.read()
+    except FileNotFoundError:
+        return None
+
+
+def _discard(path):
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+REPLACE_ATTEMPTS = 3
+REPLACE_DELAY = 0.1
+
+
+def _replace(src, dst):
+    """os.replace, retried briefly: on Windows it raises PermissionError while
+    an editor, antivirus or another process holds the target open."""
+    for attempt in range(REPLACE_ATTEMPTS):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if attempt == REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(REPLACE_DELAY)
+
+
+def _update_file(target, transform):
+    """Rewrite `target` atomically as transform(current text or None); a None
+    or unchanged result writes nothing. The tmp file goes next to the REAL file
+    and replaces it, so a symlinked CLAUDE.md (dotfiles) keeps its link. The
+    file is re-read just before the replace; if another session changed it
+    meanwhile, the transform runs again on the fresh content. Returns True when
+    written; raises OSError on failure (tmp removed)."""
+    real = os.path.realpath(target)
+    for _ in range(3):
+        text = _read_text(real)
+        new = transform(text)
+        if new is None or new == text:
+            return False
+        try:
+            mode = os.stat(real).st_mode & 0o7777
+        except OSError:
+            mask = os.umask(0)
+            os.umask(mask)
+            mode = 0o666 & ~mask
+        fd, tmp = tempfile.mkstemp(prefix=".CLAUDE.md.", suffix=".tmp", dir=os.path.dirname(real))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8", errors="surrogateescape", newline="") as f:
+                f.write(new)
+            try:
+                os.chmod(tmp, mode)
+            except OSError:
+                pass
+            if _read_text(real) != text:
+                _discard(tmp)
+                continue  # changed under us: recompute from the fresh content
+            _replace(tmp, real)
+            return True
+        except BaseException:
+            _discard(tmp)
+            raise
+    raise OSError("%s kept changing while it was being updated" % target)
+
+
+def _eol_of(text):
+    """The file's dominant line ending, so the block matches it."""
+    if not text:
+        return "\n"
+    crlf = text.count("\r\n")
+    return "\r\n" if crlf and crlf >= text.count("\n") - crlf else "\n"
+
+
+def _find_block(text):
+    """(first match, state): state is "absent", "present" or "malformed" (a
+    begin marker with no end marker, which is never rewritten)."""
+    if not text:
+        return None, "absent"
+    m = _RE_MD_BLOCK.search(text)
+    if m:
+        return m, "present"
+    if _RE_MD_BEGIN.search(text):
+        return None, "malformed"
+    return None, "absent"
+
+
+def _cut_block(text, m):
+    """`text` minus one block, its own line ending and the blank separator
+    line that _with_block() put before it."""
+    before, after = text[:m.start()], text[m.end():]
+    for nl in ("\r\n", "\n"):
+        if after.startswith(nl):
+            after = after[len(nl):]
+            break
+    if not after or after.startswith(("\n", "\r\n")):
+        for nl in ("\r\n", "\n"):
+            if before.endswith(nl + nl):
+                before = before[:-len(nl)]
+                break
+    return before + after
+
+
+def _without_block(text):
+    """`text` with every block removed (duplicates included)."""
+    while True:
+        m, state = _find_block(text)
+        if state != "present":
+            return text
+        text = _cut_block(text, m)
+
+
+def _with_block(text):
+    """`text` with exactly one current block: the first existing block is
+    replaced in place (any duplicates after it are removed), otherwise the
+    block is appended after a blank line. A BOM at the top stays, and none is
+    ever added."""
+    text = text or ""
+    eol = _eol_of(text)
+    block = claude_md_block(eol)
+    m, _ = _find_block(text)
+    if m:
+        return text[:m.start()] + block + _without_block(text[m.end():])
+    body = text[1:] if text.startswith("\ufeff") else text
+    if not body:
+        return text + block + eol
+    sep = eol if text.endswith(("\n", "\r")) else eol + eol
+    return text + sep + block + eol
+
+
+def claude_md_auto(sid):
+    """SessionStart(startup): write or refresh the block once per device.
+    Returns a one-line notice for the session context, or None. Raises on I/O
+    failure without touching the stamp, so the next startup tries again."""
+    if CFG.mode == "off" or not CFG.claude_md:
+        return None
+    target = claude_md_path()
+    if not os.path.isdir(os.path.dirname(target)):
+        return None  # never create the config dir
+    entry = stamp_entry(target)
+    m, state = _find_block(_read_text(os.path.realpath(target)))
+    if state == "malformed":
+        log("claude-md-malformed", sid, path=target)
+        return None
+    if state == "absent" and entry is not None:
+        return None  # written before and removed since: the user's call
+    old = int(m.group(1)) if m else None
+    if old is not None and old >= CLAUDE_MD_VERSION:
+        if entry is None:
+            save_stamp(target, old, "adopted")
+        return None
+
+    def transform(text):
+        # Decided again on the fresh content: another session starting at the
+        # same moment may have written the block already.
+        fm, fstate = _find_block(text)
+        if fstate == "malformed" or (fm and int(fm.group(1)) >= CLAUDE_MD_VERSION):
+            return None
+        return _with_block(text)
+
+    if not _update_file(target, transform):
+        if stamp_entry(target) is None:
+            fm, _ = _find_block(_read_text(os.path.realpath(target)))
+            if fm:
+                save_stamp(target, int(fm.group(1)), "adopted")
+        return None
+    save_stamp(target, CLAUDE_MD_VERSION, "auto-update" if old is not None else "auto")
+    if old is not None:
+        log("claude-md-updated", sid, path=target, version=CLAUDE_MD_VERSION, was=old)
+        verb = "Updated the advisor-policy block (v%d -> v%d) in" % (old, CLAUDE_MD_VERSION)
+    else:
+        log("claude-md-written", sid, path=target, version=CLAUDE_MD_VERSION)
+        verb = "Added an advisor-policy block to"
+    return (
+        "[fable-advisor] %s your user-level CLAUDE.md (%s). It takes effect from the next session, since "
+        "CLAUDE.md was read before this hook ran. Tell the user this once. To remove it: "
+        "/fable-advisor:claude-md remove (it will not be re-added); to stop automatic writes: set "
+        "FABLE_ADVISOR_CLAUDE_MD=off." % (verb, target)
+    )
+
+
+def claude_md_cmd(inp, args):
+    action = (args[0] if args else "status").strip().lower()
+    if action not in ("install", "remove", "status"):
+        print("usage: hook.sh claude-md [install|remove|status]")
+        return
+    target = claude_md_path()
+    cfg_dir = os.path.dirname(target)
+    if action == "status":
+        print(claude_md_status(target))
+        return
+    if not os.path.isdir(cfg_dir):
+        print("Config dir %s does not exist; nothing written (it is never created here)." % cfg_dir)
+        return
+    sid = inp.get("session_id", "")
+    try:
+        _, state = _find_block(_read_text(os.path.realpath(target)))
+        if state == "malformed":
+            print("%s has a fable-advisor begin marker with no end marker; fix or delete it by hand, "
+                  "then run this again. Nothing changed." % target)
+            return
+        if action == "install":
+            wrote = _update_file(target, _with_block)
+            save_stamp(target, CLAUDE_MD_VERSION, "install")
+            log("claude-md-install", sid, path=target, wrote=int(wrote))
+            if wrote:
+                print("Wrote advisor-policy block v%d to %s. It takes effect from the next session."
+                      % (CLAUDE_MD_VERSION, target))
+            else:
+                print("Block v%d already current in %s." % (CLAUDE_MD_VERSION, target))
+            return
+        # remove: drop the block, keep a stamp so startup never re-adds it
+        wrote = _update_file(target, lambda t: None if t is None else _without_block(t))
+        save_stamp(target, 0, "remove")
+        log("claude-md-remove", sid, path=target, wrote=int(wrote))
+        msg = ("Removed the advisor-policy block from %s." if wrote else "No advisor-policy block in %s.") % target
+        print(msg + " It will not be re-added automatically; /fable-advisor:claude-md install adds it back.")
+    except OSError as e:
+        log("claude-md-error", sid, action=action, error="%s: %s" % (type(e).__name__, e))
+        print("Could not update %s: %s" % (target, e))
+
+
+def claude_md_status(target):
+    out = ["fable-advisor user CLAUDE.md block"]
+    out.append("  target: %s" % target)
+    if not os.path.isdir(os.path.dirname(target)):
+        out.append("  config dir: missing (nothing is ever created there)")
+    try:
+        text = _read_text(os.path.realpath(target))
+    except OSError as e:
+        text = None
+        out.append("  file: unreadable (%s)" % e)
+    else:
+        out.append("  file: %s" % ("missing" if text is None else "present"))
+    m, state = _find_block(text)
+    if state == "present":
+        v = int(m.group(1))
+        out.append("  block: present (v%d, %s)" % (
+            v, "current" if v == CLAUDE_MD_VERSION else
+            "older than v%d; refreshed at next startup" % CLAUDE_MD_VERSION if v < CLAUDE_MD_VERSION else "newer"))
+    elif state == "malformed":
+        out.append("  block: malformed (begin marker with no end marker; left alone)")
+    else:
+        out.append("  block: absent")
+    entry = stamp_entry(target)
+    if entry is not None:
+        out.append("  stamp: %s (version %s, %s, %s)" % (
+            _stamp_path(), entry.get("version"), entry.get("action"), entry.get("ts")))
+        if state == "absent":
+            out.append("  -> stamped but absent: startup will not re-add it; "
+                       "/fable-advisor:claude-md install adds it back")
+    else:
+        out.append("  stamp: none for this target (%s)" % _stamp_path())
+    if CFG.mode == "off":
+        auto = "off (FABLE_ADVISOR_ENFORCE=off)"
+    elif not CFG.claude_md:
+        auto = "off (FABLE_ADVISOR_CLAUDE_MD=%s)" % os.environ.get("FABLE_ADVISOR_CLAUDE_MD", "")
+    else:
+        auto = "on (written once per device at session startup)"
+    out.append("  auto-install: %s" % auto)
+    return "\n".join(out)
+
+
 # --- prompt classification --------------------------------------------------
 
 _RE_REVIEW = re.compile(
@@ -816,6 +1186,14 @@ def session_start(inp):
         )
         if len(pending) >= CFG.threshold:
             text += " That is over the threshold — consult before the next substantive edit."
+    if source == "startup":
+        try:
+            notice = claude_md_auto(sid)
+        except Exception as e:  # e.g. an editor holding CLAUDE.md locked on Windows
+            notice = None
+            log("claude-md-error", sid, error="%s: %s" % (type(e).__name__, e))
+        if notice:
+            text += "\n\n" + notice
     context("SessionStart", text)
     log("policy-injected", sid, source=source)
 
@@ -1171,7 +1549,7 @@ def subagent_stop(inp):
 
 
 def _newest_transcript(cwd):
-    base = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+    base = _config_dir()
     slug = re.sub(r"[^a-zA-Z0-9]", "-", cwd or os.getcwd())
     candidates = glob.glob(os.path.join(base, "projects", slug, "*.jsonl"))
     if not candidates:
@@ -1241,7 +1619,9 @@ HOOKS = {
     "subagent-start": subagent_start,
     "subagent-stop": subagent_stop,
     "status": status,
+    "claude-md": claude_md_cmd,  # takes argv[2:]: install | remove | status
 }
+ARGV_HOOKS = {"claude-md"}
 
 
 def read_input():
@@ -1267,7 +1647,10 @@ def main(argv):
     name = argv[1]
     inp = read_input()
     try:
-        HOOKS[name](inp)
+        if name in ARGV_HOOKS:
+            HOOKS[name](inp, argv[2:])
+        else:
+            HOOKS[name](inp)
     except Exception as e:  # fail open, never break the session
         log("hook-error", inp.get("session_id", ""), hook=name, error="%s: %s" % (type(e).__name__, e))
     return 0

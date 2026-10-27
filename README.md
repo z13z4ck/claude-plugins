@@ -71,7 +71,7 @@ pass as Fable — including when Claude Code's own safety-classifier fallback
 or `fallbackModel` chain re-runs the subagent on Opus. The health check
 treats "answered as another model" as degraded, not operational, and a
 failed dispatch retries once on a fallback labelled "ADVISOR RUNNING
-DEGRADED". Hook table, configuration and a CLAUDE.md policy snippet:
+DEGRADED". Hook table, configuration and the auto-written CLAUDE.md block:
 [plugins/fable-advisor](plugins/fable-advisor/README.md).
 
 # feature-crew — one session as an orchestrator for background feature work
