@@ -809,18 +809,26 @@ def _stamp_path():
 
 
 def load_stamp():
+    """The stamp, {} when there is none. A stamp that exists but cannot be read
+    or parsed comes back as {"corrupt": True}: it may have recorded that the
+    user removed the block, so it must not read as "never written"."""
     try:
         with open(_stamp_path(), encoding="utf-8") as f:
             d = json.load(f)
-    except (OSError, ValueError):
+    except FileNotFoundError:
         return {}
-    return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {"corrupt": True}
+    return d if isinstance(d, dict) else {"corrupt": True}
 
 
 def stamp_entry(target, stamp=None):
     """The stamp's record for `target`, matching paths the way Windows does
     (case- and slash-insensitive, /c/ == C:/), never by raw string."""
-    targets = (stamp if stamp is not None else load_stamp()).get("targets")
+    stamp = stamp if stamp is not None else load_stamp()
+    if stamp.get("corrupt"):
+        return {"version": None, "action": "unknown (unreadable stamp)", "ts": None}
+    targets = stamp.get("targets")
     if not isinstance(targets, dict):
         return None
     want = _norm_path(target)
@@ -834,6 +842,8 @@ def save_stamp(target, version, action):
     """Remember, per target path, which block version was written (0: the user
     asked for none). Raises OSError; callers decide how to fail."""
     d = load_stamp()
+    if d.get("corrupt"):
+        d = {}  # rewritten from scratch by an explicit decision
     targets = d.get("targets") if isinstance(d.get("targets"), dict) else {}
     want = _norm_path(target)
     targets = {k: v for k, v in targets.items() if _norm_path(k) != want}
@@ -1007,7 +1017,9 @@ def claude_md_auto(sid):
         log("claude-md-malformed", sid, path=target)
         return None
     if state == "absent" and entry is not None:
-        return None  # written before and removed since: the user's call
+        if entry.get("version") is None:
+            log("claude-md-stamp-unreadable", sid, path=_stamp_path())
+        return None  # written before and removed since (or unknown): the user's call
     old = int(m.group(1)) if m else None
     if old is not None and old >= CLAUDE_MD_VERSION:
         if entry is None:
@@ -1044,7 +1056,7 @@ def claude_md_auto(sid):
 
 
 def claude_md_cmd(inp, args):
-    action = (args[0] if args else "status").strip().lower()
+    action = (args[0] if args and args[0].strip() else "status").strip().lower()
     if action not in ("install", "remove", "status"):
         print("usage: hook.sh claude-md [install|remove|status]")
         return

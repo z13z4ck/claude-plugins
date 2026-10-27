@@ -212,6 +212,9 @@ md_start
 size=$(wc -c <"$MDC/orig" | tr -d ' ')
 head -c "$size" "$MDF" | cmp -s - "$MDC/orig" && [ "$(md_count)" = "1" ] \
   && ok "file without a final newline: kept byte for byte, block appended" || no "no-final-newline content changed" "$(od -c "$MDF" | head -3)"
+md_cmd remove
+printf '\n' >>"$MDC/orig"
+cmp -s "$MDF" "$MDC/orig" && ok "...remove restores it plus a final newline (documented)" || no "no-final-newline remove wrong" "$(od -c "$MDF" | head -3)"
 md_case preserve
 printf '# Mine \xe2\x80\x94 caf\xc3\xa9\r\nline two  \r\n\r\nlast\r\n' >"$MDF"
 cp "$MDF" "$MDC/orig"
@@ -267,6 +270,22 @@ printf 'x\n%s\nno end\n' "$BEGIN_V1" >"$MDF"
 cp "$MDF" "$MDC/orig"
 md_start
 cmp -s "$MDF" "$MDC/orig" && ok "unterminated block: file left alone" || no "malformed file rewritten" "$(cat "$MDF")"
+md_cmd install
+cmp -s "$MDF" "$MDC/orig" && contains "$MDOUT" "no end marker" && ok "unterminated block: install refuses and says why" || no "install rewrote a malformed file" "$MDOUT"
+md_cmd status
+contains "$MDOUT" "block: malformed" && ok "status reports a malformed block" || no "status missed malformed" "$MDOUT"
+
+# An unreadable stamp may have recorded a removal: never treat it as "no stamp".
+md_case corrupt
+md_start
+md_cmd remove
+printf '{"targets": {' >"$MDH/claude-md.json"
+md_start
+[ "$(md_count)" = "0" ] && ok "corrupt stamp: a removed block is still not re-added" || no "corrupt stamp re-added the block"
+grep -q "event=claude-md-stamp-unreadable" "$MDH/events.log" && ok "corrupt stamp is logged" || no "corrupt stamp not logged"
+md_cmd install
+[ "$(md_count)" = "1" ] && py -c 'import json,sys; json.load(open(sys.argv[1]))' "$MDH/claude-md.json" \
+  && ok "install rewrites a corrupt stamp" || no "install with corrupt stamp failed" "$MDOUT"
 
 # Opt-outs and non-startup sources.
 md_case optout
@@ -311,6 +330,8 @@ md_cmd install
 [ "$(md_count)" = "1" ] && ok "install re-adds a block the user removed" || no "install refused after remove"
 md_cmd bogus
 contains "$MDOUT" "usage" && ok "unknown action prints usage" || no "bogus action" "$MDOUT"
+md_cmd ""
+contains "$MDOUT" "block: present" && ok "an empty argument means status" || no "empty arg not status" "$MDOUT"
 
 md_case cmdremove
 printf 'mine\n' >"$MDF"
@@ -429,6 +450,59 @@ except PermissionError:
     pass
 print("ok")
 ' "$BIN" | grep -qx ok && ok "os.replace PermissionError is retried, and re-raised after 3 attempts" || no "replace retry wrong"
+
+# Concurrency: a file that changes between read and replace is re-read and
+# the transform re-run; one that never settles raises and stamps nothing.
+md_case race
+CLAUDE_CONFIG_DIR="$MDD" FABLE_ADVISOR_HOME="$MDH" py -c '
+import sys
+sys.path.insert(0, sys.argv[1])
+import advisor_hooks as h
+target = h.claude_md_path()
+open(target, "w").write("mine\n")
+real_read = h._read_text
+n = [0]
+def racing_read(path):
+    # Another session writes the block between our read and our replace.
+    n[0] += 1
+    if n[0] == 3:
+        with open(path, "w", encoding="utf-8", newline="") as f:
+            f.write(h._with_block("mine\n"))
+    return real_read(path)
+h._read_text = racing_read
+assert h.claude_md_auto("race") is None, "notice despite losing the race"
+h._read_text = real_read
+t = real_read(target)
+assert t.count("fable-advisor:begin") == 1, t
+assert h.stamp_entry(target)["action"] == "adopted", h.load_stamp()
+print("ok")
+' "$BIN" | grep -qx ok && ok "lost race: one block, no notice, stamp adopted" || no "race handling wrong"
+md_case churn
+CLAUDE_CONFIG_DIR="$MDD" FABLE_ADVISOR_HOME="$MDH" py -c '
+import sys
+sys.path.insert(0, sys.argv[1])
+import advisor_hooks as h
+target = h.claude_md_path()
+open(target, "w").write("mine\n")
+real_read = h._read_text
+n = [0]
+def churning_read(path):
+    n[0] += 1
+    with open(path, "a") as f:
+        f.write("x%d\n" % n[0])
+    return real_read(path)
+h._read_text = churning_read
+try:
+    h.claude_md_auto("churn")
+    raise SystemExit("no error")
+except OSError:
+    pass
+h._read_text = real_read
+assert "fable-advisor:begin" not in real_read(target)
+assert h.stamp_entry(target) is None, h.load_stamp()
+print("ok")
+' "$BIN" | grep -qx ok && ok "file that never settles: OSError, no block, no stamp" || no "churn handling wrong"
+ls -a "$MDD" | grep -q '\.tmp' && no "tmp file left after churn" || ok "no tmp files left after churn"
 
 # The shared session-start runs above wrote into the throwaway config dir only.
 grep -qF "$BEGIN_V1" "$CLAUDE_CONFIG_DIR/CLAUDE.md" && ok "suite-wide startup runs write to the temp CLAUDE_CONFIG_DIR" || no "temp config dir not used"

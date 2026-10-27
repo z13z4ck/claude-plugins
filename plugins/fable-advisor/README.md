@@ -231,7 +231,15 @@ cross-check when a verdict looks off.
    `FABLE_ADVISOR_ENFORCE=off`) stops the automatic write;
    `/fable-advisor:claude-md` shows the block's state, `install` writes or
    refreshes it even after you removed it, and `remove` deletes it (with the
-   blank line it added) and keeps it from coming back.
+   blank line it added; a file that had no final newline keeps the one added
+   before the block) and keeps it from coming back. A stamp that cannot be
+   read counts as "removed", never as "not written yet". A stray begin
+   marker with no end marker anywhere in the file — say, in your own notes
+   about this plugin — makes the file count as malformed: it is never
+   rewritten, the automatic write stops, and `status` says so. There is no
+   uninstall hook, so run `/fable-advisor:claude-md remove` before you
+   uninstall the plugin; a leftover block is inert ("when the plugin is
+   enabled") but stays in the file.
 
    On Windows the path is resolved like the rest of the plugin: a Git Bash
    `CLAUDE_CONFIG_DIR=/c/Users/you/.claude` is read as `C:/Users/you/.claude`,
