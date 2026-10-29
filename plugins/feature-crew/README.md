@@ -106,17 +106,20 @@ it is active into an orchestrator. Either install with project scope, or set
 ## Housekeeping
 
 Tested on Claude Code 2.1.310: a worker that made changes leaves its worktree
-under `.claude/worktrees/agent-*` (checked out on its `crew/*` branch) plus an
-unused `worktree-agent-*` branch Claude Code created for it.
+under `.claude/worktrees/agent-*` (checked out on its `crew/*` branch). Claude
+Code also starts each worker on a `worktree-agent-*` branch; from 0.3.3 the
+worker deletes that branch itself with `git branch -d` once it has switched
+to `crew/*`, and says so under `open:` if git refuses. Workers from 0.3.2 and
+earlier leave it behind.
 
 - Add `.claude/worktrees/` to `.gitignore` so the main checkout stays clean.
-- After merging or discarding a crew branch, remove its worktree and the
-  leftover branch:
+- After merging or discarding a crew branch, remove its worktree and any
+  leftover `worktree-agent-*` branch:
 
   ```bash
   git worktree list                       # find the agent-* path for the branch
   git worktree remove .claude/worktrees/agent-<id>
-  git branch -D worktree-agent-<id>
+  git branch -d worktree-agent-<id>       # if it is still there
   ```
 
 ## Turn it off

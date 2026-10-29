@@ -282,6 +282,28 @@ else
   no "worker re-asks the advisor only after a behaviour change"
 fi
 
+# isolation: worktree starts each worker on a Claude Code-made
+# worktree-agent-<id> branch, abandoned once it switches to crew/<slug> (seen
+# live: one leftover per worker). The worker deletes it, safely only.
+if grep -q "worktree-agent-" "$W" && grep -q "git branch -d" "$W"; then
+  ok "worker deletes its worktree-agent-* starting branch with git branch -d"
+else
+  no "worker deletes its worktree-agent-* starting branch with git branch -d"
+fi
+
+if ! grep -q "git branch -D" "$W"; then
+  ok "worker never force-deletes a branch (no git branch -D)"
+else
+  no "worker never force-deletes a branch (no git branch -D)"
+fi
+
+# Resumed workers repeated open: items the orchestrator had already handled.
+if grep -q "re-check every item" "$W"; then
+  ok "worker re-checks its open: items on a revision"
+else
+  no "worker re-checks its open: items on a revision"
+fi
+
 if grep -q "Stopped by the user" "$PLUGIN/policy/orchestrator.md" &&
   grep -q "arrives here instead of in its worker" "$PLUGIN/policy/orchestrator.md" &&
   grep -q "diff --cached --binary" "$PLUGIN/policy/orchestrator.md"; then
