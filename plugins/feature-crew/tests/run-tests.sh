@@ -283,7 +283,8 @@ else
 fi
 
 if grep -q "Stopped by the user" "$PLUGIN/policy/orchestrator.md" &&
-  grep -q "arrives here instead of in its worker" "$PLUGIN/policy/orchestrator.md"; then
+  grep -q "arrives here instead of in its worker" "$PLUGIN/policy/orchestrator.md" &&
+  grep -q "diff --cached --binary" "$PLUGIN/policy/orchestrator.md"; then
   ok "orchestrator handles stopped workers and forwards misrouted subagent results"
 else
   no "orchestrator handles stopped workers and forwards misrouted subagent results"

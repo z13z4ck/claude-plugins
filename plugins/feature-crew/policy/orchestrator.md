@@ -52,12 +52,13 @@ session.
   with SendMessage at once, verbatim.
 - **Failed**: say what broke and propose one next step.
 - **Stopped by the user**: a stopped worker cannot be resumed. Save its
-  uncommitted work at once, before its worktree can be cleaned up
-  (`git -C <worktree> diff > <scratchpad>/handoff.patch`, plus any untracked
-  check scripts). Then say what it had done and propose the one next step:
-  dispatch a new feature-builder on `crew/<slug>-r<N>` from the old branch,
-  telling it to apply the patch. Dispatch it once the user agrees, since
-  they stopped the worker on purpose.
+  uncommitted work at once, before its worktree can be cleaned up. Stage
+  everything so new and binary files come along (`git -C <worktree> add -A`),
+  then `git -C <worktree> diff --cached --binary > <scratchpad>/handoff.patch`.
+  Then say what it had done and propose the one next step: dispatch a new
+  feature-builder on `crew/<slug>-r<N>` from the old branch, telling it to
+  apply the patch with `git apply --index`. Dispatch it once the user
+  agrees, since they stopped the worker on purpose.
 - Permission prompts from workers appear in this session and name the worker;
   the user answers them. Nothing else to do.
 

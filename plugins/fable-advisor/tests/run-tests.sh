@@ -1108,6 +1108,13 @@ new_worker pa4 pa4
 worker_hook pre-agent pa4 "$WK" '"tool_name":"Agent","tool_use_id":"toolu_pa4","tool_input":{"subagent_type":"fable-advisor:advisor","prompt":"review","description":"r"}'
 worker_hook post-tool pa4 "$WK" '"tool_name":"Agent","tool_use_id":"toolu_pa4","tool_input":{"subagent_type":"fable-advisor:advisor","prompt":"review","description":"r"}'
 grep -q '"last_consult_ts"' "$(wstate pa4)" && ok "post-tool still records a worker's foreground Agent consultation" || no "worker consult not recorded"
+new_worker pa7 pa7
+worker_hook post-tool pa7 "$WK" "\"tool_name\":\"Agent\",\"tool_use_id\":\"toolu_pa7\",$BG_ADV"
+! grep -q '"last_consult_ts"' "$(wstate pa7)" 2>/dev/null && ok "post-tool never records a worker's background dispatch as a consultation" || no "background dispatch recorded for the worker"
+contains "$(FABLE_ADVISOR_ENFORCE=nudge py "$BIN/advisor_hooks.py" status </dev/null)" "background gate on" \
+  && ok "status reports the background gate as on, nudge mode included" || no "status omits the background gate"
+contains "$(FABLE_ADVISOR_SUBAGENTS=none py "$BIN/advisor_hooks.py" status </dev/null)" "background gate off" \
+  && ok "status reports the background gate off without enforced workers" || no "background gate shown on with no workers"
 new_transcript pa5
 run_hook post-tool '"tool_name":"Task","tool_use_id":"toolu_pa5","tool_input":{"subagent_type":"fable-advisor:advisor","prompt":"review","description":"r","run_in_background":true}'
 grep -q '"last_consult_ts"' "$FABLE_ADVISOR_HOME/state/$SID.json" 2>/dev/null && ok "post-tool still records a main-session Task consultation" || no "main Task consult not recorded"

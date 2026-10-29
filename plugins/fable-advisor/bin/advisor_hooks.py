@@ -144,6 +144,8 @@ class Config:
             "stop audit " + ("on at %d files" % self.threshold if self.stop_audit and self.mode == "full" else "off"),
             "prompt nudges " + ("on" if self.prompt_nudge else "off"),
             "workers " + (", ".join(self.workers) if self.workers else "off"),
+            # On in nudge mode too: it prevents a stalled worker, not a skipped consultation.
+            "background gate " + ("on" if self.workers else "off"),
         ]
         return "%s (%s)" % (self.mode, ", ".join(layers))
 
@@ -1398,6 +1400,10 @@ def post_tool(inp):
     if not isinstance(tool_input, dict):
         tool_input = {}
     if tool in DISPATCH_TOOLS:
+        if sc.kind == "worker" and _truthy(tool_input.get("run_in_background")):
+            # pre-agent denies this call; should a build still report it here,
+            # the advisor never ran for the worker, so it is no consultation.
+            return
         if tool_input.get("subagent_type") == ADVISOR and \
                 not re.match(r"\s*health check\b", str(tool_input.get("prompt") or ""), re.I):
             record_consult(sc.key, tool_use_id=inp.get("tool_use_id"),

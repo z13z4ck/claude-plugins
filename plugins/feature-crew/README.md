@@ -84,9 +84,9 @@ it is active into an orchestrator. Either install with project scope, or set
   waits never wakes up. If such a notice does reach the main session, it
   forwards the result to the worker. From fable-advisor 1.10.0 its hooks deny
   a worker's background dispatch outright.
-- A worker you stop cannot be resumed. The main session saves its
-  uncommitted work as a patch and offers a new worker on `crew/<slug>-r<N>`
-  that applies it.
+- A worker you stop cannot be resumed. The main session saves all of its
+  uncommitted work, new and binary files included, as a patch and offers a
+  new worker on `crew/<slug>-r<N>` that applies it.
 - Workers reach the advisor as a nested subagent (worker = layer 1, advisor =
   layer 2). `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1` turns that off; workers
   then report `advisor: not consulted` and the main session reviews instead.
