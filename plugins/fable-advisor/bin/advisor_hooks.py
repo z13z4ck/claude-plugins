@@ -1161,10 +1161,17 @@ _RE_DECISION = re.compile(
     r"\b(should (i|we)|which (one|approach|option|way|is better|would you)|better (to|approach|option|way)|"
     r"trade-?offs?|pros and cons|recommend\w*|vs\.?|versus|or should|"
     r"is it (worth|better|ok|okay|safe|wise)|worth it|alternatives?|decide|decision)\b", re.I)
+# "end to end" is gone: it mostly describes testing ("Verify X end to end").
+# "schema" and "extract" are narrowed to change/design and code-refactor phrasing,
+# so "does the schema have a deleted_at column?" and "extract the zip" stay quiet.
 _RE_PLAN = re.compile(
     r"\b(plan|design|architect\w*|refactor\w*|migrat\w*|restructur\w*|rewrite|redesign|reimplement|"
-    r"roadmap|strategy|schema|data model|new (module|service|feature|api|endpoint|package|plugin|component)|"
-    r"overhaul|extract|consolidat\w*|split (up|out|into)|from scratch|end[- ]to[- ]end|"
+    r"roadmap|strategy|data model|new (module|service|feature|api|endpoint|package|plugin|component)|"
+    r"(chang\w*|alter\w*|modify\w*|updat\w*|redesign\w*|new)\b.{0,40}\bschema|"
+    r"schema (change|migration|design)\w*|"
+    r"extract\w*\b.{0,60}\b(into|out into|to) (a|an|its own|their own|a new|a separate|separate) "
+    r"(\w+ )?(module|function|class|component|service|helper|file|package|method|hook)|"
+    r"overhaul|consolidat\w*|split (up|out|into)|from scratch|"
     r"implement (a|an|the|this)|build (a|an|the|out))\b", re.I)
 _RE_STALLED = re.compile(
     r"\b(still (fail\w*|broken|not work\w*|doesn'?t work|isn'?t work\w*|crash\w*|error\w*|wrong|happening)|"

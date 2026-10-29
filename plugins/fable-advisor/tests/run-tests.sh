@@ -527,6 +527,28 @@ contains "$(context_of "$HOOK_OUT")" "review or second opinion" && ok "review pr
 run_hook prompt "\"prompt\":$(json_str "refactor the auth module into its own package")"
 contains "$(context_of "$HOOK_OUT")" "design or planning" && ok "planning prompt is recognised" || no "plan not recognised"
 
+run_hook prompt "\"prompt\":$(json_str "plan how we should restructure the auth module")"
+contains "$(context_of "$HOOK_OUT")" "design or planning" && ok "'plan how we should restructure' is a planning prompt" || no "plan control missed" "$HOOK_OUT"
+run_hook prompt "\"prompt\":$(json_str "can you review this change and give me a second opinion?")"
+contains "$(context_of "$HOOK_OUT")" "review or second opinion" && ok "'give me a second opinion' is a review request" || no "review control missed" "$HOOK_OUT"
+
+# 1.10.1: "end to end" describes testing, not planning; "schema" and "extract"
+# fire only on change/design and code-refactor phrasing.
+run_hook prompt "\"prompt\":$(json_str "Verify the plugin update end to end")"
+[ -z "$HOOK_OUT" ] && ok "'verify ... end to end' gets no nudge" || no "end to end still nudges" "$HOOK_OUT"
+run_hook prompt "\"prompt\":$(json_str "Do this task here: “Verify X end to end”")"
+[ -z "$HOOK_OUT" ] && ok "a proposal card 'Verify X end to end' (curly quotes) gets no nudge" || no "proposal card nudged" "$HOOK_OUT"
+run_hook prompt "\"prompt\":$(json_str "design the ingestion pipeline end to end")"
+contains "$(context_of "$HOOK_OUT")" "design or planning" && ok "'design ... end to end' is still a planning prompt" || no "design end to end missed" "$HOOK_OUT"
+run_hook prompt "\"prompt\":$(json_str "extract the zip and check it")"
+[ -z "$HOOK_OUT" ] && ok "'extract the zip' gets no nudge" || no "extract the zip nudged" "$HOOK_OUT"
+run_hook prompt "\"prompt\":$(json_str "extract the retry logic into its own module")"
+contains "$(context_of "$HOOK_OUT")" "design or planning" && ok "'extract ... into its own module' is a planning prompt" || no "extract refactor missed" "$HOOK_OUT"
+run_hook prompt "\"prompt\":$(json_str "does the schema have a deleted_at column?")"
+[ -z "$HOOK_OUT" ] && ok "a question about a schema gets no nudge" || no "schema question nudged" "$HOOK_OUT"
+run_hook prompt "\"prompt\":$(json_str "change the users schema to add a deleted_at column")"
+contains "$(context_of "$HOOK_OUT")" "design or planning" && ok "'change the users schema' is a planning prompt" || no "schema change missed" "$HOOK_OUT"
+
 run_hook prompt "\"prompt\":$(json_str "thanks")"
 [ -z "$HOOK_OUT" ] && ok "trivial prompt gets no nudge" || no "nudge on trivial prompt" "$HOOK_OUT"
 
