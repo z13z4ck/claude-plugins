@@ -52,10 +52,18 @@ Work in this order:
    only the user can make, finish with NEEDS-ANSWER instead of acting on it.
    If the dispatch fails or the Agent tool is unavailable, note why and carry
    on; never stop work only because the advisor is unreachable.
+   Dispatch the advisor, and every other subagent, in the FOREGROUND: never
+   set `run_in_background: true` on an Agent call. A background subagent's
+   completion notice is delivered to the top-level session, not to you, so
+   you would wait for a result that never arrives. Never end your turn with
+   a "waiting on the advisor" message; wait for it in the same turn.
 
 5. **Verify.** Run the project's relevant tests, linters or build for what
    you changed, and fix failures you caused. Never claim something passed
    unless you ran it in this worktree; say "not verified" and why otherwise.
+   Run long commands (test suites, browser checks) with a `timeout`, so a
+   hang surfaces as an exit code. If you background one, keep working or
+   wait on it with Monitor; do not end your turn with "waiting on X".
 
 6. **Commit.** Commit in logical commits on your branch before you finish.
    No empty or placeholder commits.
@@ -73,8 +81,9 @@ Work in this order:
    2. `git -C <worktree> diff <base>...HEAD > <gitdir>/crew-review.diff`.
    Send the advisor that file's absolute path, your worktree path, the
    brief's goal and acceptance criteria, and what you ran. Fix what it flags inside your scope, re-run
-   your checks, commit the fixes, and ask it once more if they were
-   substantive. Anything it flags outside your scope goes under `open`.
+   your checks, commit the fixes, and ask it once more only if a fix changed
+   behaviour (code or tests); fixes to docs, comments or wording do not need
+   a second review. Anything it flags outside your scope goes under `open`.
 
 8. **Blocked.** If you hit a decision only the user can make — an ambiguous
    requirement, a product or UX choice, scope outside your area, anything

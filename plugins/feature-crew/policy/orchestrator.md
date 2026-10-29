@@ -46,7 +46,18 @@ session.
   wrote them, with its `advisor:` line if it has one, and mark the roster item "waiting on you". When the user
   answers, resume that same worker with SendMessage (to: its name or ID) and
   the answer. Do not spawn a new worker for it.
-- **Failed or stopped**: say what broke and propose one next step.
+- **A subagent's result arrives here instead of in its worker**: if a
+  completion notice for an advisor or other subagent arrives in this session
+  while a worker says it is waiting on one, forward the result to that worker
+  with SendMessage at once, verbatim.
+- **Failed**: say what broke and propose one next step.
+- **Stopped by the user**: a stopped worker cannot be resumed. Save its
+  uncommitted work at once, before its worktree can be cleaned up
+  (`git -C <worktree> diff > <scratchpad>/handoff.patch`, plus any untracked
+  check scripts). Then say what it had done and propose the one next step:
+  dispatch a new feature-builder on `crew/<slug>-r<N>` from the old branch,
+  telling it to apply the patch. Dispatch it once the user agrees, since
+  they stopped the worker on purpose.
 - Permission prompts from workers appear in this session and name the worker;
   the user answers them. Nothing else to do.
 

@@ -267,6 +267,28 @@ else
   no "orchestrator falls back to its own review against the worker's worktree"
 fi
 
+# A background subagent's completion notice goes to the top-level session,
+# never to the worker that started it: a worker that backgrounds its advisor
+# and ends its turn waiting stalls for good (seen live: 68 minutes).
+if grep -q "FOREGROUND" "$W" && grep -q "run_in_background" "$W"; then
+  ok "worker dispatches the advisor and other subagents in the foreground"
+else
+  no "worker dispatches the advisor and other subagents in the foreground"
+fi
+
+if grep -q "ask it once more only if a fix changed" "$W"; then
+  ok "worker re-asks the advisor only after a behaviour change"
+else
+  no "worker re-asks the advisor only after a behaviour change"
+fi
+
+if grep -q "Stopped by the user" "$PLUGIN/policy/orchestrator.md" &&
+  grep -q "arrives here instead of in its worker" "$PLUGIN/policy/orchestrator.md"; then
+  ok "orchestrator handles stopped workers and forwards misrouted subagent results"
+else
+  no "orchestrator handles stopped workers and forwards misrouted subagent results"
+fi
+
 if grep -rl $'\r' "$PLUGIN" >/dev/null 2>&1; then
   no "no CRLF line endings in the plugin" "$(grep -rl $'\r' "$PLUGIN")"
 else

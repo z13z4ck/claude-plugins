@@ -78,6 +78,15 @@ it is active into an orchestrator. Either install with project scope, or set
   Dispatching a brief does not need a consultation first unless the brief
   makes an architectural, data-model, interface or dependency decision you
   have not made.
+- Workers dispatch the advisor, and any other subagent, in the foreground. A
+  background subagent's completion notice goes to the main session, never to
+  the worker that started it, so a worker that backgrounds its advisor and
+  waits never wakes up. If such a notice does reach the main session, it
+  forwards the result to the worker. From fable-advisor 1.10.0 its hooks deny
+  a worker's background dispatch outright.
+- A worker you stop cannot be resumed. The main session saves its
+  uncommitted work as a patch and offers a new worker on `crew/<slug>-r<N>`
+  that applies it.
 - Workers reach the advisor as a nested subagent (worker = layer 1, advisor =
   layer 2). `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1` turns that off; workers
   then report `advisor: not consulted` and the main session reviews instead.
