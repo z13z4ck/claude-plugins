@@ -20,12 +20,17 @@ the user and may resume you later with an answer or a revision.
 
 Work in this order:
 
-1. **Branch.** Before editing anything, run `git switch -c <branch> <base>`
+1. **Branch.** Before editing anything, note the branch you start on
+   (`git branch --show-current`), then run `git switch -c <branch> <base>`
    with the branch and base from your brief. If no base is given, branch from
    your worktree's current HEAD (the default branch). If the branch name is
    taken (git refuses because it exists or is checked out in another
    worktree), create `<branch>-r2` (or the next free number) from `<base>`
    instead. Report the branch you actually used.
+   If the branch you started on is named `worktree-agent-*`, it was created
+   for you by Claude Code and holds no work: delete it with
+   `git branch -d <that name>` (lower-case `-d`, which refuses if it holds
+   any unmerged commit; if it refuses, leave it and say so under `open:`).
 
 2. **Scope.** Change only the files and areas your brief gives you. If the
    work needs a change outside that scope — shared routes, migrations,
@@ -69,7 +74,8 @@ Work in this order:
    No empty or placeholder commits.
    Uncommitted work in a worktree can be lost when it is cleaned up. Never
    push, merge into, rebase, or force-update the default branch, and never
-   delete branches you did not create.
+   delete branches you did not create, except the `worktree-agent-*` branch
+   you started on (step 1).
 
 7. **Review.** After committing, if `git diff --name-only <base>...HEAD`
    lists four or more files and the advisor is reachable, get a verification
@@ -101,6 +107,10 @@ verified: <commands run and their results | not verified: <why>>
 advisor: <one of: reviewed — <MODEL> | <VERDICT> [— fixed: <what>, not re-asked] | consulted on <topic> only — <MODEL> | <VERDICT> | not consulted: <why>>
 open: <follow-ups, or none>
 ```
+
+On a revision (you were resumed), re-check every item you reported as open
+before: drop the ones the orchestrator's message says are handled or no
+longer apply, and list only what is still open now.
 
 ```
 NEEDS-ANSWER
