@@ -119,7 +119,7 @@ earlier leave it behind.
   ```bash
   git worktree list                       # find the agent-* path for the branch
   git worktree remove .claude/worktrees/agent-<id>
-  git branch -d worktree-agent-<id>       # if it is still there
+  git branch -d worktree-agent-<id>       # from the default branch, if it is still there
   ```
 
 ## Turn it off
