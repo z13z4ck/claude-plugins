@@ -548,6 +548,10 @@ run_hook prompt "\"prompt\":$(json_str "does the schema have a deleted_at column
 [ -z "$HOOK_OUT" ] && ok "a question about a schema gets no nudge" || no "schema question nudged" "$HOOK_OUT"
 run_hook prompt "\"prompt\":$(json_str "change the users schema to add a deleted_at column")"
 contains "$(context_of "$HOOK_OUT")" "design or planning" && ok "'change the users schema' is a planning prompt" || no "schema change missed" "$HOOK_OUT"
+run_hook prompt "\"prompt\":$(json_str "update both schemas")"
+contains "$(context_of "$HOOK_OUT")" "design or planning" && ok "'update both schemas' (plural) is a planning prompt" || no "plural schemas missed" "$HOOK_OUT"
+run_hook prompt "\"prompt\":$(json_str "extract the archive to a temp file")"
+[ -z "$HOOK_OUT" ] && ok "'extract the archive to a temp file' gets no nudge" || no "extract to a file nudged" "$HOOK_OUT"
 
 run_hook prompt "\"prompt\":$(json_str "thanks")"
 [ -z "$HOOK_OUT" ] && ok "trivial prompt gets no nudge" || no "nudge on trivial prompt" "$HOOK_OUT"

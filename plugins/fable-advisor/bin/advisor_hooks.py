@@ -1167,10 +1167,9 @@ _RE_DECISION = re.compile(
 _RE_PLAN = re.compile(
     r"\b(plan|design|architect\w*|refactor\w*|migrat\w*|restructur\w*|rewrite|redesign|reimplement|"
     r"roadmap|strategy|data model|new (module|service|feature|api|endpoint|package|plugin|component)|"
-    r"(chang\w*|alter\w*|modify\w*|updat\w*|redesign\w*|new)\b.{0,40}\bschema|"
-    r"schema (change|migration|design)\w*|"
-    r"extract\w*\b.{0,60}\b(into|out into|to) (a|an|its own|their own|a new|a separate|separate) "
-    r"(\w+ )?(module|function|class|component|service|helper|file|package|method|hook)|"
+    r"(chang\w*|alter\w*|modif\w*|updat\w*|new)\b.{0,40}\bschemas?|schema changes?|"
+    r"extract\w*\b.{0,60}\b(into|to) (a|an|its own|their own|a new|a separate|separate) "
+    r"(\w+ )?(module|function|class|component|service|helper|package|method|hook)|"
     r"overhaul|consolidat\w*|split (up|out|into)|from scratch|"
     r"implement (a|an|the|this)|build (a|an|the|out))\b", re.I)
 _RE_STALLED = re.compile(
