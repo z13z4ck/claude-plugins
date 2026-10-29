@@ -1042,6 +1042,104 @@ worker_hook subagent-stop as5 "$WK" "\"stop_hook_active\":false,\"agent_transcri
 [ "$(jget "$HOOK_OUT" decision)" = "block" ] && ok "agent_transcript_path wins over the derived path" || no "agent_transcript_path ignored" "$HOOK_OUT"
 
 # =============================================================================
+section "pre-agent (PreToolUse Agent|Task): workers never background a subagent"
+# A background subagent's completion notice goes to the top-level session, never
+# to the worker that started it, so a worker that backgrounds its advisor and
+# ends its turn waiting stalls for good (seen live: 68 minutes).
+BG_ADV='"tool_input":{"subagent_type":"fable-advisor:advisor","model":"fable","prompt":"review my diff","description":"r","run_in_background":true}'
+is_deny() { [ "$(jget "$1" hookSpecificOutput.hookEventName)" = "PreToolUse" ] && [ "$(jget "$1" hookSpecificOutput.permissionDecision)" = "deny" ]; }
+
+new_transcript pa-policy
+worker_hook subagent-start pa0 "$WK"
+contains "$(context_of "$HOOK_OUT")" "FOREGROUND" && contains "$(context_of "$HOOK_OUT")" "run_in_background" \
+  && ok "worker policy says to dispatch the advisor in the FOREGROUND" || no "foreground rule missing from worker policy" "$HOOK_OUT"
+
+new_worker pa1 pa1
+worker_hook pre-agent pa1 "$WK" "\"tool_name\":\"Agent\",$BG_ADV"
+is_deny "$HOOK_OUT" && ok "(a) enforced worker's background Agent call is denied" || no "background dispatch not denied" "$HOOK_OUT"
+reason="$(jget "$HOOK_OUT" hookSpecificOutput.permissionDecisionReason)"
+contains "$reason" "FOREGROUND" && contains "$reason" "without run_in_background" && contains "$reason" "[fable-advisor]" \
+  && ok "(a) denial gives the foreground reason" || no "denial reason unhelpful" "$reason"
+printf '%s' "$HOOK_OUT" | py -c '
+import json, sys
+d = json.load(sys.stdin)
+h = d["hookSpecificOutput"]
+assert set(d) == {"hookSpecificOutput"}, d
+assert set(h) == {"hookEventName", "permissionDecision", "permissionDecisionReason"}, h
+' && ok "(a) denial has exactly the plan gate's PreToolUse shape" || no "denial shape differs" "$HOOK_OUT"
+grep -q "event=pre-agent-deny agent=pa1 subagent_type=fable-advisor:advisor" "$FABLE_ADVISOR_HOME/events.log" \
+  && ok "events.log records the denial with the worker and subagent type" || no "pre-agent denial not logged"
+worker_hook pre-agent pa1 "$WK" '"tool_name":"Agent","tool_input":{"subagent_type":"Explore","prompt":"find","description":"x","run_in_background":true}'
+is_deny "$HOOK_OUT" && ok "(a) any subagent type the worker backgrounds is denied, not only the advisor" || no "background Explore passed" "$HOOK_OUT"
+worker_hook pre-agent pa1 "$WK" '"tool_name":"Agent","tool_input":{"subagent_type":"fable-advisor:advisor","prompt":"r","run_in_background":"true"}'
+is_deny "$HOOK_OUT" && ok "(a) a string \"true\" counts as background" || no "string true passed" "$HOOK_OUT"
+
+worker_hook pre-agent pa1 "$WK" '"tool_name":"Agent","tool_input":{"subagent_type":"fable-advisor:advisor","prompt":"review my diff","description":"r"}'
+[ "$HOOK_RC" -eq 0 ] && [ -z "$HOOK_OUT" ] && ok "(b) the same call without run_in_background passes silently" || no "foreground call blocked" "$HOOK_OUT"
+worker_hook pre-agent pa1 "$WK" '"tool_name":"Agent","tool_input":{"subagent_type":"fable-advisor:advisor","prompt":"review my diff","run_in_background":false}'
+[ -z "$HOOK_OUT" ] && ok "(b) run_in_background: false passes" || no "false blocked" "$HOOK_OUT"
+worker_hook pre-agent pa1 "$WK" '"tool_name":"Agent","tool_input":"not a dict"'
+[ "$HOOK_RC" -eq 0 ] && [ -z "$HOOK_OUT" ] && ok "(b) malformed tool_input passes (fail open)" || no "malformed tool_input misbehaved" "$HOOK_OUT"
+
+run_hook pre-agent "\"tool_name\":\"Agent\",$BG_ADV"
+[ -z "$HOOK_OUT" ] && ok "(c) the main session may background a subagent (control arm)" || no "main session denied" "$HOOK_OUT"
+worker_hook pre-agent pa2 general-purpose "\"tool_name\":\"Agent\",$BG_ADV"
+[ -z "$HOOK_OUT" ] && ok "(d) a non-worker subagent may background a subagent" || no "general-purpose denied" "$HOOK_OUT"
+worker_hook pre-agent pa3 fable-advisor:advisor "\"tool_name\":\"Agent\",$BG_ADV"
+[ -z "$HOOK_OUT" ] && ok "(d) the advisor itself is silent" || no "advisor denied" "$HOOK_OUT"
+FABLE_ADVISOR_SUBAGENTS=none worker_hook pre-agent pa1 "$WK" "\"tool_name\":\"Agent\",$BG_ADV"
+[ -z "$HOOK_OUT" ] && ok "(d) FABLE_ADVISOR_SUBAGENTS=none: no worker, no denial" || no "denied with no enforced workers" "$HOOK_OUT"
+
+FABLE_ADVISOR_ENFORCE=off worker_hook pre-agent pa1 "$WK" "\"tool_name\":\"Agent\",$BG_ADV"
+[ -z "$HOOK_OUT" ] && ok "(e) ENFORCE=off: passes" || no "denied despite off" "$HOOK_OUT"
+FABLE_ADVISOR_ENFORCE=nudge worker_hook pre-agent pa1 "$WK" "\"tool_name\":\"Agent\",$BG_ADV"
+is_deny "$HOOK_OUT" && ok "(e) ENFORCE=nudge still denies: it prevents a hang, not a skipped consultation" || no "nudge mode let a worker stall" "$HOOK_OUT"
+
+worker_hook pre-agent pa1 "$WK" "\"tool_name\":\"Task\",$BG_ADV"
+is_deny "$HOOK_OUT" && ok "(f) tool name Task is denied like Agent" || no "Task passed" "$HOOK_OUT"
+contains "$(jget "$HOOK_OUT" hookSpecificOutput.permissionDecisionReason)" "this Task call" && ok "(f) the reason names the tool that was called" || no "reason names the wrong tool"
+worker_hook pre-agent pa1 "$WK" '"tool_name":"Task","tool_input":{"subagent_type":"fable-advisor:advisor","prompt":"r"}'
+[ -z "$HOOK_OUT" ] && ok "(f) a foreground Task call passes" || no "foreground Task blocked" "$HOOK_OUT"
+worker_hook pre-agent pa1 "$WK" '"tool_name":"Bash","tool_input":{"command":"sleep 1","run_in_background":true}'
+[ -z "$HOOK_OUT" ] && ok "background Bash is not this hook's business (it does wake the worker)" || no "Bash denied" "$HOOK_OUT"
+
+# The consultation tally is unchanged for the calls that go through.
+new_worker pa4 pa4
+worker_hook pre-agent pa4 "$WK" '"tool_name":"Agent","tool_use_id":"toolu_pa4","tool_input":{"subagent_type":"fable-advisor:advisor","prompt":"review","description":"r"}'
+worker_hook post-tool pa4 "$WK" '"tool_name":"Agent","tool_use_id":"toolu_pa4","tool_input":{"subagent_type":"fable-advisor:advisor","prompt":"review","description":"r"}'
+grep -q '"last_consult_ts"' "$(wstate pa4)" && ok "post-tool still records a worker's foreground Agent consultation" || no "worker consult not recorded"
+new_transcript pa5
+run_hook post-tool '"tool_name":"Task","tool_use_id":"toolu_pa5","tool_input":{"subagent_type":"fable-advisor:advisor","prompt":"review","description":"r","run_in_background":true}'
+grep -q '"last_consult_ts"' "$FABLE_ADVISOR_HOME/state/$SID.json" 2>/dev/null && ok "post-tool still records a main-session Task consultation" || no "main Task consult not recorded"
+
+# A dispatch the hook denied never ran, so it must not excuse the worker's review.
+new_worker pa6 pa6
+in_worker t_prompt "Build it"
+for f in a.py b.py c.py d.py; do in_worker t_edit "$f"; done
+in_worker t_tool_use Agent '{"subagent_type":"fable-advisor:advisor","model":"fable","prompt":"review my diff","description":"r","run_in_background":true}' toolu_bg6
+printf '{"type":"user","isSidechain":true,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_bg6","is_error":true,"content":"PreToolUse:Agent hook denied: [fable-advisor] A worker must dispatch subagents in the FOREGROUND"}]}}\n' >>"$WT"
+worker_hook subagent-stop pa6 "$WK" '"stop_hook_active":false'
+[ "$(jget "$HOOK_OUT" decision)" = "block" ] && ok "a denied background dispatch does not count as a consultation" || no "denied dispatch counted as a review" "$HOOK_OUT"
+in_worker t_consult
+worker_hook subagent-stop pa6 "$WK" '"stop_hook_active":false'
+[ -z "$HOOK_OUT" ] && ok "the foreground retry does count" || no "foreground retry not counted" "$HOOK_OUT"
+
+HJ="$BIN/../hooks/hooks.json"
+py - "$HJ" <<'PYEOF' && ok "hooks.json routes PreToolUse Agent|Task to pre-agent" || no "hooks.json missing the pre-agent entry"
+import json, sys
+d = json.load(open(sys.argv[1]))
+pre = d["hooks"]["PreToolUse"]
+hit = [e for e in pre if e.get("matcher") == "Agent|Task"
+       and any(h.get("command", "").endswith("hook.sh\" pre-agent") for h in e["hooks"])]
+assert hit, pre
+PYEOF
+if ! grep -q '"hooks"[[:space:]]*:' "$BIN/../.claude-plugin/plugin.json"; then
+  ok "plugin.json has no hooks key (hooks/hooks.json is auto-loaded)"
+else
+  no "plugin.json has a hooks key: the duplicate disables every hook"
+fi
+
+# =============================================================================
 section "robustness"
 HOOK_OUT="$(printf 'not json' | bash "$BIN/hook.sh" prompt 2>/dev/null)"; rc=$?
 [ "$rc" -eq 0 ] && [ -z "$HOOK_OUT" ] && ok "garbage stdin: exit 0, no output" || no "garbage stdin misbehaved" "rc=$rc out=$HOOK_OUT"

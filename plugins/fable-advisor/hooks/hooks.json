@@ -34,6 +34,16 @@
             "statusMessage": "Checking the plan was advisor-reviewed..."
           }
         ]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/bin/hook.sh\" pre-agent",
+            "timeout": 15
+          }
+        ]
       }
     ],
     "PostToolUse": [

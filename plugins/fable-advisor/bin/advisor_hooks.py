@@ -16,6 +16,9 @@ deletes is never re-added; FABLE_ADVISOR_CLAUDE_MD=off opts out).
                  review prompts and state that the policy applies to this turn
   plan-gate      PreToolUse ExitPlanMode: deny until the plan was sent to the
                  advisor in this planning episode (releases after two denials)
+  pre-agent      PreToolUse Agent|Task: deny an enforced worker's background
+                 dispatch (run_in_background), whose completion notice would go
+                 to the parent session and leave the worker waiting forever
   post-tool      PostToolUse Edit|Write|MultiEdit|NotebookEdit|Bash: nudge each
                  time another N distinct files were edited since the last
                  consultation; PostToolUse Agent|Task: record a consultation
@@ -50,6 +53,8 @@ open: an unexpected error exits 0 with no output and a line in events.log.
 Configuration (environment variables, e.g. via settings.json "env"):
   FABLE_ADVISOR_ENFORCE         full (default) | nudge | off
                                 nudge = context injection only: no denies, no holds
+                                (except pre-agent, which prevents a hang rather
+                                than a skipped consultation; only off disables it)
   FABLE_ADVISOR_FILE_THRESHOLD  distinct files that trigger edit-watch / stop-audit (4)
   FABLE_ADVISOR_PLAN_GATE       0 disables the ExitPlanMode gate
   FABLE_ADVISOR_EDIT_WATCH      0 disables the edit-count nudge
@@ -655,7 +660,15 @@ class Scan:
                     continue
                 if b.get("type") == "tool_result":
                     has_result = True
-                    if b.get("tool_use_id") in self._exit_ids and not b.get("is_error") \
+                    tid = b.get("tool_use_id")
+                    if tid in self.consult_lines and b.get("is_error") \
+                            and "[fable-advisor]" in _block_text(b):
+                        # pre-agent denied this dispatch (it asked for the
+                        # background): the advisor never ran, so it is no consultation.
+                        line_no = self.consult_lines.pop(tid)
+                        if line_no in self.consults:
+                            self.consults.remove(line_no)
+                    if tid in self._exit_ids and not b.get("is_error") \
                             and "[fable-advisor]" not in _block_text(b):
                         # A hook denial also yields a tool_result for the call; only a
                         # real completion ends the planning episode.
@@ -1329,6 +1342,51 @@ def plan_gate(inp):
     log("plan-gate-deny", sid, prior=len(prior))
 
 
+BACKGROUND_DENIAL = (
+    "[fable-advisor] A worker must dispatch subagents in the FOREGROUND: a background subagent's "
+    "result is delivered to the parent session, never to you, so you would wait for a result that "
+    "never arrives. Re-send this %s call without run_in_background and wait for its result in this turn."
+)
+
+
+def _truthy(v):
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        return v != 0
+    if isinstance(v, str):
+        return v.strip().lower() in ("true", "1", "yes", "on")
+    return False
+
+
+def pre_agent(inp):
+    """PreToolUse Agent|Task. A background subagent's completion notice is
+    routed to the top-level session, never to the worker that started it, so a
+    worker that backgrounds the advisor (or any subagent) and ends its turn
+    waiting stalls until someone stops it. Deny that call for enforced workers.
+    This guards against a hang rather than a skipped consultation, so it applies
+    in nudge mode too; only FABLE_ADVISOR_ENFORCE=off disables it."""
+    if CFG.mode == "off":
+        return
+    if inp.get("tool_name") not in DISPATCH_TOOLS:
+        return
+    sc = Scope(inp)
+    if sc.kind != "worker":
+        return
+    tool_input = inp.get("tool_input") or {}
+    if not isinstance(tool_input, dict) or not _truthy(tool_input.get("run_in_background")):
+        return
+    emit({
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": BACKGROUND_DENIAL % inp.get("tool_name"),
+        }
+    })
+    log("pre-agent-deny", sc.sid, agent=sc.agent_id,
+        subagent_type=str(tool_input.get("subagent_type") or "-"))
+
+
 def post_tool(inp):
     if CFG.mode == "off":
         return
@@ -1494,7 +1552,9 @@ def worker_policy_text():
         "tree (run `git -C <worktree> rev-parse --absolute-git-dir`, then `git -C <worktree> diff "
         "<base>...HEAD > <that dir>/crew-review.diff` with literal paths; a worktree-isolated agent's git "
         "commands are refused when they nest $(git ...)) and give the advisor that file's absolute path and "
-        "your worktree path (it reads files only, by path, and cannot run git)." % (DISPATCH, CFG.threshold),
+        "your worktree path (it reads files only, by path, and cannot run git). Dispatch the advisor in "
+        "the FOREGROUND (no run_in_background): a background subagent's result is delivered to the "
+        "parent session, never to you." % (DISPATCH, CFG.threshold),
         "",
         "HOOKS IN FORCE: a nudge once %d distinct files were edited since your last consultation; if you "
         "try to finish with %d+ unreviewed files, you are held once and asked for that review. A decision "
@@ -1625,6 +1685,7 @@ HOOKS = {
     "session-start": session_start,
     "prompt": prompt,
     "plan-gate": plan_gate,
+    "pre-agent": pre_agent,
     "post-tool": post_tool,
     "edit-watch": edit_watch,  # alias kept for the tests and older hooks.json files
     "stop-audit": stop_audit,

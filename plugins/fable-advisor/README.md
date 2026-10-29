@@ -25,7 +25,7 @@ and the consultation is enforced rather than left to judgment.
 | Component | Purpose |
 |---|---|
 | `agents/advisor.md` | Read-only advisor, `model: fable`, `effort: high` — enforcement makes consultation routine rather than rare, so the default buys a deep tier at a per-call cost you can afford one or two times a turn; `xhigh` is a one-line opt-up. Reads files itself instead of trusting summaries. Every verdict starts with a MODEL line so a silently substituted model can't pass as Fable. |
-| `hooks/hooks.json` + `bin/` | Seven enforcement hooks (below). Transcript-driven and fail-open. Background workers of the types you list (default `feature-crew:feature-builder`) get their own policy, tally and end-of-run hold; see [Subagents](#subagents). |
+| `hooks/hooks.json` + `bin/` | Eight enforcement hooks (below). Transcript-driven and fail-open. Background workers of the types you list (default `feature-crew:feature-builder`) get their own policy, tally and end-of-run hold, and may not background a subagent; see [Subagents](#subagents). |
 | `/fable-advisor:consult <question>` | Deterministic consultation. `--model <alias>` overrides the advisor model per call. |
 | `/fable-advisor:review-plan` | Critique the session's current plan before execution. Takes the same `--model <alias>` override as consult. |
 | `/fable-advisor:status` | How many consultations this session, which edits are still unreviewed, which hooks are active, and the last hook events. |
@@ -74,6 +74,7 @@ harness applies:
 | Policy injection | `SessionStart` (startup, resume, clear, **compact**) | Puts the advisor policy — when to consult, how to dispatch, how to handle a degraded verdict — into context. Re-injected after every compaction, with a tally of consultations so far and files edited since the last one. On `startup` only, also writes the [user CLAUDE.md block](#the-four-layers-in-increasing-reliability) once per device. |
 | Prompt nudge | `UserPromptSubmit` | Recognises decision prompts ("should we", "which is better", "trade-offs"), planning prompts ("refactor", "migrate", "design"), stalled fixes ("still failing", "same error" — escalates on the second in a row) and review requests, and states that the policy applies to this turn. Also surfaces any unreviewed edits over the threshold. Silent on trivial prompts, slash commands, and harness messages such as a background agent's `<task-notification>` (which mentions "review" often enough to be mistaken for a request). |
 | Plan gate | `PreToolUse` on `ExitPlanMode` | **Denies** exiting plan mode until the advisor was dispatched during this planning episode (an `EnterPlanMode` call or a switch into plan mode starts one; a successful `ExitPlanMode` or a switch out of plan mode ends it — a denied attempt does not). Health checks don't count. Headless (`-p`) sessions have no `ExitPlanMode` tool, so this gate only ever fires interactively. After two denials it stops denying and only adds context, so a session where the Agent tool is unavailable cannot wedge; the normal plan-approval prompt still runs, so the user keeps their veto. |
+| Background gate | `PreToolUse` on `Agent`, `Task` | For enforced worker types only: **denies** an `Agent` (or `Task`) call with `run_in_background: true`, with a reason that says to re-send it in the foreground. A background subagent's completion notice is delivered to the top-level session, never to the worker that started it, so a worker that backgrounds its advisor and ends its turn waiting never wakes up (seen live: 68 minutes idle). Applies to every subagent type, not only the advisor. Background `Bash` and `Monitor` do wake the worker and are not touched; the main session and other subagents are never denied. A denied dispatch does not count as a consultation. It prevents a hang rather than a skipped consultation, so it stays on in `nudge` mode; only `off` disables it. |
 | Edit watch | `PostToolUse` on `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `Bash` | Counts distinct files edited since the last consultation and nudges at every multiple of the threshold (4, 8, 12 …). Bash writes count too — heredocs, `>`/`>>` redirects, `tee`, `sed -i` — because sessions in bypass-permissions mode are steered to edit through Bash, which the Edit/Write tools never see. Temp and device paths, Claude's own plan files and memory notes are ignored. A `cd` is followed: relative writes after `cd /some/dir` are resolved against it (so a scratch dir under `/tmp` drops out), and relative writes after a `cd` it cannot resolve (`cd $DIR`, `cd -`) are skipped rather than guessed into the project; a `cd` inside `( … )` ends with the subshell. Relative Bash writes are resolved against the session's directory, so a file written by `Write` and later by `sed -i` counts once — and a project that itself lives under the temp dir is not enforced, through Bash or the Edit tools. The same hook records advisor dispatches, so a consultation counts the moment it is made even before the transcript has caught up. |
 | Stop audit | `Stop` | If the turn that is ending edited at least the threshold of distinct files and the advisor was not consulted during that turn, **holds the turn once** with an instruction to get a verification review of the change set. It is a hold, not a lock: after the model has acted on it (or explained why it could not), the next stop goes through. Honours `stop_hook_active`, never holds the same turn twice, and never fires inside a subagent. |
 | Worker policy | `SubagentStart` | For enforced worker types only: puts a worker version of the policy into the subagent before its first prompt — consult before design calls its brief doesn't settle and after two failed fixes, get a review of the committed diff before finishing a change of threshold+ files, and hand the advisor absolute paths, since it reads files only. Logs every subagent start with its raw `agent_type`. |
@@ -97,7 +98,7 @@ Set these in the environment Claude Code runs in — the `env` block of
 
 | Variable | Default | Effect |
 |---|---|---|
-| `FABLE_ADVISOR_ENFORCE` | `full` | `nudge` keeps the context injection but never denies or holds; `off` silences every hook. |
+| `FABLE_ADVISOR_ENFORCE` | `full` | `nudge` keeps the context injection but never denies or holds, except the background gate, which prevents a stalled worker; `off` silences every hook. |
 | `FABLE_ADVISOR_FILE_THRESHOLD` | `4` | Distinct files that trigger the edit watch and the stop audit. The injected policy says "more than N−1 files" accordingly. |
 | `FABLE_ADVISOR_PLAN_GATE` | `1` | `0` disables the `ExitPlanMode` gate. |
 | `FABLE_ADVISOR_EDIT_WATCH` | `1` | `0` disables the edit-count nudge. |
@@ -126,7 +127,7 @@ cases:
 
 | Subagent | Treatment |
 |---|---|
-| An enforced worker type (`FABLE_ADVISOR_SUBAGENTS`) | Its own state file (`<session>--<agent_id>.json`) and its own transcript. Its edits, nudges, consultations and hold are its own and never count for the parent — a worker's review does not excuse the parent from its own, and a worker's edits never hold the parent. |
+| An enforced worker type (`FABLE_ADVISOR_SUBAGENTS`) | Its own state file (`<session>--<agent_id>.json`) and its own transcript. Its edits, nudges, consultations and hold are its own and never count for the parent — a worker's review does not excuse the parent from its own, and a worker's edits never hold the parent. Since 1.10.0 it must dispatch the advisor and any other subagent in the foreground: the background gate denies `run_in_background: true`, and the worker policy says why. |
 | The advisor itself | Silent. |
 | Anything else (`general-purpose`, `Explore`, your own agents) | Counted for the parent, as before: it works in the parent's tree, so a turn that delegates six edits to a subagent is still held. |
 
@@ -141,6 +142,14 @@ completion notification and was never held for the worker's edits. One
 thing the run surfaced: a worktree-isolated agent's git commands are refused
 when they nest `$(git ...)`, so the worker policy and the hold give the diff
 step as two plain `git -C <worktree>` commands with literal paths.
+
+A later run (1.9.0) surfaced a stall: a worker dispatched the advisor with
+`run_in_background: true` for a re-review and ended its turn "waiting on the
+advisor". The advisor finished seven minutes later, but its completion notice
+went to the top-level session, not to the worker, which sat idle for 68
+minutes until the user stopped it. Since 1.10.0 the worker policy says to
+dispatch in the foreground, and the background gate denies the call outright,
+so the worker retries in the foreground and gets the result in its own turn.
 
 ### What this costs
 
