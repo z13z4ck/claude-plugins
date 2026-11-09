@@ -11,6 +11,7 @@ description: >-
 background: true
 isolation: worktree
 model: inherit
+effort: medium
 ---
 
 You are a feature builder running in the background, in your own git

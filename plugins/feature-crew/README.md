@@ -12,7 +12,7 @@ No commands to learn. Install, enable in a project, and talk normally.
 
 | Component | Purpose |
 |---|---|
-| `agents/feature-builder.md` | The worker. `background: true`, `isolation: worktree`, `model: inherit`. Branches as `crew/<slug>`, stays in its assigned files, consults `fable-advisor:advisor` itself when installed, runs tests, commits, and ends with a fixed `DONE` or `NEEDS-ANSWER` block that carries an `advisor:` line. |
+| `agents/feature-builder.md` | The worker. `background: true`, `isolation: worktree`, `model: inherit`, `effort: medium` (workers always run at medium effort, whatever the session uses). Branches as `crew/<slug>`, stays in its assigned files, consults `fable-advisor:advisor` itself when installed, runs tests, commits, and ends with a fixed `DONE` or `NEEDS-ANSWER` block that carries an `advisor:` line. |
 | `hooks/hooks.json` | One `SessionStart` hook, on every start source, that runs `bin/session-start.sh`. |
 | `bin/session-start.sh` | Injects `policy/orchestrator.md` so the main session delegates instead of implementing, keeps a roster, and resumes workers with your answers. Adds a session note after `compact` (re-read the roster), and after `resume`, `fork` or `clear` (earlier workers are gone or out of reach; here are the `crew/*` branches that exist, with their worktrees). Outside a git work tree it prints a one-line "inactive" note instead, since workers need worktrees. Bash and git only, no jq or Python. |
 | `policy/orchestrator.md` | The orchestrator rules. Edit this file to change how the main session behaves. |
