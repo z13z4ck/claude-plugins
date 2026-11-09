@@ -15,6 +15,14 @@ session.
   branch name `crew/<slug>`, base branch, and every decision the user already
   made. Give each worker a short name when you spawn it so you can message it
   later.
+- Every brief grants the worker ownership of the test files relevant to its
+  feature (it may add or change them), and names the verify command(s) that
+  prove the acceptance criteria, or says plainly that none exist. Workers plan
+  a check per criterion before coding and report each one as verified or
+  "not verified: <why>".
+- First dispatch is always `feature-crew:feature-builder`.
+  `feature-crew:feature-builder-deep` is for escalation only (see "Failed or
+  unverified DONE").
 - By default workers start from the repository's default branch, not from
   this session's HEAD. Always state the base branch in the brief.
 - Run independent features in parallel. Before dispatching, compare what each
@@ -38,10 +46,18 @@ session.
   changed.
 
 ## Handle worker events
-- **DONE**: if the branch qualifies for an advisor review (see "With
-  fable-advisor"), run that first. Then tell the user in at most five lines:
-  branch, what changed, what the worker reports it verified (say "reported",
-  you did not re-run it), and anything left open. Mark the roster item done.
+- **DONE**: read its `model:` line first. If it does not name a Fable model
+  (missing, Opus, Sonnet, Haiku, anything else), start the report with
+  **WORKER RAN DEGRADED** and tell the user which model it ran on instead of
+  Fable. If `verified:` shows a failing check, or leaves an acceptance
+  criterion unverified although the brief named a check for it, handle it as
+  "Failed or unverified DONE" below instead. Otherwise, if the branch
+  qualifies for an advisor review (see "With fable-advisor"), run that first.
+  Then tell the user in at most five lines: branch, what changed, what the
+  worker reports it verified per criterion (say "reported", you did not
+  re-run it), and anything left open. Mark the roster item done. A
+  "not verified: <why>" for a criterion with no possible check is an honest
+  answer: report it, do not escalate it.
 - **NEEDS-ANSWER**: relay the question and options to the user as the worker
   wrote them, with its `advisor:` line if it has one, and mark the roster item "waiting on you". When the user
   answers, resume that same worker with SendMessage (to: its name or ID) and
@@ -50,7 +66,21 @@ session.
   completion notice for an advisor or other subagent arrives in this session
   while a worker says it is waiting on one, forward the result to that worker
   with SendMessage at once, verbatim.
-- **Failed**: say what broke and propose one next step.
+- **Failed or unverified DONE** (a worker errors out, or its DONE fails or
+  skips a check its brief named): escalate in this order without asking,
+  updating the roster item at each step.
+  1. Resume the same worker once with SendMessage, quoting the failure
+     evidence (the failing check, its output, the unverified criteria).
+  2. If its next report still fails, dispatch a fresh
+     `feature-crew:feature-builder-deep` with base `crew/<slug>` (the
+     branch the first worker actually reported; the original base if it
+     never created one) and branch
+     `crew/<slug>-deep`. Its brief is the original brief, unchanged, plus
+     what was tried and how it failed. Tell the user in one line that you
+     escalated.
+  3. If the deep worker also fails, stop and ask the user how to proceed,
+     with both workers' evidence. Do not dispatch further workers unasked.
+  If the worker errored before reporting and cannot be resumed, skip to 2.
 - **Stopped by the user**: a stopped worker cannot be resumed. Save its
   uncommitted work at once, before its worktree can be cleaned up. Stage
   everything so new and binary files come along (`git -C <worktree> add -A`),
@@ -82,8 +112,9 @@ session.
 Applies when `fable-advisor:advisor` is among your available agent types.
 Workers consult the advisor themselves: they sit on the changed files, and
 the advisor can only read files by path. fable-advisor 1.8.0+ enforces that
-inside workers with its own hooks, and a worker's consultations never count
-for this session. You still check each DONE, below.
+inside `feature-builder` workers with its own hooks (1.10.2+ inside
+`feature-builder-deep` too), and a worker's consultations never count for
+this session. You still check each DONE, from either worker type, below.
 - **Dispatching is not executing a plan.** Sending a brief to a worker does
   not need an advisor consultation first, unless the brief makes an
   architectural, data-model, interface or dependency decision the user has

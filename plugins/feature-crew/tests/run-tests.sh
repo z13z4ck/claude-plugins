@@ -215,6 +215,48 @@ case "$fm" in
   *) no "worker frontmatter: name, background, worktree isolation" ;;
 esac
 
+# 0.4.0: quality over cost. Workers pin Fable; the first dispatch runs at
+# high, the escalation worker at xhigh.
+fm_line() { sed -n '2,/^---$/p' "$1" | grep -x "$2" >/dev/null; }
+if fm_line "$PLUGIN/agents/feature-builder.md" "model: fable" && fm_line "$PLUGIN/agents/feature-builder.md" "effort: high"; then
+  ok "feature-builder runs on model: fable at effort: high"
+else
+  no "feature-builder runs on model: fable at effort: high" "$(sed -n '2,/^---$/p' "$PLUGIN/agents/feature-builder.md" | grep -E '^(model|effort):')"
+fi
+
+D="$PLUGIN/agents/feature-builder-deep.md"
+if [ -f "$D" ] && fm_line "$D" "name: feature-builder-deep" && fm_line "$D" "model: fable" &&
+  fm_line "$D" "effort: xhigh" && fm_line "$D" "background: true" && fm_line "$D" "isolation: worktree"; then
+  ok "feature-builder-deep: own name, model: fable, effort: xhigh, background, worktree"
+else
+  no "feature-builder-deep: own name, model: fable, effort: xhigh, background, worktree"
+fi
+
+if [ -f "$D" ] && sed -n '2,/^---$/p' "$D" | grep -qi "escalation"; then
+  ok "feature-builder-deep's description marks it escalation-only"
+else
+  no "feature-builder-deep's description marks it escalation-only"
+fi
+
+# Plugin agent files cannot include shared text, so the deep worker is a copy.
+# Strip the three lines allowed to differ (name, the folded description block,
+# effort) and the rest must match byte for byte.
+strip_fm_diffs() {
+  awk '
+    /^description:/ { skip = 1; next }
+    skip && /^  / { next }
+    { skip = 0 }
+    /^name: / || /^effort: / { next }
+    { print }
+  ' "$1"
+}
+if [ -f "$D" ] && [ "$(strip_fm_diffs "$PLUGIN/agents/feature-builder.md")" = "$(strip_fm_diffs "$D")" ]; then
+  ok "feature-builder-deep matches feature-builder apart from name, description, effort"
+else
+  no "feature-builder-deep matches feature-builder apart from name, description, effort" \
+    "$(diff <(strip_fm_diffs "$PLUGIN/agents/feature-builder.md") <(strip_fm_diffs "$D") 2>&1 | head -5)"
+fi
+
 if grep -q "feature-crew:feature-builder" "$PLUGIN/policy/orchestrator.md" &&
   grep -q "fable-advisor:advisor" "$PLUGIN/policy/orchestrator.md"; then
   ok "policy names the worker and the advisor by their qualified agent names"
@@ -233,6 +275,47 @@ if [ "$(grep -c '^advisor: ' "$W")" -eq 2 ]; then
   ok "both final blocks (DONE, NEEDS-ANSWER) carry an advisor: line"
 else
   no "both final blocks (DONE, NEEDS-ANSWER) carry an advisor: line" "found $(grep -c '^advisor: ' "$W")"
+fi
+
+if [ "$(grep -c '^model: <' "$W")" -eq 2 ]; then
+  ok "both final blocks (DONE, NEEDS-ANSWER) carry a model: line"
+else
+  no "both final blocks (DONE, NEEDS-ANSWER) carry a model: line" "found $(grep -c '^model: <' "$W")"
+fi
+
+if grep -q "WORKER RAN DEGRADED" "$PLUGIN/policy/orchestrator.md" && grep -q "model:" "$PLUGIN/policy/orchestrator.md"; then
+  ok "orchestrator flags a DONE whose model: is not Fable as WORKER RAN DEGRADED"
+else
+  no "orchestrator flags a DONE whose model: is not Fable as WORKER RAN DEGRADED"
+fi
+
+# Verify-first: a check per criterion planned before coding, evidence per
+# criterion in DONE, output in a log outside the tree that the advisor reads.
+if grep -q "proves each acceptance criterion" "$W" && grep -q "crew-verify.log" "$W" &&
+  grep -q "per acceptance criterion" "$W" && grep -q "not verified: <why>" "$W"; then
+  ok "worker plans checks per criterion, logs output outside the tree, maps criteria to evidence"
+else
+  no "worker plans checks per criterion, logs output outside the tree, maps criteria to evidence"
+fi
+
+r7="$(sed -n '/^7\. \*\*Review/,/^8\. /p' "$W")"
+case "$r7" in
+  *crew-review.diff*crew-verify.log*) ok "worker hands the advisor its verify log with the review diff" ;;
+  *) no "worker hands the advisor its verify log with the review diff" ;;
+esac
+
+O="$PLUGIN/policy/orchestrator.md"
+if grep -q "names the verify command" "$O" && grep -q "ownership of the test files" "$O"; then
+  ok "orchestrator briefs grant test-file ownership and name verify commands"
+else
+  no "orchestrator briefs grant test-file ownership and name verify commands"
+fi
+
+if grep -q "feature-crew:feature-builder-deep" "$O" && grep -q "crew/<slug>-deep" "$O" &&
+  grep -q "Resume the same worker once" "$O" && grep -q "stop and ask the user" "$O"; then
+  ok "orchestrator escalates: resume once, then feature-builder-deep on crew/<slug>-deep, then ask"
+else
+  no "orchestrator escalates: resume once, then feature-builder-deep on crew/<slug>-deep, then ask"
 fi
 
 steps="$(grep -o '^[0-9]\. \*\*' "$W" | cut -c1 | tr -d '\n')"
