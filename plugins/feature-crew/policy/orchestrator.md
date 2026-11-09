@@ -90,7 +90,8 @@ session.
     "switched to" notice), and some paths, such as a dismissed consent,
     continue silently on another model. The `model:` line is the check
     that catches all of them. A missing or `unknown` `model:` line keeps
-    the degraded label but does not stop the ladder.
+    the degraded label but does not stop the ladder. When both this rule
+    and the pre-existing exception match, this one wins: ask the user.
   - Exception: a failure the worker shows was already present in its
     baseline run on the feature's original base and that the brief did not
     ask it to fix, or a check blocked by a missing tool, dependency or
@@ -103,8 +104,9 @@ session.
   2. If its next report still fails, dispatch a fresh
      `feature-crew:feature-builder-deep`. Its brief is the original brief
      with two lines replaced: branch `crew/<slug>-deep`, base `crew/<slug>`
-     (the branch the first worker actually reported; the original base if
-     it never created one). Add the original base by name, telling it to
+     (the branch the first worker actually reported; if it errored before
+     reporting, check `git branch --list 'crew/<slug>*'`; the original base
+     if it never created one). Add the original base by name, telling it to
      use that base for its review step's file count and diff so the review
      covers the whole feature, and to treat the failures listed as its
      target (only failures also present on the original base are

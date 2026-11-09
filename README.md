@@ -175,7 +175,7 @@ How it fails safe when the hook itself is killed:
 ## Requirements
 
 - A current Claude Code for the newest Fable (5.2) through the `fable`
-  alias; 2.1.257 or later gives Fable 5.1 (`claude update`). Restart after installing or updating a plugin: hooks
+  alias (`claude update`); 2.1.257 is the minimum for Fable 5.1. Restart after installing or updating a plugin: hooks
   load at session start.
 - fable-advisor's hooks need Python 3 on `PATH` (`python3`, or `python` /
   `py -3` on Windows); without it they are a silent no-op.
