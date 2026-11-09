@@ -46,12 +46,15 @@ session.
   changed.
 
 ## Handle worker events
-- **DONE**: read its `model:` line first. If it does not name a Fable model
+- **DONE** (and NEEDS-ANSWER, for the label): read its `model:` line first.
+  If it does not name a Fable model
   (missing, unknown, Opus, Sonnet, Haiku, anything else), the worker ran
   degraded: start every message about it, escalation notices included, with
   **WORKER RAN DEGRADED** and tell the user which model it ran on instead of
-  Fable. If a verify command the brief named was not run, or ran and failed,
-  handle it as "Failed or unverified DONE" below instead. Otherwise, if the
+  Fable. If a verify command the brief named was not run, or any check the
+  worker reports ran and failed, handle it as "Failed or unverified DONE"
+  below instead (its exception sends pre-existing failures back here).
+  Otherwise, if the
   branch qualifies for an advisor review (see "With fable-advisor"), run
   that first. Then tell the user briefly (about five lines, plus one per
   acceptance criterion): branch, what changed, what the worker reports it
@@ -68,30 +71,37 @@ session.
   while a worker says it is waiting on one, forward the result to that worker
   with SendMessage at once, verbatim.
 - **Failed or unverified DONE** (a worker errors out, or a verify command
-  its brief named was not run, or ran and failed): escalate in this order
+  its brief named was not run, or any check it reports ran and failed):
+  escalate in this order
   without asking, updating the roster item at each step. This is separate
   from an advisor verdict that asks for changes, which you only offer to
   the user (see "Act on the verdict").
   - Exception: a failure the worker shows was already present in its
-    baseline run on the base branch, or a check blocked by a missing tool,
-    dependency or credential, goes straight to the user. No worker can fix
-    those.
+    baseline run on the feature's original base and that the brief did not
+    ask it to fix, or a check blocked by a missing tool, dependency or
+    credential, is pre-existing. No worker can fix it: handle the DONE as a
+    normal DONE (advisor check included), calling the failure out to the
+    user. A failure the brief asked the worker to fix is never
+    pre-existing.
   1. Resume the same worker once with SendMessage, quoting the failure
-     evidence (the failing check, its output, the unverified criteria).
+     evidence (the failing check, its output, any named command not run).
   2. If its next report still fails, dispatch a fresh
      `feature-crew:feature-builder-deep`. Its brief is the original brief
      with two lines replaced: branch `crew/<slug>-deep`, base `crew/<slug>`
      (the branch the first worker actually reported; the original base if
      it never created one). Add the original base by name, telling it to
-     diff against that base in its review step so the review covers the
-     whole feature, plus what was tried, how it failed, and the first
+     use that base for its review step's file count and diff so the review
+     covers the whole feature, and to treat the failures listed as its
+     target (only failures also present on the original base are
+     pre-existing), plus what was tried, how it failed, and the first
      worker's verify-log path. If the first worker errored with uncommitted
      work, save it first as under "Stopped by the user" and tell the deep
      worker to apply the patch. Tell the user in one line that you
      escalated, and mark the roster item "escalated". From then on the
      feature's live branch is `crew/<slug>-deep`.
-  3. If the deep worker also fails, stop and ask the user how to proceed,
-     with both workers' evidence. Do not dispatch further workers unasked.
+  3. If the deep worker also fails (it gets no resume of its own), stop and
+     ask the user how to proceed, with both workers' evidence. Do not
+     dispatch further workers unasked.
   If the worker errored before reporting and cannot be resumed, skip to 2.
 - **Stopped by the user**: a stopped worker cannot be resumed. Save its
   uncommitted work at once, before its worktree can be cleaned up. Stage

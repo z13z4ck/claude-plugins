@@ -313,7 +313,7 @@ else
 fi
 
 if grep -q "feature-crew:feature-builder-deep" "$O" && grep -q "crew/<slug>-deep" "$O" &&
-  grep -q "Resume the same worker once" "$O" && grep -q "stop and ask the user" "$O" &&
+  grep -q "Resume the same worker once" "$O" && grep -q "ask the user how to proceed" "$O" &&
   grep -q "baseline run" "$O"; then
   ok "orchestrator escalates: resume once, then feature-builder-deep on crew/<slug>-deep, then ask"
 else

@@ -3,8 +3,8 @@ name: feature-builder-deep
 description: >-
   Escalation-only twin of feature-builder, at xhigh effort. Do NOT use it for
   a first dispatch: the orchestrator sends it a feature only after a
-  feature-builder's DONE failed or left acceptance criteria unverified and
-  one resume of that worker did not fix it. It branches from the failed
+  feature-builder's check failed (or a named verify command was not run)
+  and one resume of that worker did not fix it. It branches from the failed
   worker's crew/<slug> as crew/<slug>-deep, gets the original brief plus what
   was tried, and reports DONE or NEEDS-ANSWER exactly like feature-builder.
 background: true
@@ -51,9 +51,11 @@ Work in this order:
    in the tree. Where no meaningful check can exist, plan to report that
    criterion as "not verified: <why>"; do not invent a worthless check to
    fill the slot. Run the brief's verify command(s) once before coding, as
-   a baseline in the log (step 5): a failure already present there, or a
-   check blocked by a missing tool, dependency or credential, is not yours
-   to fix; report it as such under `verified:`.
+   a baseline in the log (step 5). A baseline failure your brief does not
+   ask you to fix (it is neither your goal nor listed as a failure you must
+   fix), or a check blocked by a missing tool, dependency or credential, is
+   pre-existing: report it as such under `verified:`. A failure your brief
+   asks you to fix is your target, never pre-existing.
 
 4. **Consult the advisor.** When `fable-advisor:advisor` can be dispatched
    (Agent tool, `subagent_type: "fable-advisor:advisor"`, `model: "fable"`),
@@ -84,9 +86,11 @@ Work in this order:
    then append each check's output to `<gitdir>/crew-verify.log` as plain
    commands (e.g. `<command> >> <gitdir>/crew-verify.log 2>&1`), then read
    the tail or grep it for failures. Before each check, append a header line
-   naming the command and the commit (`git -C <worktree> rev-parse --short
-   HEAD`), so the log shows which run produced what; judge only the latest
-   run of each check.
+   naming the run (`baseline` or `post-change`), the command, and the commit
+   you are on plus `dirty` if you have uncommitted changes. Get the commit
+   with `git -C <worktree> rev-parse --short HEAD` as its own command, then
+   write the header with the literal value; never nest `$(git ...)`. Judge
+   only the latest run of each check.
    Run long commands (test suites, browser checks) with a `timeout`, so a
    hang surfaces as an exit code. If you background one, keep working or
    wait on it with Monitor; do not end your turn with "waiting on X".

@@ -55,7 +55,7 @@ it is active into an orchestrator. Either install with project scope, or set
   branch's files exist only in the worker's worktree. The main session checks
   each 4+-file DONE for a Fable verdict and runs the review itself, against
   the worker's worktree, if it is missing, degraded or unaddressed.
-- **A worker fails or can't prove its work:** the main session resumes it
+- **A worker's checks fail (or a named verify command wasn't run):** the main session resumes it
   once with the failure, then escalates to `feature-builder-deep`, then asks
   you (see below).
 - **Revisions:** the main session resumes the original worker, or starts a new
@@ -83,8 +83,9 @@ tied to a check.
   relevant test files and names the verify command(s) for the acceptance
   criteria, or says none exist. The worker plans a check per criterion
   before coding, runs the verify commands once as a baseline, writes check
-  output with a header per run to `<gitdir>/crew-verify.log` (outside the
-  tree), and hands that log to the advisor with its review diff. Its
+  output with a header per run (baseline or post-change, command, commit)
+  to `<gitdir>/crew-verify.log` (outside the tree), and hands that log to
+  the advisor with its review diff. Its
   `verified:` line maps each criterion to evidence or to
   `not verified: <why>` — an honest answer when no meaningful check exists.
 - **Degraded-model flag.** Each report carries a `model:` line naming the
@@ -98,8 +99,9 @@ tied to a check.
   `feature-builder-deep` (`effort: xhigh`) from `crew/<slug>` on
   `crew/<slug>-deep` with the original brief plus what was tried; (3) if that
   fails too, it stops and asks you. Steps 1 and 2 happen without asking.
-  Failures already present on the base branch, or blocked by a missing
-  tool, dependency or credential, come straight to you instead. A `-deep`
+  Failures already present on the base branch that the brief didn't ask
+  the worker to fix, or blocked by a missing tool, dependency or credential,
+  are reported to you with the DONE instead of escalated. A `-deep`
   branch is reviewed against the feature's original base, so the advisor
   sees the whole feature, not just the fix.
 
@@ -150,8 +152,10 @@ tied to a check.
 - Every worker draws on your plan's usage; N workers use it roughly N times as
   fast, and from 0.4.0 each one runs on Fable at `high` (an escalation at
   `xhigh`), which costs more per worker than the old inherit/medium default.
-  To trade back, edit `model:`/`effort:` in `agents/feature-builder.md` —
-  and expect DONE reports to be flagged WORKER RAN DEGRADED off Fable.
+  To trade back, edit `model:` (and `effort:`) in `agents/feature-builder.md`
+  and `model:` in `agents/feature-builder-deep.md` (the sync test allows only
+  name, description and effort to differ) — and expect DONE reports to be
+  flagged WORKER RAN DEGRADED off Fable.
 
 ## Housekeeping
 
