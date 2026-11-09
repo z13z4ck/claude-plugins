@@ -46,9 +46,14 @@ Work in this order:
    delegate only broad searches (many files or directories) to a subagent.
    Before coding, identify or write a check (test, build, script) that
    proves each acceptance criterion in your brief, starting from the verify
-   command(s) the brief names. Where no meaningful check can exist, plan to
-   report that criterion as "not verified: <why>"; do not invent a worthless
-   check to fill the slot.
+   command(s) the brief names. New tests go in the test files your brief
+   grants you; a throwaway check script goes in `<gitdir>` (step 5), never
+   in the tree. Where no meaningful check can exist, plan to report that
+   criterion as "not verified: <why>"; do not invent a worthless check to
+   fill the slot. Run the brief's verify command(s) once before coding, as
+   a baseline in the log (step 5): a failure already present there, or a
+   check blocked by a missing tool, dependency or credential, is not yours
+   to fix; report it as such under `verified:`.
 
 4. **Consult the advisor.** When `fable-advisor:advisor` can be dispatched
    (Agent tool, `subagent_type: "fable-advisor:advisor"`, `model: "fable"`),
@@ -76,9 +81,12 @@ Work in this order:
    worktree; say "not verified" and why otherwise. Send verification output
    to a log outside the working tree rather than into your context: run
    `git -C <worktree> rev-parse --absolute-git-dir` once to get `<gitdir>`,
-   then append each check's output to `<gitdir>/crew-verify.log` (e.g.
-   `<command> >> <gitdir>/crew-verify.log 2>&1`, then read the tail or grep
-   it for failures).
+   then append each check's output to `<gitdir>/crew-verify.log` as plain
+   commands (e.g. `<command> >> <gitdir>/crew-verify.log 2>&1`), then read
+   the tail or grep it for failures. Before each check, append a header line
+   naming the command and the commit (`git -C <worktree> rev-parse --short
+   HEAD`), so the log shows which run produced what; judge only the latest
+   run of each check.
    Run long commands (test suites, browser checks) with a `timeout`, so a
    hang surfaces as an exit code. If you background one, keep working or
    wait on it with Monitor; do not end your turn with "waiting on X".
@@ -117,7 +125,7 @@ Your final message must be exactly one of these two blocks, nothing else:
 ```
 DONE
 branch: <branch>
-model: <the model you are running on, as your system prompt names it (its model ID if given)>
+model: <the model you are running on, as your system prompt names it (its model ID if given); never guess: write unknown if it does not say>
 changed: <files or areas, one line>
 verified: <per acceptance criterion: <criterion> — <check run and its result> | <criterion> — not verified: <why>; then the log path>
 advisor: <one of: reviewed — <MODEL> | <VERDICT> [— fixed: <what>, not re-asked] | consulted on <topic> only — <MODEL> | <VERDICT> | not consulted: <why>>
@@ -131,7 +139,7 @@ longer apply, and list only what is still open now.
 ```
 NEEDS-ANSWER
 branch: <branch>
-model: <the model you are running on, as your system prompt names it (its model ID if given)>
+model: <the model you are running on, as your system prompt names it (its model ID if given); never guess: write unknown if it does not say>
 question: <one question>
 options: <2-4 options, your recommendation first, one line each>
 progress: <what is committed so far>

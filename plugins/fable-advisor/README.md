@@ -38,11 +38,11 @@ per-invocation effort override (unlike `model`) — changing it means editing
 when consultations were rare and opt-in; the enforcement hooks made them
 routine — one or two per substantive turn — and at that cadence the
 per-call cost is what matters, so 1.7.0 moved the default down one tier.
-Fable 5.1 deliberately takes longer turns at higher effort, so even at
+Fable 5.1 and later deliberately take longer turns at higher effort, so even at
 `high` a real consultation that reads several files can run for minutes —
 that is the advisor working, not a hang. To buy the deepest tier short of
 `max` back, set `effort: xhigh` in `agents/advisor.md`; it is valid on
-Fable 5.1 and on the Opus and Sonnet fallbacks.
+Fable 5.1 and later and on the Opus and Sonnet fallbacks.
 
 ## Install
 
@@ -166,7 +166,7 @@ the gates.
 
 The advisor is a second opinion, not necessarily a stronger one. If your main
 session is on Opus or Sonnet, the advisor escalates to Fable. If your main
-session is itself on Fable 5.1, the advisor is the same model — what you get
+session is itself on Fable, the advisor is the same model — what you get
 is a fresh-context, read-only, file-grounded review with none of the
 session's accumulated assumptions, which Anthropic's Fable guidance rates
 above self-critique. That is still worth it before large plans; just don't

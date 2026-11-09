@@ -243,10 +243,11 @@ fi
 # effort) and the rest must match byte for byte.
 strip_fm_diffs() {
   awk '
-    /^description:/ { skip = 1; next }
-    skip && /^  / { next }
+    /^---$/ { fences++ }
+    fences == 1 && /^description:/ { skip = 1; next }
+    fences == 1 && skip && /^  / { next }
     { skip = 0 }
-    /^name: / || /^effort: / { next }
+    fences == 1 && (/^name: / || /^effort: /) { next }
     { print }
   ' "$1"
 }
@@ -312,7 +313,8 @@ else
 fi
 
 if grep -q "feature-crew:feature-builder-deep" "$O" && grep -q "crew/<slug>-deep" "$O" &&
-  grep -q "Resume the same worker once" "$O" && grep -q "stop and ask the user" "$O"; then
+  grep -q "Resume the same worker once" "$O" && grep -q "stop and ask the user" "$O" &&
+  grep -q "baseline run" "$O"; then
   ok "orchestrator escalates: resume once, then feature-builder-deep on crew/<slug>-deep, then ask"
 else
   no "orchestrator escalates: resume once, then feature-builder-deep on crew/<slug>-deep, then ask"

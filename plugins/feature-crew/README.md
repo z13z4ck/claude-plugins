@@ -13,7 +13,7 @@ No commands to learn. Install, enable in a project, and talk normally.
 | Component | Purpose |
 |---|---|
 | `agents/feature-builder.md` | The worker. `background: true`, `isolation: worktree`, `model: fable`, `effort: high` (whatever the session uses). Branches as `crew/<slug>`, stays in its assigned files, plans a check per acceptance criterion before coding, consults `fable-advisor:advisor` itself when installed, runs its checks into a log outside the tree, commits, and ends with a fixed `DONE` or `NEEDS-ANSWER` block that carries `model:` and `advisor:` lines. |
-| `agents/feature-builder-deep.md` | The escalation worker: the same prompt at `model: fable`, `effort: xhigh`. Never dispatched first; only when a `feature-builder` failed twice on the same feature (see [Quality and escalation](#quality-and-escalation)). Plugin agent files cannot share text, so it is a copy: keep it identical to `feature-builder.md` apart from `name`, `description` and `effort` — `tests/run-tests.sh` fails if they drift. |
+| `agents/feature-builder-deep.md` | The escalation worker: the same prompt at `model: fable`, `effort: xhigh`. Never dispatched first; only when a `feature-builder`'s work still fails its checks after one resume (or it errored and can't be resumed) (see [Quality and escalation](#quality-and-escalation)). Plugin agent files cannot share text, so it is a copy: keep it identical to `feature-builder.md` apart from `name`, `description` and `effort` — `tests/run-tests.sh` fails if they drift. |
 | `hooks/hooks.json` | One `SessionStart` hook, on every start source, that runs `bin/session-start.sh`. |
 | `bin/session-start.sh` | Injects `policy/orchestrator.md` so the main session delegates instead of implementing, keeps a roster, and resumes workers with your answers. Adds a session note after `compact` (re-read the roster), and after `resume`, `fork` or `clear` (earlier workers are gone or out of reach; here are the `crew/*` branches that exist, with their worktrees). Outside a git work tree it prints a one-line "inactive" note instead, since workers need worktrees. Bash and git only, no jq or Python. |
 | `policy/orchestrator.md` | The orchestrator rules. Edit this file to change how the main session behaves. |
@@ -27,6 +27,11 @@ No commands to learn. Install, enable in a project, and talk normally.
 ```
 
 Restart Claude Code after installing: hooks load at session start.
+
+Workers pin `model: fable`. On plans where Fable bills to usage credits,
+run `/model fable` once and accept the consent before dispatching workers;
+otherwise a worker may run on another model, and its DONE is flagged
+WORKER RAN DEGRADED.
 
 **Enable it per project, not globally.** The policy turns every session where
 it is active into an orchestrator. Either install with project scope, or set
@@ -77,8 +82,9 @@ tied to a check.
 - **Verify-first briefs.** Each brief gives the worker ownership of the
   relevant test files and names the verify command(s) for the acceptance
   criteria, or says none exist. The worker plans a check per criterion
-  before coding, writes check output to `<gitdir>/crew-verify.log` (outside
-  the tree), and hands that log to the advisor with its review diff. Its
+  before coding, runs the verify commands once as a baseline, writes check
+  output with a header per run to `<gitdir>/crew-verify.log` (outside the
+  tree), and hands that log to the advisor with its review diff. Its
   `verified:` line maps each criterion to evidence or to
   `not verified: <why>` — an honest answer when no meaningful check exists.
 - **Degraded-model flag.** Each report carries a `model:` line naming the
@@ -86,12 +92,16 @@ tied to a check.
   Fable model (Fable unavailable on the account, consent dismissed, a
   fallback), the main session labels it **WORKER RAN DEGRADED** and tells
   you.
-- **Escalation ladder.** When a DONE fails its checks or skips one its brief
-  named, or the worker errors: (1) the main session resumes that worker once
-  with the failure evidence; (2) if it fails again, dispatches a fresh
+- **Escalation ladder.** When a verify command the brief named was not run
+  or failed, or the worker errors: (1) the main session resumes that worker
+  once with the failure evidence; (2) if it fails again, dispatches a fresh
   `feature-builder-deep` (`effort: xhigh`) from `crew/<slug>` on
   `crew/<slug>-deep` with the original brief plus what was tried; (3) if that
   fails too, it stops and asks you. Steps 1 and 2 happen without asking.
+  Failures already present on the base branch, or blocked by a missing
+  tool, dependency or credential, come straight to you instead. A `-deep`
+  branch is reviewed against the feature's original base, so the advisor
+  sees the whole feature, not just the fix.
 
 ## Limits (from the Claude Code docs)
 

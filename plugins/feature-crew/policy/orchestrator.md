@@ -39,7 +39,7 @@ session.
   (TaskCreate/TaskUpdate/TaskList in the CLI; use whatever task list the host
   provides instead if those are absent). The item names the feature and holds
   the worker's name or ID, its branch, and its status (running / waiting on
-  you / under review / done / failed). Update it on every event. If no
+  you / under review / escalated / done / failed). Update it on every event. If no
   task-list tool exists, restate the roster in your reply after each event.
 - After a compaction or resume, re-read the roster before answering anything
   about worker status. A session note at the end of this policy says what
@@ -47,17 +47,18 @@ session.
 
 ## Handle worker events
 - **DONE**: read its `model:` line first. If it does not name a Fable model
-  (missing, Opus, Sonnet, Haiku, anything else), start the report with
+  (missing, unknown, Opus, Sonnet, Haiku, anything else), the worker ran
+  degraded: start every message about it, escalation notices included, with
   **WORKER RAN DEGRADED** and tell the user which model it ran on instead of
-  Fable. If `verified:` shows a failing check, or leaves an acceptance
-  criterion unverified although the brief named a check for it, handle it as
-  "Failed or unverified DONE" below instead. Otherwise, if the branch
-  qualifies for an advisor review (see "With fable-advisor"), run that first.
-  Then tell the user in at most five lines: branch, what changed, what the
-  worker reports it verified per criterion (say "reported", you did not
-  re-run it), and anything left open. Mark the roster item done. A
-  "not verified: <why>" for a criterion with no possible check is an honest
-  answer: report it, do not escalate it.
+  Fable. If a verify command the brief named was not run, or ran and failed,
+  handle it as "Failed or unverified DONE" below instead. Otherwise, if the
+  branch qualifies for an advisor review (see "With fable-advisor"), run
+  that first. Then tell the user briefly (about five lines, plus one per
+  acceptance criterion): branch, what changed, what the worker reports it
+  verified per criterion (say "reported", you did not re-run it), and
+  anything left open. Mark the roster item done. A "not verified: <why>"
+  for a criterion with no possible check is an honest answer: report it, do
+  not escalate it.
 - **NEEDS-ANSWER**: relay the question and options to the user as the worker
   wrote them, with its `advisor:` line if it has one, and mark the roster item "waiting on you". When the user
   answers, resume that same worker with SendMessage (to: its name or ID) and
@@ -66,18 +67,29 @@ session.
   completion notice for an advisor or other subagent arrives in this session
   while a worker says it is waiting on one, forward the result to that worker
   with SendMessage at once, verbatim.
-- **Failed or unverified DONE** (a worker errors out, or its DONE fails or
-  skips a check its brief named): escalate in this order without asking,
-  updating the roster item at each step.
+- **Failed or unverified DONE** (a worker errors out, or a verify command
+  its brief named was not run, or ran and failed): escalate in this order
+  without asking, updating the roster item at each step. This is separate
+  from an advisor verdict that asks for changes, which you only offer to
+  the user (see "Act on the verdict").
+  - Exception: a failure the worker shows was already present in its
+    baseline run on the base branch, or a check blocked by a missing tool,
+    dependency or credential, goes straight to the user. No worker can fix
+    those.
   1. Resume the same worker once with SendMessage, quoting the failure
      evidence (the failing check, its output, the unverified criteria).
   2. If its next report still fails, dispatch a fresh
-     `feature-crew:feature-builder-deep` with base `crew/<slug>` (the
-     branch the first worker actually reported; the original base if it
-     never created one) and branch
-     `crew/<slug>-deep`. Its brief is the original brief, unchanged, plus
-     what was tried and how it failed. Tell the user in one line that you
-     escalated.
+     `feature-crew:feature-builder-deep`. Its brief is the original brief
+     with two lines replaced: branch `crew/<slug>-deep`, base `crew/<slug>`
+     (the branch the first worker actually reported; the original base if
+     it never created one). Add the original base by name, telling it to
+     diff against that base in its review step so the review covers the
+     whole feature, plus what was tried, how it failed, and the first
+     worker's verify-log path. If the first worker errored with uncommitted
+     work, save it first as under "Stopped by the user" and tell the deep
+     worker to apply the patch. Tell the user in one line that you
+     escalated, and mark the roster item "escalated". From then on the
+     feature's live branch is `crew/<slug>-deep`.
   3. If the deep worker also fails, stop and ask the user how to proceed,
      with both workers' evidence. Do not dispatch further workers unasked.
   If the worker errored before reporting and cannot be resumed, skip to 2.
@@ -95,16 +107,17 @@ session.
 ## Revisions
 - To revise a feature whose worker has finished, first resume that worker with
   SendMessage; it keeps its history and branch. If it cannot be resumed,
-  dispatch a new feature-builder with base branch `crew/<slug>` and new branch
-  `crew/<slug>-r<N>`.
+  dispatch a new feature-builder with base branch `crew/<slug>` (or
+  `crew/<slug>-deep` after an escalation) and new branch `crew/<slug>-r<N>`.
 
 ## Review and merge
 - Never merge crew branches, push, or delete branches unless the user asks.
 - When the user asks for a review, read `git diff <base>...crew/<slug>`
   yourself, where `<base>` is the base branch from that worker's brief. For
-  a revision branch (`crew/<slug>-r<N>` based on `crew/<slug>`), diff against
-  the original feature's base so the review covers every hop, and apply the
-  four-file rule to that cumulative diff before calling it ready to merge.
+  a revision or escalation branch (`crew/<slug>-r<N>` or `crew/<slug>-deep`,
+  based on `crew/<slug>`), diff against the original feature's base so the
+  review covers every hop, and apply the four-file rule to that cumulative
+  diff before calling it ready to merge.
 - Never call a crew branch ready to merge while an advisor review it
   qualifies for is missing or returned a verdict against it.
 
@@ -122,7 +135,8 @@ this session. You still check each DONE, from either worker type, below.
   dispatching, and put the decision in the brief.
 - **Check the worker's review on DONE.** Count
   `git diff --name-only <base>...<branch> | wc -l`, with `<branch>` as named
-  in the DONE block. Read its `advisor:` line.
+  in the DONE block and `<base>` the original feature's base (for a
+  `-deep` or `-r<N>` branch too). Read its `advisor:` line.
   - Four or more files: accept only `advisor: reviewed — ` with a Fable
     MODEL and a verdict for the change, or one whose negative points are
     listed as fixed. Report the DONE with that line intact. Anything else
@@ -138,7 +152,9 @@ this session. You still check each DONE, from either worker type, below.
   `$(git rev-parse --absolute-git-dir)/crew-review-<slug>.diff`), find the
   branch's worktree in `git worktree list --porcelain`, and dispatch
   `fable-advisor:advisor` with the diff file's absolute path, the worktree
-  path, and the brief's goal and acceptance criteria. If the Agent tool can
+  path, the worker's verify log (`crew-verify.log` in the directory
+  `git -C <worktree> rev-parse --absolute-git-dir` prints, if it exists),
+  and the brief's goal and acceptance criteria. If the Agent tool can
   run it in the background, do that and end your turn; otherwise wait for
   it. Then report the DONE with the advisor's MODEL, VERDICT and RISKS lines
   intact.
