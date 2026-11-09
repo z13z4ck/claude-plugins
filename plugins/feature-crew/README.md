@@ -101,7 +101,10 @@ tied to a check.
   fails too, it stops and asks you. Steps 1 and 2 happen without asking.
   Failures already present on the base branch that the brief didn't ask
   the worker to fix, or blocked by a missing tool, dependency or credential,
-  are reported to you with the DONE instead of escalated. A `-deep`
+  are reported to you with the DONE instead of escalated. If the worker
+  failed because Fable itself is unavailable, or ran on another model, the
+  main session asks you instead of escalating: the deep worker is pinned to
+  Fable too and would hit the same wall. A `-deep`
   branch is reviewed against the feature's original base, so the advisor
   sees the whole feature, not just the fix.
 

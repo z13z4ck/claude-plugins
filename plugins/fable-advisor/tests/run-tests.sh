@@ -775,6 +775,31 @@ run_hook edit-watch '"tool_name":"Write","tool_input":{"file_path":"e.py"}'
 
 new_transcript e5c
 t_prompt "go"; t_edit a.py; t_edit b.py; t_edit c.py
+# 1.10.2: writes inside a .git directory (the verify log and review diff
+# feature-crew workers keep in their git dir, git internals) are not project
+# edits; .gitignore, .github/ and a foo.git/ directory are.
+gitdir_cases="$(py - "$BIN" <<'PYEOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import advisor_hooks as h
+cases = [
+    ("/repo/.git/worktrees/agent-1/crew-verify.log", False),
+    ("/repo/.git/worktrees/agent-1/crew-review.diff", False),
+    (".git/config", False),
+    ("sub/.git/hooks/pre-commit", False),
+    ("/repo/src/app.py", True),
+    ("/repo/.gitignore", True),
+    (".github/workflows/ci.yml", True),
+    ("/srv/foo.git/README.md", True),
+    ("/repo/.git", True),
+]
+bad = ["%s -> %s" % (p, h.counts_as_edit(p)) for p, want in cases if h.counts_as_edit(p) != want]
+print("ok" if not bad else "; ".join(bad))
+PYEOF
+)"
+[ "$gitdir_cases" = "ok" ] && ok "counts_as_edit: .git/ paths excluded; .gitignore, .github/, foo.git/ still counted" || no "counts_as_edit .git handling" "$gitdir_cases"
+[ -z "$(bw 'bash tests/run.sh >> /repo/.git/worktrees/a1/crew-verify.log 2>&1')" ] && ok "a Bash append to crew-verify.log in the git dir is not an edit" || no "verify log counted as an edit" "$(bw 'bash tests/run.sh >> /repo/.git/worktrees/a1/crew-verify.log 2>&1')"
+[ "$(bw 'echo x > .gitignore')" = ".gitignore" ] && ok "a Bash write to .gitignore still counts" || no ".gitignore not counted" "$(bw 'echo x > .gitignore')"
 t_edit "$CLAUDE_CONFIG_DIR/plans/some-plan.md"; t_edit "$CLAUDE_CONFIG_DIR/projects/-x/memory/note.md"; t_edit "/tmp/scratch.txt"
 run_hook edit-watch "\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$CLAUDE_CONFIG_DIR/plans/other-plan.md\"}"
 [ -z "$HOOK_OUT" ] && ok "plan files, memory notes and temp paths are not project edits" || no "non-project paths counted" "$HOOK_OUT"
@@ -1015,6 +1040,7 @@ new_transcript ss-w
 worker_hook subagent-start aw7 "$WK"
 [ "$(jget "$HOOK_OUT" hookSpecificOutput.hookEventName)" = "SubagentStart" ] && contains "$(context_of "$HOOK_OUT")" "Advisor policy for this worker" && ok "subagent-start injects the worker policy into enforced types" || no "no worker policy" "$HOOK_OUT"
 contains "$(context_of "$HOOK_OUT")" "absolute path" && ok "worker policy says the advisor reads by absolute path" || no "path guidance missing"
+contains "$(context_of "$HOOK_OUT")" "crew-verify.log" && contains "$(context_of "$HOOK_OUT")" "original feature's base" && ok "worker policy names the verify log and the original feature's base" || no "worker policy lacks verify log / base wording" "$(context_of "$HOOK_OUT")"
 worker_hook subagent-start aw8 Explore
 [ -z "$HOOK_OUT" ] && ok "subagent-start is silent for other types" || no "policy injected into Explore"
 grep -q "event=subagent-start agent_type=Explore enforced=0" "$FABLE_ADVISOR_HOME/events.log" && ok "subagent-start logs the raw agent_type" || no "agent_type not logged"
@@ -1029,6 +1055,8 @@ worker_hook subagent-stop as1 "$WK" '"stop_hook_active":false,"last_assistant_me
 contains "$(jget "$HOOK_OUT" reason)" "absolute path" && ok "hold reason asks for a diff file by absolute path" || no "hold reason lacks path guidance"
 r="$(jget "$HOOK_OUT" reason)"
 contains "$r" "git -C <worktree> rev-parse --absolute-git-dir" && ! contains "$r" '"$(git' && ok "hold reason gives plain git -C commands the worktree guard accepts" || no "hold reason uses a refused git form"
+contains "$r" "crew-verify.log" && ok "hold reason hands the advisor the verify log" || no "hold reason lacks crew-verify.log" "$r"
+contains "$r" "original feature's base" && ! contains "$r" "against your base branch" && ok "hold reason diffs against the original feature's base (deep/revision workers)" || no "hold reason base wording" "$r"
 worker_hook subagent-stop as1 "$WK" '"stop_hook_active":false,"last_assistant_message":"DONE"'
 [ -z "$HOOK_OUT" ] && ok "the worker hold fires once per prompt" || no "held twice" "$HOOK_OUT"
 grep -q "event=subagent-stop-hold" "$FABLE_ADVISOR_HOME/events.log" && ok "events.log records worker holds" || no "worker hold not logged"

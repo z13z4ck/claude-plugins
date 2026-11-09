@@ -290,6 +290,16 @@ else
   no "orchestrator flags a DONE whose model: is not Fable as WORKER RAN DEGRADED"
 fi
 
+# A deep worker is pinned to Fable too: escalating a Fable-unavailable or
+# degraded run would hit the same wall, so the orchestrator asks instead.
+if grep -q "Fable unavailable" "$PLUGIN/policy/orchestrator.md" &&
+  grep -q "do not escalate to" "$PLUGIN/policy/orchestrator.md" &&
+  grep -q "would hit the same" "$PLUGIN/policy/orchestrator.md"; then
+  ok "orchestrator asks instead of escalating when Fable is unavailable or the worker ran degraded"
+else
+  no "orchestrator asks instead of escalating when Fable is unavailable or the worker ran degraded"
+fi
+
 # Verify-first: a check per criterion planned before coding, evidence per
 # criterion in DONE, output in a log outside the tree that the advisor reads.
 if grep -q "proves each acceptance criterion" "$W" && grep -q "crew-verify.log" "$W" &&

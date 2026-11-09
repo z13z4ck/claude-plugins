@@ -190,7 +190,7 @@ Since Claude Code 2.1.247 a successful-but-substituted dispatch is the
 common failure, not the rare one, because Claude Code itself re-routes
 subagents in several documented situations:
 
-- **Safety-classifier fallback.** Fable 5.1 and Fable 5 run safety
+- **Safety-classifier fallback.** Fable models (5 and later) run safety
   classifiers, most often on cybersecurity and biology content. A flagged
   request is re-run automatically — cyber on Opus 4.8, bio on Opus 5 — with
   a notice in the transcript. Security-flavored consultations are the
@@ -268,8 +268,8 @@ cross-check when a verdict looks off.
 Claude Code's built-in advisor tool and this plugin use different dispatch
 paths. The built-in tool is silently *not attached* — `/advisor` and a
 notification say so — when its pairing check fails, and the most common
-reason since Fable 5.1 shipped is the pairing itself: a Fable 5.1 main
-model accepts only a Fable 5.1 advisor, so a saved `advisorModel` of `opus`
+reason since Fable 5.1 shipped is the pairing itself: a Fable main
+model accepts only a Fable advisor, so a saved `advisorModel` of `opus`
 or `sonnet` stops applying the moment you switch the session to Fable. The
 other documented reasons are an organization `availableModels` allowlist
 that excludes the advisor, the Fable usage-credits consent not yet
@@ -285,8 +285,8 @@ check against their own model, so with `advisorModel: fable` set, the
 plugin's Fable advisor may itself consult the built-in advisor mid-verdict
 (`/advisor off` gives you one consultation per verdict). And if Fable is
 blocked at the account level, no plugin can conjure it — the two hard blocks
-are a model-access limit on the account, and zero data retention: Fable 5.1
-and Fable 5 require 30-day retention and return a 400 to ZDR organizations
+are a model-access limit on the account, and zero data retention: Fable
+models (5 and later) require 30-day retention and return a 400 to ZDR organizations
 unless Anthropic has expressly authorized them. In both cases the fallback
 keeps the advisory workflow alive on Opus and labels every degraded verdict
 so you never mistake Opus judgment for Fable judgment.

@@ -336,13 +336,25 @@ def _norm_path(p, nt=None):
     return _msys_to_win(p.replace("\\", "/"), nt=True).lower()
 
 
+def _in_git_dir(p):
+    """True when a path has a `.git` directory segment (repo/.git/..., a
+    worktree's .git/worktrees/<id>/crew-verify.log). Only the exact segment
+    counts: `.gitignore`, `.github/` and `foo.git/` are ordinary files."""
+    parts = p.replace("\\", "/").split("/")
+    return ".git" in parts[:-1]
+
+
 def counts_as_edit(fp):
-    """Project edits only: not temp/device paths, not Claude's own plan files or
+    """Project edits only: not temp/device paths, not anything inside a .git
+    directory (git internals, and the verify logs and review diffs workers
+    write there to keep them out of the tree), not Claude's own plan files or
     memory notes (which live under the config dir and are written as a matter
     of course during ordinary work)."""
     if not fp or fp.startswith(_SKIP_WRITE_PREFIXES):
         return False
     p = _norm_path(fp)
+    if _in_git_dir(p):
+        return False
     cfg = _norm_path(_config_dir()).rstrip("/") + "/"
     if p.startswith(cfg + "plans/") or p.startswith(cfg + "projects/"):
         return False
@@ -1564,9 +1576,13 @@ def worker_policy_text():
         "attempts at the same bug or a test failure you cannot explain. Before you finish a change of %d+ "
         "files, get a verification review of the committed diff: write it to a file outside the working "
         "tree (run `git -C <worktree> rev-parse --absolute-git-dir`, then `git -C <worktree> diff "
-        "<base>...HEAD > <that dir>/crew-review.diff` with literal paths; a worktree-isolated agent's git "
-        "commands are refused when they nest $(git ...)) and give the advisor that file's absolute path and "
-        "your worktree path (it reads files only, by path, and cannot run git). Dispatch the advisor in "
+        "<base>...HEAD > <that dir>/crew-review.diff` with literal paths; <base> is the base your brief "
+        "names for the review, which for an escalation or revision worker is the original feature's base, "
+        "not the crew/<slug> branch it started from; a worktree-isolated agent's git commands are refused "
+        "when they nest $(git ...)) and give the advisor that file's absolute path, the absolute path of "
+        "your check output log (<that dir>/crew-verify.log) if you wrote one, and your worktree path (it "
+        "reads files only, by path, and cannot run git). Files inside .git do not count as edits. "
+        "Dispatch the advisor in "
         "the FOREGROUND (no run_in_background): a background subagent's result is delivered to the "
         "parent session, never to you." % (DISPATCH, CFG.threshold),
         "",
@@ -1620,11 +1636,13 @@ def subagent_stop(inp):
         "decision": "block",
         "reason": (
             "[fable-advisor] You edited %d files since your last advisor consultation: %s. Before "
-            "finishing, get a verification review: commit, write the committed diff against your base "
-            "branch to a file outside the working tree (two plain commands with literal paths: "
-            "`git -C <worktree> rev-parse --absolute-git-dir`, then `git -C <worktree> diff <base>...HEAD > "
-            "<that dir>/crew-review.diff`; nesting $(git ...) is refused in an isolated worktree), and %s "
-            "with that file's absolute path, your "
+            "finishing, get a verification review: commit, write the committed diff against the base your "
+            "brief names for the review (the original feature's base for an escalation or revision worker, "
+            "not the crew/<slug> branch you started from) to a file outside the working tree (two plain "
+            "commands with literal paths: `git -C <worktree> rev-parse --absolute-git-dir`, then "
+            "`git -C <worktree> diff <base>...HEAD > <that dir>/crew-review.diff`; nesting $(git ...) is "
+            "refused in an isolated worktree), and %s with that file's absolute path, the absolute path of "
+            "<that dir>/crew-verify.log if you wrote check output there, your "
             "worktree path, the goal and acceptance criteria, and what you ran. Fix what it flags inside "
             "your scope and commit. Then end with your final report again (for feature-builder: the DONE "
             "block, its advisor: line now reading \"reviewed\"). This hold fires once."

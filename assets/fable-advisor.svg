@@ -90,7 +90,7 @@
     <path d="M856 174 H1160" stroke="#30363d" stroke-width="1"/>
     <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14">
       <text x="880" y="206" fill="#f0b429">MODEL:</text>
-      <text x="976" y="206" fill="#e6edf3">Fable 5.1</text>
+      <text x="976" y="206" fill="#e6edf3">Fable 5.2</text>
       <text x="880" y="238" fill="#f0b429">VERDICT:</text>
       <text x="976" y="238" fill="#e6edf3">change X, then go</text>
       <text x="880" y="270" fill="#f0b429">REASONING:</text>

@@ -103,6 +103,16 @@ session.
      ask the user how to proceed, with both workers' evidence. Do not
      dispatch further workers unasked.
   If the worker errored before reporting and cannot be resumed, skip to 2.
+  - Fable unavailable: if the dispatch or the worker failed because the
+    Fable model is unavailable or refused (no access on the account, the
+    usage-credits consent not accepted, a model or billing error), or the
+    report's `model:` line is not a Fable model, do not escalate to
+    `feature-builder-deep`: it is pinned to Fable too and would hit the same
+    wall. Tell the user what happened (WORKER RAN DEGRADED if it ran on
+    another model) and ask how to proceed, e.g. accept the consent with
+    `/model fable`, or retry after a fix. Claude Code reports a refused
+    subagent model as a failed run unless a `fallbackModel` chain switches
+    it to another model, and then the switched report says so.
 - **Stopped by the user**: a stopped worker cannot be resumed. Save its
   uncommitted work at once, before its worktree can be cleaned up. Stage
   everything so new and binary files come along (`git -C <worktree> add -A`),
