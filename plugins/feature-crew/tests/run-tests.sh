@@ -292,9 +292,8 @@ fi
 
 # A deep worker is pinned to Fable too: escalating a Fable-unavailable or
 # degraded run would hit the same wall, so the orchestrator asks instead.
-if grep -q "Fable unavailable" "$PLUGIN/policy/orchestrator.md" &&
-  grep -q "do not escalate to" "$PLUGIN/policy/orchestrator.md" &&
-  grep -q "would hit the same" "$PLUGIN/policy/orchestrator.md"; then
+fu="$(tr '\n' ' ' <"$PLUGIN/policy/orchestrator.md" | tr -s ' ')"
+if case "$fu" in *"Fable unavailable (check before step 1)"*"skip the whole ladder: no resume, no \`feature-builder-deep\`"*"same wall"*) true ;; *) false ;; esac; then
   ok "orchestrator asks instead of escalating when Fable is unavailable or the worker ran degraded"
 else
   no "orchestrator asks instead of escalating when Fable is unavailable or the worker ran degraded"

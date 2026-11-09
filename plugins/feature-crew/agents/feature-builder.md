@@ -103,7 +103,9 @@ Work in this order:
    delete branches you did not create, except the `worktree-agent-*` branch
    you started on (step 1).
 
-7. **Review.** After committing, if `git diff --name-only <base>...HEAD`
+7. **Review.** Here `<base>` is the review base your brief names (the
+   original feature's base, for an escalation or revision), else the base
+   you branched from. After committing, if `git diff --name-only <base>...HEAD`
    lists four or more files and the advisor is reachable, get a verification
    review of the committed change. Write the diff outside the working tree,
    so it is never committed, using two plain commands with literal paths

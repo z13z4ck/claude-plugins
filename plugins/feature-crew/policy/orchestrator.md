@@ -49,8 +49,8 @@ session.
 - **DONE** (and NEEDS-ANSWER, for the label): read its `model:` line first.
   If it does not name a Fable model
   (missing, unknown, Opus, Sonnet, Haiku, anything else), the worker ran
-  degraded: start every message about it, escalation notices included, with
-  **WORKER RAN DEGRADED** and tell the user which model it ran on instead of
+  degraded: start every message about it with **WORKER RAN DEGRADED** and
+  tell the user which model it ran on instead of
   Fable. If a verify command the brief named was not run, or any check the
   worker reports ran and failed, handle it as "Failed or unverified DONE"
   below instead (its exception sends pre-existing failures back here).
@@ -75,7 +75,22 @@ session.
   escalate in this order
   without asking, updating the roster item at each step. This is separate
   from an advisor verdict that asks for changes, which you only offer to
-  the user (see "Act on the verdict").
+  the user (see "Act on the verdict"). Check the two exceptions first.
+  - Fable unavailable (check before step 1): if the dispatch or the worker
+    failed because the Fable model is unavailable or refused (no access on
+    the account, the usage-credits consent not accepted, a model, billing,
+    rate-limit or overload error), or the report's `model:` line names a
+    model other than Fable (Opus, Sonnet, Haiku, ...), skip the whole
+    ladder: no resume, no `feature-builder-deep`. Both are pinned to Fable
+    and would hit the same wall. Tell the user what happened (WORKER RAN
+    DEGRADED if it ran on another model) and ask how to proceed, e.g.
+    accept the consent with `/model fable`, or retry later. Signals vary:
+    a refused subagent model can end the run with an error, a
+    `fallbackModel` chain can switch it (its report then opens with a
+    "switched to" notice), and some paths, such as a dismissed consent,
+    continue silently on another model. The `model:` line is the check
+    that catches all of them. A missing or `unknown` `model:` line keeps
+    the degraded label but does not stop the ladder.
   - Exception: a failure the worker shows was already present in its
     baseline run on the feature's original base and that the brief did not
     ask it to fix, or a check blocked by a missing tool, dependency or
@@ -102,24 +117,16 @@ session.
   3. If the deep worker also fails (it gets no resume of its own), stop and
      ask the user how to proceed, with both workers' evidence. Do not
      dispatch further workers unasked.
-  If the worker errored before reporting and cannot be resumed, skip to 2.
-  - Fable unavailable: if the dispatch or the worker failed because the
-    Fable model is unavailable or refused (no access on the account, the
-    usage-credits consent not accepted, a model or billing error), or the
-    report's `model:` line is not a Fable model, do not escalate to
-    `feature-builder-deep`: it is pinned to Fable too and would hit the same
-    wall. Tell the user what happened (WORKER RAN DEGRADED if it ran on
-    another model) and ask how to proceed, e.g. accept the consent with
-    `/model fable`, or retry after a fix. Claude Code reports a refused
-    subagent model as a failed run unless a `fallbackModel` chain switches
-    it to another model, and then the switched report says so.
+  If the worker errored before reporting and cannot be resumed, skip to 2,
+  unless the Fable-unavailable rule above applies.
 - **Stopped by the user**: a stopped worker cannot be resumed. Save its
   uncommitted work at once, before its worktree can be cleaned up. Stage
   everything so new and binary files come along (`git -C <worktree> add -A`),
   then `git -C <worktree> diff --cached --binary > <scratchpad>/handoff.patch`.
   Then say what it had done and propose the one next step: dispatch a new
   feature-builder on `crew/<slug>-r<N>` from the old branch, telling it to
-  apply the patch with `git apply --index`. Dispatch it once the user
+  apply the patch with `git apply --index` and naming the original
+  feature's base as the base for its review step. Dispatch it once the user
   agrees, since they stopped the worker on purpose.
 - Permission prompts from workers appear in this session and name the worker;
   the user answers them. Nothing else to do.
@@ -128,7 +135,9 @@ session.
 - To revise a feature whose worker has finished, first resume that worker with
   SendMessage; it keeps its history and branch. If it cannot be resumed,
   dispatch a new feature-builder with base branch `crew/<slug>` (or
-  `crew/<slug>-deep` after an escalation) and new branch `crew/<slug>-r<N>`.
+  `crew/<slug>-deep` after an escalation) and new branch `crew/<slug>-r<N>`,
+  and name the original feature's base in the brief as the base for its
+  review step, so its review covers the whole feature.
 
 ## Review and merge
 - Never merge crew branches, push, or delete branches unless the user asks.

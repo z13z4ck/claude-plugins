@@ -72,6 +72,7 @@ import calendar
 import glob
 import json
 import os
+import posixpath
 import re
 import shlex
 import sys
@@ -340,7 +341,7 @@ def _in_git_dir(p):
     """True when a path has a `.git` directory segment (repo/.git/..., a
     worktree's .git/worktrees/<id>/crew-verify.log). Only the exact segment
     counts: `.gitignore`, `.github/` and `foo.git/` are ordinary files."""
-    parts = p.replace("\\", "/").split("/")
+    parts = posixpath.normpath(p.replace("\\", "/")).split("/")
     return ".git" in parts[:-1]
 
 
@@ -1581,7 +1582,7 @@ def worker_policy_text():
         "not the crew/<slug> branch it started from; a worktree-isolated agent's git commands are refused "
         "when they nest $(git ...)) and give the advisor that file's absolute path, the absolute path of "
         "your check output log (<that dir>/crew-verify.log) if you wrote one, and your worktree path (it "
-        "reads files only, by path, and cannot run git). Files inside .git do not count as edits. "
+        "reads files only, by path, and cannot run git). Files inside a .git directory do not count as edits. "
         "Dispatch the advisor in "
         "the FOREGROUND (no run_in_background): a background subagent's result is delivered to the "
         "parent session, never to you." % (DISPATCH, CFG.threshold),

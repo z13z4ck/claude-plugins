@@ -792,14 +792,21 @@ cases = [
     (".github/workflows/ci.yml", True),
     ("/srv/foo.git/README.md", True),
     ("/repo/.git", True),
+    ("/repo/.git/../src/a.py", True),
+    ("C:\\repo\\.git\\worktrees\\a1\\crew-verify.log", False),
+    ("C:\\repo\\src\\.gitignore", True),
 ]
 bad = ["%s -> %s" % (p, h.counts_as_edit(p)) for p, want in cases if h.counts_as_edit(p) != want]
+# Windows-normalised forms (MSYS path, upper-case .GIT): in a git dir or not.
+bad += ["nt %s" % p for p, want in [("/c/repo/.git/x.log", True), ("C:\\Repo\\.GIT\\x.log", True), ("/c/repo/.gitignore", False)]
+        if h._in_git_dir(h._norm_path(p, nt=True)) != want]
 print("ok" if not bad else "; ".join(bad))
 PYEOF
 )"
 [ "$gitdir_cases" = "ok" ] && ok "counts_as_edit: .git/ paths excluded; .gitignore, .github/, foo.git/ still counted" || no "counts_as_edit .git handling" "$gitdir_cases"
 [ -z "$(bw 'bash tests/run.sh >> /repo/.git/worktrees/a1/crew-verify.log 2>&1')" ] && ok "a Bash append to crew-verify.log in the git dir is not an edit" || no "verify log counted as an edit" "$(bw 'bash tests/run.sh >> /repo/.git/worktrees/a1/crew-verify.log 2>&1')"
 [ "$(bw 'echo x > .gitignore')" = ".gitignore" ] && ok "a Bash write to .gitignore still counts" || no ".gitignore not counted" "$(bw 'echo x > .gitignore')"
+[ -z "$(bw 'cd .git && echo x > config')" ] && ok "a write after cd .git is not an edit" || no "cd .git write counted" "$(bw 'cd .git && echo x > config')"
 t_edit "$CLAUDE_CONFIG_DIR/plans/some-plan.md"; t_edit "$CLAUDE_CONFIG_DIR/projects/-x/memory/note.md"; t_edit "/tmp/scratch.txt"
 run_hook edit-watch "\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$CLAUDE_CONFIG_DIR/plans/other-plan.md\"}"
 [ -z "$HOOK_OUT" ] && ok "plan files, memory notes and temp paths are not project edits" || no "non-project paths counted" "$HOOK_OUT"
