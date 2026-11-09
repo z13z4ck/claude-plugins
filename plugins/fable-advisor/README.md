@@ -3,9 +3,9 @@
 Run your session on any model. Consult a read-only Fable advisor for
 architectural decisions, plan reviews, stalled debugging, and verification of
 a change set before you finish. The advisor is dispatched through the `fable`
-alias, so it tracks Claude Code's newest Fable release — Fable 5.1 on Claude
-Code 2.1.257 or later, Fable 5 on older versions and in Claude apps gateway
-sessions. Built as a replacement path for sessions where Claude Code's
+alias, so it tracks Claude Code's newest Fable release — Fable 5.2 on
+current Claude Code, Fable 5.1 from 2.1.257, Fable 5 on older versions and in
+Claude apps gateway sessions. Built as a replacement path for sessions where Claude Code's
 built-in advisor tool is not attached: this plugin dispatches Fable through
 the standard subagent mechanism instead, and degrades to Opus with a clear
 label if Fable itself is refused.
@@ -25,7 +25,7 @@ and the consultation is enforced rather than left to judgment.
 | Component | Purpose |
 |---|---|
 | `agents/advisor.md` | Read-only advisor, `model: fable`, `effort: high` — enforcement makes consultation routine rather than rare, so the default buys a deep tier at a per-call cost you can afford one or two times a turn; `xhigh` is a one-line opt-up. Reads files itself instead of trusting summaries. Every verdict starts with a MODEL line so a silently substituted model can't pass as Fable. |
-| `hooks/hooks.json` + `bin/` | Eight enforcement hooks (below). Transcript-driven and fail-open. Background workers of the types you list (default `feature-crew:feature-builder`) get their own policy, tally and end-of-run hold, and may not background a subagent; see [Subagents](#subagents). |
+| `hooks/hooks.json` + `bin/` | Eight enforcement hooks (below). Transcript-driven and fail-open. Background workers of the types you list (default `feature-crew:feature-builder` and `feature-crew:feature-builder-deep`) get their own policy, tally and end-of-run hold, and may not background a subagent; see [Subagents](#subagents). |
 | `/fable-advisor:consult <question>` | Deterministic consultation. `--model <alias>` overrides the advisor model per call. |
 | `/fable-advisor:review-plan` | Critique the session's current plan before execution. Takes the same `--model <alias>` override as consult. |
 | `/fable-advisor:status` | How many consultations this session, which edits are still unreviewed, which hooks are active, and the last hook events. |
@@ -104,7 +104,7 @@ Set these in the environment Claude Code runs in — the `env` block of
 | `FABLE_ADVISOR_EDIT_WATCH` | `1` | `0` disables the edit-count nudge. |
 | `FABLE_ADVISOR_STOP_AUDIT` | `1` | `0` disables the end-of-turn hold. |
 | `FABLE_ADVISOR_PROMPT_NUDGE` | `1` | `0` disables per-prompt nudges. |
-| `FABLE_ADVISOR_SUBAGENTS` | `feature-crew:feature-builder` | Comma-separated subagent types enforced as workers (plugin-scoped name or bare frontmatter name). `none` turns worker enforcement off. |
+| `FABLE_ADVISOR_SUBAGENTS` | `feature-crew:feature-builder,feature-crew:feature-builder-deep` | Comma-separated subagent types enforced as workers (plugin-scoped name or bare frontmatter name, compared whole: `feature-builder` does not match `feature-builder-deep`). `none` turns worker enforcement off. Since 1.10.2 the default includes feature-crew's escalation worker. If you set this variable, list both feature-crew workers. |
 | `FABLE_ADVISOR_SUBAGENT_STOP` | `1` | `0` disables the worker hold; the worker policy and nudges stay. |
 | `FABLE_ADVISOR_CLAUDE_MD` | `1` | `0`/`off` stops the automatic advisor-policy block in your user-level CLAUDE.md. It does not remove a block already written — `/fable-advisor:claude-md remove` does. |
 | `FABLE_ADVISOR_HOME` | `~/.claude/fable-advisor` | Where `events.log`, per-session state and the CLAUDE.md stamp (`claude-md.json`) live. State files are reaped after 7 days; the stamp is kept. |

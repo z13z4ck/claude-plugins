@@ -25,7 +25,8 @@ deletes is never re-added; FABLE_ADVISOR_CLAUDE_MD=off opts out).
   stop-audit     Stop: hold the turn once when it edited >= N files with no
                  consultation, asking for a verification review of the change set
   subagent-start SubagentStart: inject a worker policy into enforced subagent
-                 types (feature-crew:feature-builder by default)
+                 types (feature-crew:feature-builder and
+                 feature-crew:feature-builder-deep by default)
   subagent-stop  SubagentStop: hold an enforced worker once when it edited >= N
                  files since its last consultation, asking for a review first
   status         plain-text summary for /fable-advisor:status
@@ -61,7 +62,8 @@ Configuration (environment variables, e.g. via settings.json "env"):
   FABLE_ADVISOR_STOP_AUDIT      0 disables the end-of-turn hold
   FABLE_ADVISOR_PROMPT_NUDGE    0 disables per-prompt nudges
   FABLE_ADVISOR_SUBAGENTS       comma list of enforced subagent types
-                                (feature-crew:feature-builder); none disables
+                                (feature-crew:feature-builder,
+                                feature-crew:feature-builder-deep); none disables
   FABLE_ADVISOR_SUBAGENT_STOP   0 disables the worker end-of-run hold
   FABLE_ADVISOR_CLAUDE_MD       0 stops the automatic user CLAUDE.md block
   FABLE_ADVISOR_HOME            state + events.log dir (~/.claude/fable-advisor)
@@ -80,7 +82,7 @@ ADVISOR = "fable-advisor:advisor"
 DISPATCH_TOOLS = {"Agent", "Task"}
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 STATE_MAX_AGE = 7 * 86400
-DEFAULT_WORKERS = "feature-crew:feature-builder"
+DEFAULT_WORKERS = "feature-crew:feature-builder,feature-crew:feature-builder-deep"
 
 DISPATCH = (
     'dispatch the fable-advisor:advisor agent (Agent tool, subagent_type '

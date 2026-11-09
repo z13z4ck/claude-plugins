@@ -974,6 +974,21 @@ in_worker t_edit a.py; in_worker t_edit b.py; in_worker t_edit c.py
 worker_hook post-tool aw3 "feature-builder" '"tool_name":"Edit","tool_input":{"file_path":"d.py"}'
 contains "$(context_of "$HOOK_OUT")" "You have edited 4" && ok "bare agent_type 'feature-builder' is enforced too" || no "bare name not matched" "$HOOK_OUT"
 
+# 1.10.2: the escalation worker is enforced by default as well, and a
+# feature-builder entry does not also match feature-builder-deep (names are
+# compared whole, so each worker type is listed on its own).
+new_worker w3d aw3d
+in_worker t_prompt "Build it deeper"
+in_worker t_edit a.py; in_worker t_edit b.py; in_worker t_edit c.py
+worker_hook post-tool aw3d "feature-crew:feature-builder-deep" '"tool_name":"Edit","tool_input":{"file_path":"d.py"}'
+contains "$(context_of "$HOOK_OUT")" "You have edited 4" && ok "feature-crew:feature-builder-deep is enforced by default" || no "deep worker not enforced" "$HOOK_OUT"
+[ -f "$(wstate aw3d)" ] && ok "deep worker keeps its own state file" || no "no deep worker state file"
+new_worker w3e aw3e
+in_worker t_prompt "Build it deeper"
+in_worker t_edit a.py; in_worker t_edit b.py; in_worker t_edit c.py
+FABLE_ADVISOR_SUBAGENTS="feature-crew:feature-builder" worker_hook post-tool aw3e "feature-crew:feature-builder-deep" '"tool_name":"Edit","tool_input":{"file_path":"d.py"}'
+[ ! -f "$(wstate aw3e)" ] && ok "a feature-builder entry alone does not enforce feature-builder-deep" || no "deep worker matched by the feature-builder entry" "$HOOK_OUT"
+
 new_worker w4 aw4
 t_prompt "go"
 for f in a.py b.py c.py d.py; do
