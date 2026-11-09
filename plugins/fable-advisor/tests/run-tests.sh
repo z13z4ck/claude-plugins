@@ -807,6 +807,42 @@ PYEOF
 [ -z "$(bw 'bash tests/run.sh >> /repo/.git/worktrees/a1/crew-verify.log 2>&1')" ] && ok "a Bash append to crew-verify.log in the git dir is not an edit" || no "verify log counted as an edit" "$(bw 'bash tests/run.sh >> /repo/.git/worktrees/a1/crew-verify.log 2>&1')"
 [ "$(bw 'echo x > .gitignore')" = ".gitignore" ] && ok "a Bash write to .gitignore still counts" || no ".gitignore not counted" "$(bw 'echo x > .gitignore')"
 [ -z "$(bw 'cd .git && echo x > config')" ] && ok "a write after cd .git is not an edit" || no "cd .git write counted" "$(bw 'cd .git && echo x > config')"
+# Git dirs with no `.git` segment (bare repo, repo.git/worktrees/<id>,
+# --separate-git-dir): counts_as_edit asks git for the session repo's git dir
+# and common dir, once per process, failing open when git can't answer.
+if command -v git >/dev/null 2>&1; then
+  SEP="$WORK/sepgit"
+  rm -rf "$SEP"; mkdir -p "$SEP"
+  git init -q --separate-git-dir="$SEP/store.gitdir" "$SEP/proj" >/dev/null 2>&1
+  sg="$(py - "$BIN" "$SEP" <<'PYEOF'
+import os, sys
+sys.path.insert(0, sys.argv[1])
+import advisor_hooks as h
+sep = sys.argv[2]
+out = []
+h._SESSION_CWD = os.path.join(sep, "proj"); h._GIT_DIRS = None
+dirs = h._session_git_dirs()
+out.append("dirs=%d" % len(dirs))
+out.append("in=%s" % h._in_session_git_dir(os.path.join(sep, "store.gitdir", "crew-verify.log")))
+out.append("out=%s" % h._in_session_git_dir(os.path.join(sep, "proj", "src", "a.py")))
+out.append("sibling=%s" % h._in_session_git_dir(os.path.join(sep, "store.gitdirx", "a.py")))
+h._SESSION_CWD = os.path.join(sep, "nowhere-not-a-repo"); h._GIT_DIRS = None
+out.append("norepo=%s" % (h._session_git_dirs() == ()))
+# counts_as_edit wiring, on a path outside every temp prefix
+h._SESSION_CWD = "/srv/x"; h._GIT_DIRS = ("/srv/repo.git",)
+out.append("bare=%s" % h.counts_as_edit("/srv/repo.git/worktrees/w1/crew-verify.log"))
+out.append("work=%s" % h.counts_as_edit("/srv/wt/src/app.py"))
+h._GIT_DIRS = ()
+out.append("open=%s" % h.counts_as_edit("/srv/repo.git/worktrees/w1/crew-verify.log"))
+print(" ".join(out))
+PYEOF
+)"
+  [ "$sg" = "dirs=1 in=True out=False sibling=False norepo=True bare=False work=True open=True" ] \
+    && ok "session git dir without a .git segment is excluded; other paths still count; no repo fails open" \
+    || no "session git dir exclusion" "$sg"
+else
+  ok "session git dir exclusion: git not installed, skipped"
+fi
 t_edit "$CLAUDE_CONFIG_DIR/plans/some-plan.md"; t_edit "$CLAUDE_CONFIG_DIR/projects/-x/memory/note.md"; t_edit "/tmp/scratch.txt"
 run_hook edit-watch "\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$CLAUDE_CONFIG_DIR/plans/other-plan.md\"}"
 [ -z "$HOOK_OUT" ] && ok "plan files, memory notes and temp paths are not project edits" || no "non-project paths counted" "$HOOK_OUT"

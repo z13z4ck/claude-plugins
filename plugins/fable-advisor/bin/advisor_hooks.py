@@ -75,6 +75,7 @@ import os
 import posixpath
 import re
 import shlex
+import subprocess
 import sys
 import tempfile
 import time
@@ -345,16 +346,72 @@ def _in_git_dir(p):
     return ".git" in parts[:-1]
 
 
+# The directory the hook's session runs in (hook input "cwd"); main() sets it.
+# Used only to ask git where this repository's git dir lives.
+_SESSION_CWD = None
+_GIT_DIRS = None  # per-process cache: tuple of normalised git dirs, or ()
+
+
+def _session_git_dirs():
+    """The session repository's git dir and common git dir, absolute and
+    normalised, so a git dir without a `.git` segment (`repo.git/worktrees/
+    <id>`, a bare repo, `--separate-git-dir`) is recognised too. Asked of git
+    once per hook process; any failure (no git, not a repo, timeout) yields ()
+    and leaves only the `.git`-segment rule, i.e. the old behaviour."""
+    global _GIT_DIRS
+    if _GIT_DIRS is not None:
+        return _GIT_DIRS
+    _GIT_DIRS = ()
+    cwd = _SESSION_CWD or os.getcwd()
+    try:
+        out = subprocess.run(
+            ["git", "-C", cwd, "rev-parse", "--absolute-git-dir", "--git-common-dir"],
+            capture_output=True, text=True, timeout=3)
+        if out.returncode != 0:
+            return _GIT_DIRS
+        dirs = []
+        for line in out.stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if not os.path.isabs(line):
+                line = os.path.join(cwd, line)  # --git-common-dir may be relative
+            d = _norm_path(os.path.realpath(line)).rstrip("/\\")
+            if d and d not in dirs:
+                dirs.append(d)
+        _GIT_DIRS = tuple(dirs)
+    except Exception:
+        _GIT_DIRS = ()
+    return _GIT_DIRS
+
+
+def _in_session_git_dir(p):
+    """True when a path lies inside the session repository's git dir or
+    common git dir (see _session_git_dirs). Relative paths are resolved
+    against the session directory first."""
+    dirs = _session_git_dirs()
+    if not dirs:
+        return False
+    if not os.path.isabs(p) and not re.match(r"^[A-Za-z]:[/\\]", p):
+        p = os.path.join(_SESSION_CWD or os.getcwd(), p)
+    q = _norm_path(os.path.realpath(p)).replace("\\", "/")  # git reports resolved paths
+    for d in dirs:
+        d = d.replace("\\", "/")
+        if q == d or q.startswith(d + "/"):
+            return True
+    return False
+
+
 def counts_as_edit(fp):
     """Project edits only: not temp/device paths, not anything inside a .git
-    directory (git internals, and the verify logs and review diffs workers
-    write there to keep them out of the tree), not Claude's own plan files or
-    memory notes (which live under the config dir and are written as a matter
-    of course during ordinary work)."""
+    directory or the session repository's own git dir (git internals, and the
+    verify logs and review diffs workers write there to keep them out of the
+    tree), not Claude's own plan files or memory notes (which live under the
+    config dir and are written as a matter of course during ordinary work)."""
     if not fp or fp.startswith(_SKIP_WRITE_PREFIXES):
         return False
     p = _norm_path(fp)
-    if _in_git_dir(p):
+    if _in_git_dir(p) or _in_session_git_dir(fp):
         return False
     cfg = _norm_path(_config_dir()).rstrip("/") + "/"
     if p.startswith(cfg + "plans/") or p.startswith(cfg + "projects/"):
@@ -1752,6 +1809,9 @@ def main(argv):
         return 0
     name = argv[1]
     inp = read_input()
+    global _SESSION_CWD
+    if isinstance(inp, dict) and isinstance(inp.get("cwd"), str) and inp.get("cwd"):
+        _SESSION_CWD = _msys_to_win(inp["cwd"])
     try:
         if name in ARGV_HOOKS:
             HOOKS[name](inp, argv[2:])
