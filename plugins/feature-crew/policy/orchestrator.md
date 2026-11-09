@@ -75,11 +75,17 @@ session.
   escalate in this order
   without asking, updating the roster item at each step. This is separate
   from an advisor verdict that asks for changes, which you only offer to
-  the user (see "Act on the verdict"). Check the two exceptions first.
+  the user (see "Act on the verdict"). Check the three rules below first.
+  - Transient error (check before step 1): if the dispatch or the worker
+    failed with a rate-limit or overload error, retry exactly once: dispatch
+    the same worker type with the same brief (on `crew/<slug>-r<N>` from its
+    branch if it already committed work). This retry is not a ladder step.
+    If the retry fails the same way, tell the user and ask; do not climb
+    the ladder on transient errors.
   - Fable unavailable (check before step 1): if the dispatch or the worker
     failed because the Fable model is unavailable or refused (no access on
-    the account, the usage-credits consent not accepted, a model, billing,
-    rate-limit or overload error), or the report's `model:` line names a
+    the account, the usage-credits consent not accepted, a model, billing or
+    authentication error), or the report's `model:` line names a
     model other than Fable (Opus, Sonnet, Haiku, ...), skip the whole
     ladder: no resume, no `feature-builder-deep`. Both are pinned to Fable
     and would hit the same wall. Tell the user what happened (WORKER RAN

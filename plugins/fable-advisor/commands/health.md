@@ -17,7 +17,7 @@ Health-check the advisor pipeline:
    that result too, clearly labeled as the fallback path.
 4. Conclude with one line, one of:
    - "Fable advisor operational (<Fable version the reply named>)" — the
-     agent's reply names Fable. On current Claude Code the `fable` alias
+     agent's reply names Fable. On Claude Code 2.1.321 or later the `fable` alias
      resolves to Fable 5.2; a reply naming Fable 5.1 or Fable 5 means an
      older Claude Code, or a gateway session where the alias maps to an
      older Fable.

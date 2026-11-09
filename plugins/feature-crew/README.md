@@ -102,9 +102,11 @@ tied to a check.
   Failures already present on the base branch that the brief didn't ask
   the worker to fix, or blocked by a missing tool, dependency or credential,
   are reported to you with the DONE instead of escalated. If the worker
-  failed because Fable itself is unavailable, or ran on another model, the
-  main session asks you instead of escalating: the deep worker is pinned to
-  Fable too and would hit the same wall. A `-deep`
+  failed because Fable itself is unavailable (access, consent, billing,
+  auth), or ran on another model, the main session asks you instead of
+  escalating: the deep worker is pinned to Fable too and would hit the same
+  wall. A rate-limit or overload error gets exactly one retry of the same
+  worker and brief, then comes to you. A `-deep`
   branch is reviewed against the feature's original base, so the advisor
   sees the whole feature, not just the fix.
 

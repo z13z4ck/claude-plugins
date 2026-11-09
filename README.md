@@ -36,7 +36,7 @@ pause-resume works with any of them.
 </p>
 
 Run your session on any model. Consult a read-only Fable advisor — dispatched
-through the `fable` alias, so Fable 5.2 on current Claude Code, at `high`
+through the `fable` alias, so Fable 5.2 on Claude Code 2.1.321+, at `high`
 reasoning effort with `xhigh` a one-line opt-up — for architectural
 decisions, plan reviews, and stalled debugging. It is a replacement path for
 sessions where Claude Code's built-in advisor tool is not attached (a Fable
@@ -174,8 +174,8 @@ How it fails safe when the hook itself is killed:
 
 ## Requirements
 
-- A current Claude Code for the newest Fable (5.2) through the `fable`
-  alias (`claude update`); 2.1.257 is the minimum for Fable 5.1. Restart after installing or updating a plugin: hooks
+- Claude Code 2.1.321 or later for Fable 5.2 through the `fable` alias
+  (`claude update`); 2.1.257 to 2.1.320 give Fable 5.1. Restart after installing or updating a plugin: hooks
   load at session start.
 - fable-advisor's hooks need Python 3 on `PATH` (`python3`, or `python` /
   `py -3` on Windows); without it they are a silent no-op.

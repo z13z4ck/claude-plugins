@@ -195,6 +195,16 @@ OUT="$(cd "$REPO" && printf '{"source":"startup"}' | CLAUDE_PLUGIN_ROOT="$TMP/no
 RC=$?
 if [ "$RC" -eq 0 ] && has "Policy file missing"; then ok "missing policy file is reported, exit 0"; else no "missing policy file is reported, exit 0"; fi
 
+# has_phrase <file> <phrase>: fixed-string match after folding every run of
+# whitespace (newlines included) to one space in both, so re-wrapping prose
+# in a policy or agent file can never break a check.
+has_phrase() {
+  local text want
+  text="$(tr '\n\t' '  ' <"$1" | tr -s ' ')"
+  want="$(printf '%s' "$2" | tr '\n\t' '  ' | tr -s ' ')"
+  case "$text" in *"$want"*) return 0 ;; *) return 1 ;; esac
+}
+
 echo "plugin files"
 
 if grep -q 'bash \\"${CLAUDE_PLUGIN_ROOT}/bin/session-start.sh\\"' "$PLUGIN/hooks/hooks.json"; then
@@ -258,15 +268,15 @@ else
     "$(diff <(strip_fm_diffs "$PLUGIN/agents/feature-builder.md") <(strip_fm_diffs "$D") 2>&1 | head -5)"
 fi
 
-if grep -q "feature-crew:feature-builder" "$PLUGIN/policy/orchestrator.md" &&
-  grep -q "fable-advisor:advisor" "$PLUGIN/policy/orchestrator.md"; then
+if has_phrase "$PLUGIN/policy/orchestrator.md" "feature-crew:feature-builder" &&
+  has_phrase "$PLUGIN/policy/orchestrator.md" "fable-advisor:advisor"; then
   ok "policy names the worker and the advisor by their qualified agent names"
 else
   no "policy names the worker and the advisor by their qualified agent names"
 fi
 
 W="$PLUGIN/agents/feature-builder.md"
-if grep -q 'subagent_type: "fable-advisor:advisor"' "$W" && grep -q "absolute-git-dir" "$W"; then
+if has_phrase "$W" 'subagent_type: "fable-advisor:advisor"' && has_phrase "$W" "absolute-git-dir"; then
   ok "worker consults the advisor and writes its review diff outside the tree"
 else
   no "worker consults the advisor and writes its review diff outside the tree"
@@ -284,7 +294,7 @@ else
   no "both final blocks (DONE, NEEDS-ANSWER) carry a model: line" "found $(grep -c '^model: <' "$W")"
 fi
 
-if grep -q "WORKER RAN DEGRADED" "$PLUGIN/policy/orchestrator.md" && grep -q "model:" "$PLUGIN/policy/orchestrator.md"; then
+if has_phrase "$PLUGIN/policy/orchestrator.md" "WORKER RAN DEGRADED" && has_phrase "$PLUGIN/policy/orchestrator.md" "model:"; then
   ok "orchestrator flags a DONE whose model: is not Fable as WORKER RAN DEGRADED"
 else
   no "orchestrator flags a DONE whose model: is not Fable as WORKER RAN DEGRADED"
@@ -292,17 +302,40 @@ fi
 
 # A deep worker is pinned to Fable too: escalating a Fable-unavailable or
 # degraded run would hit the same wall, so the orchestrator asks instead.
-fu="$(tr '\n' ' ' <"$PLUGIN/policy/orchestrator.md" | tr -s ' ')"
-if case "$fu" in *"Fable unavailable (check before step 1)"*"skip the whole ladder: no resume, no \`feature-builder-deep\`"*"same wall"*) true ;; *) false ;; esac; then
+O="$PLUGIN/policy/orchestrator.md"
+if has_phrase "$O" "Fable unavailable (check before step 1)" &&
+  has_phrase "$O" "skip the whole ladder: no resume, no \`feature-builder-deep\`" &&
+  has_phrase "$O" "would hit the same wall" &&
+  has_phrase "$O" "billing or authentication error"; then
   ok "orchestrator asks instead of escalating when Fable is unavailable or the worker ran degraded"
 else
   no "orchestrator asks instead of escalating when Fable is unavailable or the worker ran degraded"
 fi
 
+# Rate-limit/overload errors are transient: exactly one retry of the same
+# worker and brief, never the ladder, then the user.
+if has_phrase "$O" "Transient error (check before step 1)" &&
+  has_phrase "$O" "rate-limit or overload error, retry exactly once" &&
+  has_phrase "$O" "same worker type with the same brief" &&
+  has_phrase "$O" "do not climb the ladder on transient errors" &&
+  ! has_phrase "$O" "billing, rate-limit or overload error"; then
+  ok "orchestrator retries a rate-limit/overload failure once, then asks; billing/auth go straight to the user"
+else
+  no "orchestrator retries a rate-limit/overload failure once, then asks; billing/auth go straight to the user"
+fi
+
+# has_phrase itself: a phrase split across a line break still matches.
+printf 'alpha beta\ngamma   delta\n' >"$TMP/wrap.txt"
+if has_phrase "$TMP/wrap.txt" "beta gamma delta" && ! has_phrase "$TMP/wrap.txt" "beta delta"; then
+  ok "phrase checks fold line wraps and repeated spaces"
+else
+  no "phrase checks fold line wraps and repeated spaces"
+fi
+
 # Verify-first: a check per criterion planned before coding, evidence per
 # criterion in DONE, output in a log outside the tree that the advisor reads.
-if grep -q "proves each acceptance criterion" "$W" && grep -q "crew-verify.log" "$W" &&
-  grep -q "per acceptance criterion" "$W" && grep -q "not verified: <why>" "$W"; then
+if has_phrase "$W" "proves each acceptance criterion" && has_phrase "$W" "crew-verify.log" &&
+  has_phrase "$W" "per acceptance criterion" && has_phrase "$W" "not verified: <why>"; then
   ok "worker plans checks per criterion, logs output outside the tree, maps criteria to evidence"
 else
   no "worker plans checks per criterion, logs output outside the tree, maps criteria to evidence"
@@ -315,15 +348,15 @@ case "$r7" in
 esac
 
 O="$PLUGIN/policy/orchestrator.md"
-if grep -q "names the verify command" "$O" && grep -q "ownership of the test files" "$O"; then
+if has_phrase "$O" "names the verify command" && has_phrase "$O" "ownership of the test files"; then
   ok "orchestrator briefs grant test-file ownership and name verify commands"
 else
   no "orchestrator briefs grant test-file ownership and name verify commands"
 fi
 
-if grep -q "feature-crew:feature-builder-deep" "$O" && grep -q "crew/<slug>-deep" "$O" &&
-  grep -q "Resume the same worker once" "$O" && grep -q "ask the user how to proceed" "$O" &&
-  grep -q "baseline run" "$O"; then
+if has_phrase "$O" "feature-crew:feature-builder-deep" && has_phrase "$O" "crew/<slug>-deep" &&
+  has_phrase "$O" "Resume the same worker once" && has_phrase "$O" "ask the user how to proceed" &&
+  has_phrase "$O" "baseline run"; then
   ok "orchestrator escalates: resume once, then feature-builder-deep on crew/<slug>-deep, then ask"
 else
   no "orchestrator escalates: resume once, then feature-builder-deep on crew/<slug>-deep, then ask"
@@ -334,7 +367,7 @@ if [ "$steps" = 12345678 ]; then ok "worker steps are numbered 1-8 in order"; el
 
 # Claude Code's worktree guard refuses nested $(git ...) in an isolated
 # worker (seen live), so the worker's instructions must not use it.
-if ! grep -q '"\$(git ' "$W" && grep -q 'git -C <worktree> rev-parse --absolute-git-dir' "$W"; then
+if ! grep -q '"\$(git ' "$W" && has_phrase "$W" 'git -C <worktree> rev-parse --absolute-git-dir'; then
   ok "worker's diff instructions use plain git -C commands, no nested \$(git ...)"
 else
   no "worker's diff instructions use plain git -C commands, no nested \$(git ...)"
@@ -349,13 +382,13 @@ else
   no "worker reviews after committing" "commit=$c review=$r"
 fi
 
-if grep -q "accept only \`advisor: reviewed" "$PLUGIN/policy/orchestrator.md" && grep -q "advisor: <one of: reviewed" "$W"; then
+if has_phrase "$PLUGIN/policy/orchestrator.md" "accept only \`advisor: reviewed" && has_phrase "$W" "advisor: <one of: reviewed"; then
   ok "orchestrator accepts only a 'reviewed' advisor line, which the worker can emit"
 else
   no "orchestrator accepts only a 'reviewed' advisor line, which the worker can emit"
 fi
 
-if grep -q "Fallback review" "$PLUGIN/policy/orchestrator.md" && grep -q "worktree list --porcelain" "$PLUGIN/policy/orchestrator.md"; then
+if has_phrase "$PLUGIN/policy/orchestrator.md" "Fallback review" && has_phrase "$PLUGIN/policy/orchestrator.md" "worktree list --porcelain"; then
   ok "orchestrator falls back to its own review against the worker's worktree"
 else
   no "orchestrator falls back to its own review against the worker's worktree"
@@ -364,13 +397,13 @@ fi
 # A background subagent's completion notice goes to the top-level session,
 # never to the worker that started it: a worker that backgrounds its advisor
 # and ends its turn waiting stalls for good (seen live: 68 minutes).
-if grep -q "FOREGROUND" "$W" && grep -q "run_in_background" "$W"; then
+if has_phrase "$W" "FOREGROUND" && has_phrase "$W" "run_in_background"; then
   ok "worker dispatches the advisor and other subagents in the foreground"
 else
   no "worker dispatches the advisor and other subagents in the foreground"
 fi
 
-if grep -q "ask it once more only if a fix changed" "$W"; then
+if has_phrase "$W" "ask it once more only if a fix changed"; then
   ok "worker re-asks the advisor only after a behaviour change"
 else
   no "worker re-asks the advisor only after a behaviour change"
@@ -379,28 +412,28 @@ fi
 # isolation: worktree starts each worker on a Claude Code-made
 # worktree-agent-<id> branch, abandoned once it switches to crew/<slug> (seen
 # live: one leftover per worker). The worker deletes it, safely only.
-if grep -q "worktree-agent-" "$W" && grep -q "git branch -d" "$W"; then
+if has_phrase "$W" "worktree-agent-" && has_phrase "$W" "git branch -d"; then
   ok "worker deletes its worktree-agent-* starting branch with git branch -d"
 else
   no "worker deletes its worktree-agent-* starting branch with git branch -d"
 fi
 
-if ! grep -q "git branch -D" "$W"; then
+if ! has_phrase "$W" "git branch -D"; then
   ok "worker never force-deletes a branch (no git branch -D)"
 else
   no "worker never force-deletes a branch (no git branch -D)"
 fi
 
 # Resumed workers repeated open: items the orchestrator had already handled.
-if grep -q "re-check every item" "$W"; then
+if has_phrase "$W" "re-check every item"; then
   ok "worker re-checks its open: items on a revision"
 else
   no "worker re-checks its open: items on a revision"
 fi
 
-if grep -q "Stopped by the user" "$PLUGIN/policy/orchestrator.md" &&
-  grep -q "arrives here instead of in its worker" "$PLUGIN/policy/orchestrator.md" &&
-  grep -q "diff --cached --binary" "$PLUGIN/policy/orchestrator.md"; then
+if has_phrase "$PLUGIN/policy/orchestrator.md" "Stopped by the user" &&
+  has_phrase "$PLUGIN/policy/orchestrator.md" "arrives here instead of in its worker" &&
+  has_phrase "$PLUGIN/policy/orchestrator.md" "diff --cached --binary"; then
   ok "orchestrator handles stopped workers and forwards misrouted subagent results"
 else
   no "orchestrator handles stopped workers and forwards misrouted subagent results"
