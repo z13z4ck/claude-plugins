@@ -226,6 +226,13 @@ else
   no "hooks.json registers the UserPromptSubmit model check through bash, no SubagentStop"
 fi
 
+if grep -q '"version": "0.5.0"' "$PLUGIN/.claude-plugin/plugin.json" &&
+  ! grep -qi 'on Fable' "$PLUGIN/.claude-plugin/plugin.json"; then
+  ok "plugin.json is 0.5.0 and no longer says workers run on Fable"
+else
+  no "plugin.json is 0.5.0 and no longer says workers run on Fable"
+fi
+
 if grep -q 'for c in python3 python "py -3"' "$PLUGIN/bin/model-check.sh" &&
   grep -q 'FEATURE_CREW:-on' "$PLUGIN/bin/model-check.sh" && grep -q 'PYTHONUTF8=1' "$PLUGIN/bin/model-check.sh"; then
   ok "model-check.sh probes for a working interpreter on Windows and honours FEATURE_CREW=off"

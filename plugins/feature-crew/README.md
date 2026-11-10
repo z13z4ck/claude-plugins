@@ -12,9 +12,11 @@ No commands to learn. Install, enable in a project, and talk normally.
 
 | Component | Purpose |
 |---|---|
-| `agents/feature-builder.md` | The worker. `background: true`, `isolation: worktree`, `model: fable`, `effort: high` (whatever the session uses). Branches as `crew/<slug>`, stays in its assigned files, plans a check per acceptance criterion before coding, consults `fable-advisor:advisor` itself when installed, runs its checks into a log outside the tree, commits, and ends with a fixed `DONE` or `NEEDS-ANSWER` block that carries `model:` and `advisor:` lines. |
-| `agents/feature-builder-deep.md` | The escalation worker: the same prompt at `model: fable`, `effort: xhigh`. Never dispatched first; only when a `feature-builder`'s work still fails its checks after one resume (or it errored and can't be resumed) (see [Quality and escalation](#quality-and-escalation)). Plugin agent files cannot share text, so it is a copy: keep it identical to `feature-builder.md` apart from `name`, `description` and `effort` — `tests/run-tests.sh` fails if they drift. |
-| `hooks/hooks.json` | One `SessionStart` hook, on every start source, that runs `bin/session-start.sh`. |
+| `agents/feature-builder.md` | The worker, opus tier (the default): `background: true`, `isolation: worktree`, `model: opus`, `effort: medium`. Branches as `crew/<slug>`, stays in its assigned files, plans a check per acceptance criterion before coding, consults `fable-advisor:advisor` itself when installed, runs its checks into a log outside the tree, commits, and ends with a fixed `DONE` or `NEEDS-ANSWER` block that carries `model:` and `advisor:` lines. |
+| `agents/feature-builder-sonnet.md` | The sonnet tier: the same prompt at `model: sonnet`, `effort: medium`, for well-scoped briefs (see [Model routing](#model-routing)). |
+| `agents/feature-builder-deep.md` | The fable tier: the same prompt at `model: fable`, `effort: high`. Dispatched first for briefs with a fable trigger, and as the one climb when a sonnet- or opus-tier worker still fails its checks after one resume. Plugin agent files cannot share text, so the three are copies: keep them identical apart from `name`, `description`, `model` and `effort` — `tests/run-tests.sh` fails if they drift. |
+| `hooks/hooks.json` | A `SessionStart` hook, on every start source, that runs `bin/session-start.sh`, and a `UserPromptSubmit` hook that runs `bin/model-check.sh`. |
+| `bin/model-check.py` (+ `model-check.sh`) | The model check. On a worker's completion notice it reads the worker's transcript, compares the models it ran on with the tier it was dispatched as, adds one `[feature-crew]` line for the main session, and appends a ledger row with the worker's token use. Also a CLI (`--agent <id>`) the policy falls back to. Python 3, no dependencies, fail-open. |
 | `bin/session-start.sh` | Injects `policy/orchestrator.md` so the main session delegates instead of implementing, keeps a roster, and resumes workers with your answers. Adds a session note after `compact` (re-read the roster), and after `resume`, `fork` or `clear` (earlier workers are gone or out of reach; here are the `crew/*` branches that exist, with their worktrees). Outside a git work tree it prints a one-line "inactive" note instead, since workers need worktrees. Bash and git only, no jq or Python. |
 | `policy/orchestrator.md` | The orchestrator rules. Edit this file to change how the main session behaves. |
 | `tests/run-tests.sh` | `bash tests/run-tests.sh` — exercises the hook against throwaway repos and checks the plugin files agree. |
@@ -28,10 +30,12 @@ No commands to learn. Install, enable in a project, and talk normally.
 
 Restart Claude Code after installing: hooks load at session start.
 
-Workers pin `model: fable`. On plans where Fable bills to usage credits,
-run `/model fable` once and accept the consent before dispatching workers;
-otherwise a worker may run on another model, and its DONE is flagged
-WORKER RAN DEGRADED.
+Workers run on Sonnet, Opus or Fable depending on the brief. On plans where
+Fable bills to usage credits, run `/model fable` once and accept the consent
+before a fable-tier worker is dispatched; otherwise it may run on another
+model, and the model check flags it WORKER FELL BACK TO <model>. The model
+check needs Python 3; without it there is no check, and the main session
+reports each worker's model as not confirmed.
 
 **Enable it per project, not globally.** The policy turns every session where
 it is active into an orchestrator. Either install with project scope, or set
@@ -56,8 +60,8 @@ it is active into an orchestrator. Either install with project scope, or set
   each 4+-file DONE for a Fable verdict and runs the review itself, against
   the worker's worktree, if it is missing, degraded or unaddressed.
 - **A worker's checks fail (or a named verify command wasn't run):** the main session resumes it
-  once with the failure, then escalates to `feature-builder-deep`, then asks
-  you (see below).
+  once with the failure, then climbs once to the fable tier (from sonnet or
+  opus), then asks you (see below).
 - **Revisions:** the main session resumes the original worker, or starts a new
   one from that feature's branch.
 - **Merging:** never automatic. Ask the main session to review a branch; it
@@ -67,14 +71,61 @@ it is active into an orchestrator. Either install with project scope, or set
   The session note lists the `crew/*` branches that exist, and the main
   session offers to continue unfinished ones from their branches.
 
+## Model routing
+
+From 0.5.0 each feature goes to one of three workers that run the same
+prompt, following Anthropic's model-selection guidance (Sonnet for
+well-scoped, spec-driven work; Opus at `medium` when unsure; Fable for
+migrations, major refactors and architecture):
+
+| Tier | Agent | Model, effort |
+|---|---|---|
+| sonnet | `feature-builder-sonnet` | Sonnet, `medium` |
+| opus | `feature-builder` | Opus, `medium` |
+| fable | `feature-builder-deep` | Fable, `high` |
+
+The main session picks the tier by four ordered rules; the first that
+matches decides, and the brief says which rule chose it:
+
+1. You named a model or tier for the feature.
+2. A fable trigger: a migration, a schema or data model, concurrency,
+   performance, security, or a cross-cutting refactor → fable.
+3. Sonnet only if the brief names a verify command, names an existing
+   pattern to copy, covers one area and leaves no open decision.
+4. Otherwise → opus.
+
+Every dispatch also passes the tier's model alias as the Agent `model`
+parameter, so routing holds even if a build ignores the agent file's pin.
+
+- **Model check.** A worker's own `model:` line is informational. When a
+  worker's completion reaches the main session, the `UserPromptSubmit` hook
+  `bin/model-check.py` reads the worker's transcript
+  (`<session>/subagents/agent-<id>.jsonl`), takes the requested tier from
+  the agent type of the main session's Agent call (or the transcript's
+  `.meta.json`), and the models from the worker's assistant rows (skipping
+  `<synthetic>`). Its verdict reaches the main session as one line: **as
+  chosen** (every model matches the tier), **FELL BACK** (any model does not,
+  mixed runs included; the main session labels the worker **WORKER FELL BACK
+  TO <model>** and asks you instead of escalating), or **could not be
+  confirmed** (either side unreadable; no ladder change). It parses both
+  completion forms seen in practice, a `<task-notification>` and a subagent
+  hand-back, and ignores agents that are not feature-crew workers. If no
+  line arrives, the main session runs `bin/model-check.sh --agent <id>`
+  itself.
+- **Ledger.** Each check appends a row to
+  `<config dir>/feature-crew/ledger/<session_id>.jsonl` (`CLAUDE_CONFIG_DIR`
+  honoured): agent id and type, description, requested tier, actual models,
+  verdict, usage (input, output, cache read and cache write tokens, summed
+  once per `message.id`) and the time of the worker's last reply. The same
+  finished run is recorded once even if both completion forms and the CLI
+  see it. Usage is cumulative over a resumed worker's whole transcript.
+  There is no costs command or price table: the ledger is raw data.
+
 ## Quality and escalation
 
-feature-crew 0.4 trades cost for output quality, following Anthropic's
-model-selection guidance: workers run on Fable, and every claim of "done" is
-tied to a check.
+feature-crew 0.4 tied every claim of "done" to a check; 0.5.0 keeps that
+and spends Fable only where the brief calls for it.
 
-- **Workers on Fable at `high`.** `feature-builder` pins `model: fable`,
-  `effort: high`, independent of the session's own model.
 - **Run the orchestrator session on Fable at `high`, not `xhigh`.** Its
   leverage is the quality of its briefs and reviews, and it has to stay
   responsive while workers report in; `xhigh` makes every relay slower
@@ -88,25 +139,24 @@ tied to a check.
   the advisor with its review diff. Its
   `verified:` line maps each criterion to evidence or to
   `not verified: <why>` — an honest answer when no meaningful check exists.
-- **Degraded-model flag.** Each report carries a `model:` line naming the
-  model the worker actually ran on. If a DONE names anything other than a
-  Fable model (Fable unavailable on the account, consent dismissed, a
-  fallback), the main session labels it **WORKER RAN DEGRADED** and tells
-  you.
-- **Escalation ladder.** When a verify command the brief named was not run
-  or failed, or the worker errors: (1) the main session resumes that worker
-  once with the failure evidence; (2) if it fails again, dispatches a fresh
-  `feature-builder-deep` (`effort: xhigh`) from `crew/<slug>` on
-  `crew/<slug>-deep` with the original brief plus what was tried; (3) if that
-  fails too, it stops and asks you. Steps 1 and 2 happen without asking.
+- **Escalation ladder.** When a verify command the brief named (the full
+  one) was not run or failed, or the worker errors: (1) the main session
+  resumes that worker once with the failure evidence; (2) if it fails again
+  and it was a sonnet- or opus-tier worker, it climbs once: a fresh
+  `feature-builder-deep` (Fable, `high`) from `crew/<slug>` on
+  `crew/<slug>-deep` with the original brief plus what was tried. A
+  fable-tier worker does not climb (the same model and effort would only be
+  a retry); (3) the main session stops and asks you, offering a fresh
+  `xhigh` worker as one option after a fable-tier failure. Steps 1 and 2
+  happen without asking; at most one model climb happens per feature.
   Failures already present on the base branch that the brief didn't ask
   the worker to fix, or blocked by a missing tool, dependency or credential,
-  are reported to you with the DONE instead of escalated. If the worker
-  failed because Fable itself is unavailable (access, consent, billing,
-  auth), or ran on another model, the main session asks you instead of
-  escalating: the deep worker is pinned to Fable too and would hit the same
-  wall. A rate-limit or overload error gets exactly one retry of the same
-  worker and brief, then comes to you. A `-deep`
+  are reported to you with the DONE instead of escalated. If the requested
+  model is unavailable (access, consent, billing, auth) or the model check
+  says the worker fell back, the main session asks you instead of
+  escalating onto the same unavailable model. A rate-limit or overload
+  error gets exactly one retry of the same worker and brief, then comes to
+  you. A `-deep`
   branch is reviewed against the feature's original base, so the advisor
   sees the whole feature, not just the fix.
 - **Token discipline (0.4.1).** In one measured 0.4.0 run the worker was
@@ -146,8 +196,8 @@ tied to a check.
   edited since its last consultation (none since fable-advisor 1.10.3, which
   keeps the count but no longer nudges workers), and one hold if it tries to
   finish 4+ unreviewed files. `feature-builder-deep` is enforced the same way from
-  fable-advisor 1.10.2; on older versions add it to
-  `FABLE_ADVISOR_SUBAGENTS`. Older fable-advisor versions don't enforce inside
+  fable-advisor 1.10.2 and `feature-builder-sonnet` from 1.11.0; on older
+  versions add them to `FABLE_ADVISOR_SUBAGENTS`. Older fable-advisor versions don't enforce inside
   workers, so there the worker consults on instruction only. Either way the
   main session checks every 4+-file DONE for a verdict.
   Dispatching a brief does not need a consultation first unless the brief
@@ -176,12 +226,12 @@ tied to a check.
   the main session state the base branch in every brief either way.
 - Worktrees need git. Outside a git work tree the plugin stays inactive.
 - Every worker draws on your plan's usage; N workers use it roughly N times as
-  fast, and from 0.4.0 each one runs on Fable at `high` (an escalation at
-  `xhigh`), which costs more per worker than the old inherit/medium default.
-  To trade back, edit `model:` (and `effort:`) in `agents/feature-builder.md`
-  and `model:` in `agents/feature-builder-deep.md` (the sync test allows only
-  name, description and effort to differ) — and expect DONE reports to be
-  flagged WORKER RAN DEGRADED off Fable.
+  fast. From 0.5.0 only fable-tier work and the one climb run on Fable;
+  the ledger records each worker's tokens so you can see where they went.
+  To change a tier's model or effort, edit `model:` and `effort:` in its
+  agent file and the alias table in `policy/orchestrator.md` together: the
+  model check compares the models run against the tier name in the agent
+  type, so a tier pointed at another model reads as fell back.
 
 ## Housekeeping
 

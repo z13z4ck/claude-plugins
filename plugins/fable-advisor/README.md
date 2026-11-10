@@ -25,7 +25,7 @@ and the consultation is enforced rather than left to judgment.
 | Component | Purpose |
 |---|---|
 | `agents/advisor.md` | Read-only advisor, `model: fable`, `effort: high` — enforcement makes consultation routine rather than rare, so the default buys a deep tier at a per-call cost you can afford one or two times a turn; `xhigh` is a one-line opt-up. Reads files itself instead of trusting summaries. Every verdict starts with a MODEL line so a silently substituted model can't pass as Fable. |
-| `hooks/hooks.json` + `bin/` | Eight enforcement hooks (below). Transcript-driven and fail-open. Background workers of the types you list (default `feature-crew:feature-builder` and `feature-crew:feature-builder-deep`) get their own policy, tally and end-of-run hold, and may not background a subagent; see [Subagents](#subagents). |
+| `hooks/hooks.json` + `bin/` | Eight enforcement hooks (below). Transcript-driven and fail-open. Background workers of the types you list (default `feature-crew:feature-builder`, `feature-crew:feature-builder-sonnet` and `feature-crew:feature-builder-deep`) get their own policy, tally and end-of-run hold, and may not background a subagent; see [Subagents](#subagents). |
 | `/fable-advisor:consult <question>` | Deterministic consultation. `--model <alias>` overrides the advisor model per call. |
 | `/fable-advisor:review-plan` | Critique the session's current plan before execution. Takes the same `--model <alias>` override as consult. |
 | `/fable-advisor:status` | How many consultations this session, which edits are still unreviewed, which hooks are active, and the last hook events. |
@@ -105,7 +105,7 @@ Set these in the environment Claude Code runs in — the `env` block of
 | `FABLE_ADVISOR_EDIT_WATCH` | `1` | `0` disables the edit-count nudge, and a worker's `edit-tally` log line (its hold still counts from the transcript). |
 | `FABLE_ADVISOR_STOP_AUDIT` | `1` | `0` disables the end-of-turn hold. |
 | `FABLE_ADVISOR_PROMPT_NUDGE` | `1` | `0` disables per-prompt nudges. |
-| `FABLE_ADVISOR_SUBAGENTS` | `feature-crew:feature-builder,feature-crew:feature-builder-deep` | Comma-separated subagent types enforced as workers (plugin-scoped name or bare frontmatter name, compared whole: `feature-builder` does not match `feature-builder-deep`). `none` turns worker enforcement off. Since 1.10.2 the default includes feature-crew's escalation worker. If you set this variable, list both feature-crew workers. |
+| `FABLE_ADVISOR_SUBAGENTS` | `feature-crew:feature-builder,feature-crew:feature-builder-sonnet,feature-crew:feature-builder-deep` | Comma-separated subagent types enforced as workers (plugin-scoped name or bare frontmatter name, compared whole: `feature-builder` matches neither `feature-builder-sonnet` nor `feature-builder-deep`). `none` turns worker enforcement off. Since 1.10.2 the default includes feature-crew's deep worker, and since 1.11.0 its Sonnet-tier worker (feature-crew 0.5.0). If you set this variable, list all three feature-crew workers. |
 | `FABLE_ADVISOR_SUBAGENT_STOP` | `1` | `0` disables the worker hold; the worker policy stays (workers get no edit nudge since 1.10.3). |
 | `FABLE_ADVISOR_CLAUDE_MD` | `1` | `0`/`off` stops the automatic advisor-policy block in your user-level CLAUDE.md. It does not remove a block already written — `/fable-advisor:claude-md remove` does. |
 | `FABLE_ADVISOR_HOME` | `~/.claude/fable-advisor` | Where `events.log`, per-session state and the CLAUDE.md stamp (`claude-md.json`) live. State files are reaped after 7 days; the stamp is kept. |
@@ -163,6 +163,15 @@ given and open other files only where the diff lacks context. `events.log`
 records a worker's tally as `edit-tally` and tags each worker hold
 `kind=full` or `kind=fix`. The main session's nudge, plan gate and stop audit
 are unchanged.
+
+1.11.0 adds `feature-crew:feature-builder-sonnet`, the Sonnet-tier worker of
+feature-crew 0.5.0, to the default worker list. Worker types are compared
+whole, so without it that worker would have run unenforced: no worker policy,
+no end-of-run hold, no background-dispatch deny, and its edits counted for the
+orchestrator. It also words the worker policy's fix-diff rule as "when resumed
+after a review", and the fix-diff hold's full-diff fallback now names the base
+to diff against (the original feature's base for an escalation or revision
+worker), as the full hold already did.
 
 ### What this costs
 

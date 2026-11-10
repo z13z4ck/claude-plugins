@@ -91,7 +91,8 @@ the tier holds even if a build ignores the agent file's `model:` pin.
   If no `[feature-crew]` line arrives with the report, run the check
   yourself: `bash "<feature-crew root>/bin/model-check.sh" --agent <agent
   ID>` (the root is printed at the end of this policy), and use the line it
-  prints the same way.
+  prints the same way. If it prints nothing (no Python 3), say the model
+  could not be confirmed.
 - **DONE**: label it by the model check first. If a verify command the
   brief named was not run (the full one, not the quiet one), or any check
   the worker reports ran and failed, handle it as "Failed or unverified

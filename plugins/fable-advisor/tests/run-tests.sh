@@ -1076,6 +1076,30 @@ in_worker t_edit a.py; in_worker t_edit b.py; in_worker t_edit c.py
 FABLE_ADVISOR_SUBAGENTS="feature-crew:feature-builder" worker_hook post-tool aw3e "feature-crew:feature-builder-deep" '"tool_name":"Edit","tool_input":{"file_path":"d.py"}'
 [ ! -f "$(wstate aw3e)" ] && ok "a feature-builder entry alone does not enforce feature-builder-deep" || no "deep worker matched by the feature-builder entry" "$HOOK_OUT"
 
+# 1.11.0: feature-crew 0.5.0's Sonnet-tier worker is enforced by default too:
+# its own tally, the worker policy at start, the end-of-run hold and the
+# background-dispatch deny. A feature-builder entry alone does not cover it.
+SW="feature-crew:feature-builder-sonnet"
+new_worker w3s aw3s
+in_worker t_prompt "Build it on sonnet"
+in_worker t_edit a.py; in_worker t_edit b.py; in_worker t_edit c.py
+worker_hook post-tool aw3s "$SW" '"tool_name":"Edit","tool_input":{"file_path":"d.py"}'
+grep -q "event=edit-tally files=4 .*agent=aw3s" "$FABLE_ADVISOR_HOME/events.log" && [ -f "$(wstate aw3s)" ] && [ -z "$HOOK_OUT" ] \
+  && ok "feature-crew:feature-builder-sonnet is enforced by default (own tally, no nudge)" || no "sonnet worker not enforced" "$HOOK_OUT"
+worker_hook subagent-start aw3s "$SW"
+contains "$(context_of "$HOOK_OUT")" "Advisor policy for this worker" && ok "sonnet worker gets the worker policy at start" || no "no worker policy for the sonnet worker" "$HOOK_OUT"
+worker_hook subagent-stop aw3s "$SW" '"stop_hook_active":false,"last_assistant_message":"DONE"'
+[ "$(jget "$HOOK_OUT" decision)" = "block" ] && ok "sonnet worker is held at the end with 4 unreviewed files" || no "sonnet worker not held" "$HOOK_OUT"
+worker_hook pre-agent aw3s "$SW" '"tool_name":"Agent","tool_input":{"subagent_type":"fable-advisor:advisor","prompt":"r","description":"r","run_in_background":true}'
+[ "$(jget "$HOOK_OUT" hookSpecificOutput.permissionDecision)" = "deny" ] && ok "sonnet worker's background dispatch is denied" || no "sonnet worker's background dispatch not denied" "$HOOK_OUT"
+new_worker w3t aw3t
+in_worker t_prompt "Build it on sonnet"
+in_worker t_edit a.py; in_worker t_edit b.py; in_worker t_edit c.py
+FABLE_ADVISOR_SUBAGENTS="feature-crew:feature-builder" worker_hook post-tool aw3t "$SW" '"tool_name":"Edit","tool_input":{"file_path":"d.py"}'
+[ ! -f "$(wstate aw3t)" ] && ok "a feature-builder entry alone does not enforce feature-builder-sonnet" || no "sonnet worker matched by the feature-builder entry" "$HOOK_OUT"
+worker_hook subagent-start aw3u "feature-builder-sonnet"
+contains "$(context_of "$HOOK_OUT")" "Advisor policy for this worker" && ok "bare agent_type 'feature-builder-sonnet' is enforced too" || no "bare sonnet name not matched" "$HOOK_OUT"
+
 new_worker w4 aw4
 t_prompt "go"
 for f in a.py b.py c.py d.py; do
@@ -1110,6 +1134,8 @@ contains "$p" "at most two planned consultations" && contains "$p" "one on the d
   && ok "worker policy drops the two-approaches trigger and the four-file nudge wording" || no "worker policy still has old triggers" "$p"
 contains "$p" "<reviewed-commit>..HEAD" && contains "$p" "crew-fix.diff" && contains "$p" "diff -U25 <base>...HEAD" \
   && ok "worker policy: -U25 review diff, fix-diff re-review" || no "worker policy diff wording" "$p"
+contains "$p" "when resumed after a review, gets only the fix diff" && ! contains "$p" "or after a resume" \
+  && ok "worker policy: a fix diff when resumed after a review (1.11.0)" || no "worker policy resume wording" "$p"
 contains "$p" "start from the diff" && contains "$p" "run headers and tail" && ok "worker policy tells the advisor to start from the diff and the log's tail" || no "diff-first wording missing" "$p"
 contains "$p" "Outside that budget" && contains "$p" "held once" && ok "worker policy: re-review sits outside the budget; full mode promises the hold" || no "budget scope / hold wording" "$p"
 FABLE_ADVISOR_ENFORCE=nudge worker_hook subagent-start aw7n "$WK"
@@ -1187,6 +1213,8 @@ r="$(jget "$HOOK_OUT" reason)"
 contains "$r" "diff -U25 <reviewed-commit>..HEAD" && contains "$r" "crew-fix.diff" && ! contains "$r" "diff -U25 <base>...HEAD" \
   && contains "$r" "if you cannot name it" \
   && ok "after a review, the hold accepts a -U25 fix-diff review (full diff only as a fallback)" || no "fix-diff hold wording" "$r"
+contains "$r" "the full \`<base>...HEAD\` diff as crew-review.diff instead, with <base> the base your brief names for the review (the original feature's base" \
+  && ok "the fix-hold's full-diff fallback names the original feature's base (1.11.0)" || no "fix-hold fallback base wording" "$r"
 grep -q "event=subagent-stop-hold files=4 .*agent=as6 kind=fix" "$FABLE_ADVISOR_HOME/events.log" && ok "events.log marks a fix-diff hold kind=fix" || no "hold kind not logged" "$(tail -n 2 "$FABLE_ADVISOR_HOME/events.log")"
 
 new_worker st7 as7
