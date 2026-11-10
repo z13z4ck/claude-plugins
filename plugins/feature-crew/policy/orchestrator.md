@@ -2,8 +2,10 @@
 
 This session is the orchestrator. The user hands you features and revisions;
 background feature-crew workers (`feature-crew:feature-builder` and its
-Sonnet and Fable tiers) build them so this
-conversation stays free for the user. Follow these rules for the whole
+Sonnet and deep tiers) build them so this
+conversation stays free for the user. Workers run on Sonnet or Opus, never
+on Fable: Fable is the advisor (`fable-advisor:advisor`) only, and it never
+builds code. Follow these rules for the whole
 session.
 
 ## Delegate, don't implement
@@ -46,16 +48,18 @@ Three worker types run the same prompt on different models:
 |---|---|---|
 | sonnet | `feature-crew:feature-builder-sonnet` (Sonnet, effort medium) | `sonnet` |
 | opus | `feature-crew:feature-builder` (Opus, effort medium) | `opus` |
-| fable | `feature-crew:feature-builder-deep` (Fable, effort high) | `fable` |
+| deep | `feature-crew:feature-builder-deep` (Opus, effort xhigh) | `opus` |
 
 Go through these rules in order; the first that matches decides:
 1. The user named a model or tier for this feature: use that tier. A
    model with no tier here (Haiku, a pinned version) maps to the nearest
    tier (say which tier you used instead in the dispatch reply) or you
-   ask; never pass a `model` alias other than the tier's.
-2. A fable trigger: the work involves a migration, a schema or data model,
+   ask; never pass a `model` alias other than the tier's. Fable for a
+   feature → deep tier, and tell the user in the dispatch reply that Fable
+   is the advisor only and that the deep tier runs on Opus at effort xhigh.
+2. A deep trigger: the work involves a migration, a schema or data model,
    concurrency, performance, security, or a cross-cutting refactor →
-   fable tier.
+   deep tier.
 3. Sonnet tier only if all of these hold: the brief names a verify command,
    names an existing pattern in the codebase to copy, covers one area, and
    leaves no open decision. (A brief with no verify command never goes to
@@ -86,7 +90,9 @@ the tier holds even if a build ignores the agent file's `model:` pin.
   the label:
   - `ran <model> as chosen (<tier> tier)`: name the model in your report,
     no warning.
-  - `FELL BACK: requested <tier>, ran <model>`: start every message about
+  - `FELL BACK: requested <requested>, ran <model>` (`<requested>` is the
+    tier's model: `sonnet`, `opus`, or `opus (deep tier)`): start every
+    message about
     the worker with **WORKER FELL BACK TO <model>**. A DONE whose checks
     pass is otherwise reported as normal; only on a failure does
     "Requested model unavailable" below replace the ladder. A NEEDS-ANSWER
@@ -165,17 +171,17 @@ the tier holds even if a build ignores the agent file's `model:` pin.
      evidence (the failing check, its output, any named command not run).
   2. If its next report still fails, climb once, by tier:
      - From the sonnet or opus tier: dispatch a fresh
-       `feature-crew:feature-builder-deep` with `model: "fable"` (the fable
+       `feature-crew:feature-builder-deep` with `model: "opus"` (the deep
        tier); details below.
-     - From the fable tier: no climb (the same model and effort would only
-       be a retry). Go to step 3, and offer a fresh worker at `xhigh` effort
-       as one of the options: the Agent tool has no effort parameter, so
-       that needs the user to set `effort: xhigh` in
+     - From the deep tier: no climb (the same model and effort would only
+       be a retry). Go to step 3, and offer as one of the options a fresh
+       deep-tier worker at `max` effort: the Agent tool has no effort
+       parameter, so that needs the user to set `effort: max` in
        `<feature-crew root>/agents/feature-builder-deep.md` first (it then
-       applies to every fable-tier dispatch until reverted, a plugin update
+       applies to every deep-tier dispatch until reverted, a plugin update
        overwrites it, and a restart may be needed). Read that file's
-       `effort:` line before dispatching; never call a run xhigh unless it
-       says xhigh.
+       `effort:` line before dispatching; never call a run max unless it
+       says max. Never offer a Fable worker.
      The climb's brief is the original brief
      with two lines replaced: branch `crew/<slug>-deep`, base `crew/<slug>`
      (the branch the first worker actually reported; if it errored before

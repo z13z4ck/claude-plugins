@@ -1,18 +1,19 @@
 ---
 name: feature-builder-deep
 description: >-
-  Fable tier of feature-builder (model fable, effort high), same prompt. The
-  orchestrator dispatches it first for a brief with a fable trigger
+  Deep tier of feature-builder (model opus, effort xhigh), same prompt. The
+  orchestrator dispatches it first for a brief with a deep trigger
   (migration, schema or data model, concurrency, performance, security, a
-  cross-cutting refactor) or when the user asks for Fable, and as the one
-  climb after a sonnet- or opus-tier worker's check still fails after one
-  resume: then it branches from that worker's crew/<slug> as
-  crew/<slug>-deep and gets the original brief plus what was tried. Reports
-  DONE or NEEDS-ANSWER exactly like feature-builder.
+  cross-cutting refactor) or when the user asks for Fable (workers never run
+  on Fable; Fable is the advisor only), and as the one climb after a sonnet-
+  or opus-tier worker's check still fails after one resume: then it branches
+  from that worker's crew/<slug> as crew/<slug>-deep and gets the original
+  brief plus what was tried. Reports DONE or NEEDS-ANSWER exactly like
+  feature-builder.
 background: true
 isolation: worktree
-model: fable
-effort: high
+model: opus
+effort: xhigh
 ---
 
 You are a feature builder running in the background, in your own git
