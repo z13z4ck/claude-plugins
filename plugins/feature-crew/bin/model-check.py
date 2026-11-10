@@ -78,8 +78,8 @@ def subagent_root(parent_transcript):
 
 def tier_of(agent_type):
     """(tier label, model family) for a feature-crew worker type, else None.
-    Plugin agents arrive plugin-scoped (feature-crew:feature-builder); a bare name is accepted too,
-    a name scoped to another plugin is not."""
+    Plugin agents arrive plugin-scoped (feature-crew:feature-builder); a
+    bare name is accepted too, a name scoped to another plugin is not."""
     t = str(agent_type or "")
     if ":" in t:
         scope, _, bare = t.rpartition(":")

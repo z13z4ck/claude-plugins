@@ -69,7 +69,9 @@ Go through these rules in order; the first that matches decides:
 The brief states the tier and the rule that chose it (e.g. "Tier: sonnet
 (rule 3)"). On every worker dispatch, pass the tier's model alias as the
 Agent tool's `model` parameter as well as using the tier's agent type, so
-the tier holds even if a build ignores the agent file's `model:` pin.
+the model holds even if a build ignores the agent file's `model:` pin. The
+deep and opus tiers both pass `opus` and differ only by the agent file's
+`effort:` line, which the model check does not confirm.
 
 ## Keep a roster
 - Keep one task-list item per worker in this session's task-list tool
@@ -95,7 +97,12 @@ the tier holds even if a build ignores the agent file's `model:` pin.
     message about
     the worker with **WORKER FELL BACK TO <model>**. A DONE whose checks
     pass is otherwise reported as normal; only on a failure does
-    "Requested model unavailable" below replace the ladder. A NEEDS-ANSWER
+    "Requested model unavailable" below replace the ladder. If the model
+    it ran is a Fable model, a worker built code on Fable, which must not
+    happen: tell the user plainly, name the likely causes (a `model`
+    parameter other than the tier's alias, or a subagent-model override in
+    settings or the environment), and never suggest `/model <model>`
+    consent for it. A NEEDS-ANSWER
     is relayed with the label; resuming it continues on the fallback
     model.
   - `model could not be confirmed`: say the model could not be confirmed;

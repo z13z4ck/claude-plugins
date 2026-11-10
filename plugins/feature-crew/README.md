@@ -33,8 +33,9 @@ Restart Claude Code after installing: hooks load at session start.
 Workers run on Sonnet or Opus depending on the brief, never on Fable: Fable
 is the advisor (`fable-advisor:advisor`) only and never builds code. If a
 worker runs on another model than its tier's, the model check flags it
-WORKER FELL BACK TO <model>. The model check needs Python 3; without it there is no check, and the main session
-reports each worker's model as not confirmed.
+WORKER FELL BACK TO <model>. The model check needs Python 3; without it
+there is no check, and the main session reports each worker's model as not
+confirmed.
 
 **Enable it per project, not globally.** The policy turns every session where
 it is active into an orchestrator. Either install with project scope, or set
@@ -97,7 +98,10 @@ matches decides, and the brief says which rule chose it:
 4. Otherwise → opus.
 
 Every dispatch also passes the tier's model alias as the Agent `model`
-parameter, so routing holds even if a build ignores the agent file's pin.
+parameter, so the model holds even if a build ignores the agent file's pin.
+The alias cannot carry effort, though: the deep and opus tiers both pass
+`opus` and differ only by the agent file's `effort:` line, which the model
+check does not confirm (it checks the model, not the effort).
 
 - **Model check.** A worker's own `model:` line is informational. When a
   worker's completion reaches the main session, the `UserPromptSubmit` hook
@@ -106,7 +110,7 @@ parameter, so routing holds even if a build ignores the agent file's pin.
   the agent type of the main session's Agent call (or the transcript's
   `.meta.json`), and the models from the worker's assistant rows (skipping
   `<synthetic>`). Its verdict reaches the main session as one line: **as
-  chosen** (every model matches the tier), **FELL BACK** (any model does not,
+  chosen** (every model matches the tier's model), **FELL BACK** (any model does not,
   mixed runs included; the main session labels the worker **WORKER FELL BACK
   TO <model>**, and if it also failed, asks you instead of escalating), or **could not be
   confirmed** (either side unreadable; no ladder change). It parses both
@@ -280,7 +284,9 @@ model check; the worker agents stay available for explicit use.
   failure the manual option is `effort: max` in the deep agent file. The
   model check expects Opus for the deep tier and reports
   `FELL BACK: requested opus (deep tier), ...` on any other model, Fable
-  included.
+  included; a worker that ran on Fable is called out to you as a worker
+  building on Fable, not just labelled. Ledger rows for the deep tier now
+  record `requested: "deep"` (pre-0.6.0 rows say `"fable"`).
 - **0.5.0** — Per-task model routing: three worker tiers (Sonnet, Opus,
   Fable) chosen by four ordered rules, the model alias passed on every
   dispatch, one climb to Fable before asking, "Requested model unavailable"

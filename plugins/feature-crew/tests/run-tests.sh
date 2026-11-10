@@ -236,7 +236,7 @@ fi
 
 # 0.6.0: Fable is the advisor only. No worker agent pins it, no dispatch
 # passes it, and the policy says so.
-if ! grep -rqx 'model: fable' "$PLUGIN/agents" &&
+if ! grep -rqx 'model: [f]able' "$PLUGIN/agents" &&
   ! grep -q 'model: "fable"' "$PLUGIN/policy/orchestrator.md" &&
   ! grep -qiE 'fable[- ]tier|fable trigger' "$PLUGIN/policy/orchestrator.md" "$PLUGIN/agents"/*.md &&
   has_phrase "$PLUGIN/policy/orchestrator.md" "Workers run on Sonnet or Opus, never on Fable: Fable is the advisor (\`fable-advisor:advisor\`) only" &&
@@ -244,6 +244,32 @@ if ! grep -rqx 'model: fable' "$PLUGIN/agents" &&
   ok "no worker runs on Fable; a request for Fable gets the deep tier and the advisor-only note"
 else
   no "no worker runs on Fable; a request for Fable gets the deep tier and the advisor-only note"
+fi
+
+# The README above its changelog never calls a worker tier Fable, and the
+# marketplace entry carries the plugin.json description.
+sed '/^## Changelog/,$d' "$PLUGIN/README.md" >"$TMP/readme-head.md"
+MKT="$PLUGIN/../../.claude-plugin/marketplace.json"
+if ! grep -qiE 'fable[- ]tier|fable trigger|Fable worker|\(Fable, ' "$TMP/readme-head.md" &&
+  python3 - "$PLUGIN/.claude-plugin/plugin.json" "$MKT" <<'PY2'
+import json, sys
+pj = json.load(open(sys.argv[1]))
+mk = json.load(open(sys.argv[2]))
+e = [p for p in mk["plugins"] if p["name"] == "feature-crew"]
+assert e and e[0]["description"] == pj["description"], "descriptions differ"
+PY2
+then
+  ok "README (above the changelog) has no Fable worker tier; marketplace description matches plugin.json"
+else
+  no "README (above the changelog) has no Fable worker tier; marketplace description matches plugin.json"
+fi
+
+# A worker that ran on Fable is called out, never offered consent for.
+if has_phrase "$PLUGIN/policy/orchestrator.md" "If the model it ran is a Fable model, a worker built code on Fable, which must not happen" &&
+  has_phrase "$PLUGIN/policy/orchestrator.md" "never suggest \`/model <model>\` consent for it"; then
+  ok "policy calls out a worker that ran on Fable"
+else
+  no "policy calls out a worker that ran on Fable"
 fi
 
 if grep -q 'for c in python3 python "py -3"' "$PLUGIN/bin/model-check.sh" &&
@@ -283,6 +309,29 @@ for spec in "feature-builder-sonnet sonnet medium" "feature-builder opus medium"
       "$(sed -n '2,/^---$/p' "$PLUGIN/agents/$1.md" 2>&1 | grep -E '^(name|model|effort):')"
   fi
 done
+
+# Each agent file's model: equals its TIERS family in bin/model-check.py and
+# the alias in the policy table.
+if python3 - "$PLUGIN" <<'PY2'
+import importlib.util, re, sys
+root = sys.argv[1]
+spec = importlib.util.spec_from_file_location("mc", root + "/bin/model-check.py")
+mc = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mc)
+pol = open(root + "/policy/orchestrator.md").read()
+for agent, (label, family) in mc.TIERS.items():
+    fm = open("%s/agents/%s.md" % (root, agent)).read().split("---")[1]
+    model = re.search(r"^model: (\S+)$", fm, re.M).group(1)
+    assert model == family, (agent, model, family)
+    row = re.search(r"^\| %s \| `feature-crew:%s` .*\| `(\w+)` \|$" % (label, agent), pol, re.M)
+    assert row and row.group(1) == family, (agent, row and row.group(1))
+    assert family != "fable", agent
+PY2
+then
+  ok "agent model:, model-check TIERS and the policy alias table agree (and none is fable)"
+else
+  no "agent model:, model-check TIERS and the policy alias table agree (and none is fable)"
+fi
 
 # The deep worker is both the deep-tier first dispatch and the climb target,
 # no longer escalation-only, and it is not a Fable tier.
