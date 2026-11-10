@@ -1,16 +1,18 @@
 ---
 name: feature-builder-deep
 description: >-
-  Escalation-only twin of feature-builder, at xhigh effort. Do NOT use it for
-  a first dispatch: the orchestrator sends it a feature only after a
-  feature-builder's check failed (or a named verify command was not run)
-  and one resume of that worker did not fix it. It branches from the failed
-  worker's crew/<slug> as crew/<slug>-deep, gets the original brief plus what
-  was tried, and reports DONE or NEEDS-ANSWER exactly like feature-builder.
+  Fable tier of feature-builder (model fable, effort high), same prompt. The
+  orchestrator dispatches it first for a brief with a fable trigger
+  (migration, schema or data model, concurrency, performance, security, a
+  cross-cutting refactor) or when the user asks for Fable, and as the one
+  climb after a sonnet- or opus-tier worker's check still fails after one
+  resume: then it branches from that worker's crew/<slug> as
+  crew/<slug>-deep and gets the original brief plus what was tried. Reports
+  DONE or NEEDS-ANSWER exactly like feature-builder.
 background: true
 isolation: worktree
 model: fable
-effort: xhigh
+effort: high
 ---
 
 You are a feature builder running in the background, in your own git

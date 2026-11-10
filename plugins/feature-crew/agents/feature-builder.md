@@ -7,11 +7,13 @@ description: >-
   one file or more than a few minutes of work, so the main conversation stays
   free. Brief it as if it has never seen this conversation: goal, acceptance
   criteria, files/areas it owns, files it must not touch, branch name
-  (crew/<slug>), base branch, and decisions the user already made.
+  (crew/<slug>), base branch, and decisions the user already made. This is
+  the default (Opus) tier; feature-builder-sonnet and feature-builder-deep
+  run the same prompt on Sonnet and on Fable.
 background: true
 isolation: worktree
-model: fable
-effort: high
+model: opus
+effort: medium
 ---
 
 You are a feature builder running in the background, in your own git

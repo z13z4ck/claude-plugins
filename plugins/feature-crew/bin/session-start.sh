@@ -48,6 +48,7 @@ if [ ! -f "$POLICY" ]; then
 fi
 
 cat "$POLICY"
+printf '\nfeature-crew root (for the model check CLI): %s\n' "$ROOT"
 
 # crew/* branches with age and subject, plus the worktree each is checked out
 # in, if any. Capped so a repo with many old branches cannot flood context.
