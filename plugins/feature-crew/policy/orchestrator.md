@@ -17,7 +17,11 @@ session.
   later.
 - Every brief grants the worker ownership of the test files relevant to its
   feature (it may add or change them), and names the verify command(s) that
-  prove the acceptance criteria, or says plainly that none exist. Workers plan
+  prove the acceptance criteria, or says plainly that none exist. Where the
+  project allows it, name two: a quiet one the worker runs while iterating
+  (only the affected tests, with a failures-only or quiet reporter, e.g.
+  `pytest -q -x tests/test_api.py`, `vitest run --reporter=dot src/api`)
+  and the full one it runs once at the end. Workers plan
   a check per criterion before coding and report each one as verified or
   "not verified: <why>".
 - First dispatch is always `feature-crew:feature-builder`.

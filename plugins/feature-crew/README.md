@@ -69,7 +69,7 @@ it is active into an orchestrator. Either install with project scope, or set
 
 ## Quality and escalation
 
-feature-crew 0.4.0 trades cost for output quality, following Anthropic's
+feature-crew 0.4 trades cost for output quality, following Anthropic's
 model-selection guidance: workers run on Fable, and every claim of "done" is
 tied to a check.
 
@@ -109,6 +109,23 @@ tied to a check.
   worker and brief, then comes to you. A `-deep`
   branch is reviewed against the feature's original base, so the advisor
   sees the whole feature, not just the fix.
+- **Token discipline (0.4.1).** In one measured 0.4.0 run the worker was
+  about 60% of spend and the four advisor consultations inside it about
+  36%, each re-reading the same files; the worker also pulled 800+ test
+  results into its context. Since 0.4.1 a worker has a budget of two
+  planned consultations: one on the design, only when the brief leaves a
+  decision open, and one verification review of the final diff; mid-way
+  only after two failed attempts at the same bug or an unexplained test
+  failure. The review diff is written with `git diff -U25 <base>...HEAD` and
+  the advisor starts from it and the verify log, opening other files only
+  where the diff lacks context; a re-review after a behaviour-changing fix
+  gets only the fix diff (`<reviewed-commit>..HEAD`). While iterating the
+  worker runs only the affected tests with a failures-only reporter (each
+  brief names that quiet command next to the full one where the project
+  allows it), runs the full suite once at the end, and reads only the tail
+  of its verify log or a grep of it for failures. Pairs with fable-advisor
+  1.10.3, which stops nudging workers mid-build and accepts a fix-diff
+  review in its worker hold.
 
 ## Limits (from the Claude Code docs)
 
@@ -123,8 +140,9 @@ tied to a check.
   ignore `permissionMode`, so this can't be set from the plugin.
 - With `fable-advisor` 1.8.0 or later, workers are enforced by its hooks:
   each `feature-builder` gets the worker policy at start, a nudge at 4 files
-  edited since its last consultation, and one hold if it tries to finish 4+
-  unreviewed files. `feature-builder-deep` is enforced the same way from
+  edited since its last consultation (none since fable-advisor 1.10.3, which
+  keeps the count but no longer nudges workers), and one hold if it tries to
+  finish 4+ unreviewed files. `feature-builder-deep` is enforced the same way from
   fable-advisor 1.10.2; on older versions add it to
   `FABLE_ADVISOR_SUBAGENTS`. Older fable-advisor versions don't enforce inside
   workers, so there the worker consults on instruction only. Either way the

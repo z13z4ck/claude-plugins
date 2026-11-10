@@ -440,6 +440,48 @@ else
   no "orchestrator handles stopped workers and forwards misrouted subagent results"
 fi
 
+# 0.4.1: token discipline. A two-consultation advisor budget, diff-first
+# reviews with a fix-diff re-review, quiet checks, and a quiet verify command
+# in each brief. No "smaller slices" rule (dropped by design).
+if has_phrase "$W" "at most two planned consultations" && has_phrase "$W" "one on the design" &&
+  has_phrase "$W" "one verification review of your final diff" &&
+  has_phrase "$W" "Consult mid-way only after two failed attempts" &&
+  ! has_phrase "$W" "two viable approaches"; then
+  ok "worker states the two-consultation advisor budget, no two-approaches trigger"
+else
+  no "worker states the two-consultation advisor budget, no two-approaches trigger"
+fi
+
+if has_phrase "$W" "diff -U25 <base>...HEAD > <gitdir>/crew-review.diff" &&
+  has_phrase "$W" "start from the diff and the log" &&
+  has_phrase "$W" "diff <reviewed-commit>..HEAD > <gitdir>/crew-fix.diff"; then
+  ok "worker sends a -U25 diff first and re-reviews only the fix diff"
+else
+  no "worker sends a -U25 diff first and re-reviews only the fix diff"
+fi
+
+r5="$(sed -n '/^5\. \*\*Verify/,/^6\. /p' "$W")"
+if printf '%s\n' "$r5" >"$TMP/r5.txt" && has_phrase "$TMP/r5.txt" "only the tests affected by your change" &&
+  has_phrase "$TMP/r5.txt" "failures-only reporter" && has_phrase "$TMP/r5.txt" "full suite once" &&
+  has_phrase "$TMP/r5.txt" "tail -n 40 <gitdir>/crew-verify.log" &&
+  [ "$(grep -c 'crew-verify.log' "$TMP/r5.txt")" -le 3 ]; then
+  ok "worker keeps check output out of context (quiet checks, tail -n 40)"
+else
+  no "worker keeps check output out of context (quiet checks, tail -n 40)"
+fi
+
+if has_phrase "$O" "quiet one the worker runs while iterating" && has_phrase "$O" "failures-only"; then
+  ok "orchestrator briefs name a quiet verify command next to the full one"
+else
+  no "orchestrator briefs name a quiet verify command next to the full one"
+fi
+
+if ! grep -rqi 'smaller slice' "$PLUGIN/agents" "$PLUGIN/policy"; then
+  ok "no smaller-slices rule"
+else
+  no "no smaller-slices rule"
+fi
+
 if grep -rl $'\r' "$PLUGIN" >/dev/null 2>&1; then
   no "no CRLF line endings in the plugin" "$(grep -rl $'\r' "$PLUGIN")"
 else
