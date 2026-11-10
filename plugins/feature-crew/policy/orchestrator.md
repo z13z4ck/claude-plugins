@@ -97,14 +97,18 @@ deep and opus tiers both pass `opus` and differ only by the agent file's
     message about
     the worker with **WORKER FELL BACK TO <model>**. A DONE whose checks
     pass is otherwise reported as normal; only on a failure does
-    "Requested model unavailable" below replace the ladder. If the model
+    "Requested model unavailable" below replace the ladder. If any model
     it ran is a Fable model, a worker built code on Fable, which must not
     happen: tell the user plainly, name the likely causes (a `model`
-    parameter other than the tier's alias, or a subagent-model override in
-    settings or the environment), and never suggest `/model <model>`
-    consent for it. A NEEDS-ANSWER
+    parameter other than the tier's alias, the worker inheriting this
+    session's Fable model because its pin and alias were ignored, a
+    subagent-model override in settings or the environment, or a
+    `fallbackModel` chain that contains Fable), and never offer to keep
+    Fable or consent to it for a worker (consent for the tier's own model
+    is still fine). A NEEDS-ANSWER
     is relayed with the label; resuming it continues on the fallback
-    model.
+    model, so for a worker that ran on Fable ask the user whether to
+    resume it or re-dispatch on the tier's model instead.
   - `model could not be confirmed`: say the model could not be confirmed;
     no ladder change.
   If no `[feature-crew]` line arrives with the report, run the check

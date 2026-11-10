@@ -249,9 +249,15 @@ fi
 # The README above its changelog never calls a worker tier Fable, and the
 # marketplace entry carries the plugin.json description.
 sed '/^## Changelog/,$d' "$PLUGIN/README.md" >"$TMP/readme-head.md"
+if ! grep -qiE 'fable[- ]tier|fable trigger|Fable worker|\(Fable, ' "$TMP/readme-head.md"; then
+  ok "README (above the changelog) has no Fable worker tier"
+else
+  no "README (above the changelog) has no Fable worker tier"
+fi
 MKT="$PLUGIN/../../.claude-plugin/marketplace.json"
-if ! grep -qiE 'fable[- ]tier|fable trigger|Fable worker|\(Fable, ' "$TMP/readme-head.md" &&
-  python3 - "$PLUGIN/.claude-plugin/plugin.json" "$MKT" <<'PY2'
+if [ ! -f "$MKT" ]; then
+  echo "  SKIP marketplace description (no marketplace.json beside this plugin)"
+elif python3 - "$PLUGIN/.claude-plugin/plugin.json" "$MKT" <<'PY2' 2>/dev/null
 import json, sys
 pj = json.load(open(sys.argv[1]))
 mk = json.load(open(sys.argv[2]))
@@ -259,14 +265,15 @@ e = [p for p in mk["plugins"] if p["name"] == "feature-crew"]
 assert e and e[0]["description"] == pj["description"], "descriptions differ"
 PY2
 then
-  ok "README (above the changelog) has no Fable worker tier; marketplace description matches plugin.json"
+  ok "marketplace description matches plugin.json"
 else
-  no "README (above the changelog) has no Fable worker tier; marketplace description matches plugin.json"
+  no "marketplace description matches plugin.json"
 fi
 
 # A worker that ran on Fable is called out, never offered consent for.
-if has_phrase "$PLUGIN/policy/orchestrator.md" "If the model it ran is a Fable model, a worker built code on Fable, which must not happen" &&
-  has_phrase "$PLUGIN/policy/orchestrator.md" "never suggest \`/model <model>\` consent for it"; then
+if has_phrase "$PLUGIN/policy/orchestrator.md" "If any model it ran is a Fable model, a worker built code on Fable, which must not happen" &&
+  has_phrase "$PLUGIN/policy/orchestrator.md" "never offer to keep Fable or consent to it for a worker" &&
+  has_phrase "$PLUGIN/policy/orchestrator.md" "for a worker that ran on Fable ask the user whether to resume it or re-dispatch"; then
   ok "policy calls out a worker that ran on Fable"
 else
   no "policy calls out a worker that ran on Fable"
@@ -312,7 +319,9 @@ done
 
 # Each agent file's model: equals its TIERS family in bin/model-check.py and
 # the alias in the policy table.
-if python3 - "$PLUGIN" <<'PY2'
+if python3 -B - "$PLUGIN" <<'PY2'
+import sys
+sys.dont_write_bytecode = True
 import importlib.util, re, sys
 root = sys.argv[1]
 spec = importlib.util.spec_from_file_location("mc", root + "/bin/model-check.py")
@@ -325,7 +334,7 @@ for agent, (label, family) in mc.TIERS.items():
     assert model == family, (agent, model, family)
     row = re.search(r"^\| %s \| `feature-crew:%s` .*\| `(\w+)` \|$" % (label, agent), pol, re.M)
     assert row and row.group(1) == family, (agent, row and row.group(1))
-    assert family != "fable", agent
+    assert "fable" not in family.lower(), agent
 PY2
 then
   ok "agent model:, model-check TIERS and the policy alias table agree (and none is fable)"
