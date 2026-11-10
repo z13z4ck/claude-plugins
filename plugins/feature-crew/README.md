@@ -118,7 +118,9 @@ parameter, so routing holds even if a build ignores the agent file's pin.
   verdict, usage (input, output, cache read and cache write tokens, summed
   once per `message.id`) and the time of the worker's last reply. The same
   finished run is recorded once even if both completion forms and the CLI
-  see it. Usage is cumulative over a resumed worker's whole transcript.
+  see it. Usage is cumulative over a worker's whole transcript, and each
+  NEEDS-ANSWER or resume adds a row, so use the last row per `agent_id`;
+  advisor consultations inside the worker are not counted.
   There is no costs command or price table: the ledger is raw data.
 
 ## Quality and escalation
@@ -147,7 +149,10 @@ and spends Fable only where the brief calls for it.
   `crew/<slug>-deep` with the original brief plus what was tried. A
   fable-tier worker does not climb (the same model and effort would only be
   a retry); (3) the main session stops and asks you, offering a fresh
-  `xhigh` worker as one option after a fable-tier failure. Steps 1 and 2
+  `xhigh` worker as one option after a fable-tier failure (you set
+  `effort: xhigh` in `agents/feature-builder-deep.md` for it: the Agent tool
+  has no effort parameter). A worker that fell back but passed its checks
+  is reported with the label, not stopped. Steps 1 and 2
   happen without asking; at most one model climb happens per feature.
   Failures already present on the base branch that the brief didn't ask
   the worker to fix, or blocked by a missing tool, dependency or credential,
@@ -227,7 +232,8 @@ and spends Fable only where the brief calls for it.
 - Worktrees need git. Outside a git work tree the plugin stays inactive.
 - Every worker draws on your plan's usage; N workers use it roughly N times as
   fast. From 0.5.0 only fable-tier work and the one climb run on Fable;
-  the ledger records each worker's tokens so you can see where they went.
+  the ledger records each worker's own tokens (not the advisor
+  consultations it ran, which have their own transcripts).
   To change a tier's model or effort, edit `model:` and `effort:` in its
   agent file and the alias table in `policy/orchestrator.md` together: the
   model check compares the models run against the tier name in the agent
@@ -254,8 +260,20 @@ earlier leave it behind.
 
 ## Turn it off
 
-`FEATURE_CREW=off` in the environment silences the policy hook; the
-`feature-builder` agent stays available for explicit use.
+`FEATURE_CREW=off` in the environment silences the policy hook and the
+model check; the worker agents stay available for explicit use.
+
+## Changelog
+
+- **0.5.0** — Per-task model routing: three worker tiers (Sonnet, Opus,
+  Fable) chosen by four ordered rules, the model alias passed on every
+  dispatch, one climb to Fable before asking, "Requested model unavailable"
+  in place of "Fable unavailable". A `UserPromptSubmit` model check labels
+  a fallback WORKER FELL BACK TO <model> (replacing WORKER RAN DEGRADED)
+  and writes a token ledger. Pairs with fable-advisor 1.11.0.
+- **0.4.1** — Token discipline: two-consultation advisor budget, diff-first
+  reviews, quiet checks.
+- **0.4.0** — Workers on Fable, verify-first briefs, escalation ladder.
 
 ## License
 

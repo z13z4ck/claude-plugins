@@ -832,6 +832,54 @@ case "$o1|$o2|$OUT" in
     ok "CLI --agent prints the same line (by id, or by name with --transcript)" ;;
   *) no "CLI --agent prints the same line (by id, or by name with --transcript)" "$o1 | $o2 | $OUT" ;;
 esac
+
+# A task-notification with no <tool-use-id> (seen after a resume), and one
+# whose tool-use id is not an Agent call here and has no .meta.json: both
+# resolve through the launch result's agent id.
+OUT="$(hook_in "<task-notification>
+<task-id>aO</task-id>
+<status>completed</status>
+</task-notification>" | CLAUDE_CONFIG_DIR="$CFG" bash "$MC" 2>&1)"
+o1="$OUT"
+notify aO toolu_elsewhere
+if case "$o1" in *"worker opu ran claude-opus-5-5 as chosen (opus tier)."*) true ;; *) false ;; esac &&
+  has "worker opu ran claude-opus-5-5 as chosen (opus tier)."; then
+  ok "a notification without <tool-use-id>, or with a foreign one, resolves through the launch result"
+else
+  no "a notification without <tool-use-id>, or with a foreign one, resolves through the launch result" "$o1 | $OUT"
+fi
+
+# One worker named twice in one prompt (notification by id, hand-back by
+# name) gives one line.
+fx aW toolu_W feature-crew:feature-builder twice 0 "claude-opus-5-5"
+OUT="$(hook_in "<task-notification><task-id>aW</task-id><tool-use-id>toolu_W</tool-use-id></task-notification>
+<agent-message from=\"twice\">
+[Subagent hand-back] DONE
+</agent-message>" | CLAUDE_CONFIG_DIR="$CFG" bash "$MC" 2>&1)"
+if [ "$(printf '%s' "$OUT" | grep -o 'worker twice ran' | wc -l | tr -d ' ')" = 1 ]; then
+  ok "a worker reported in both forms in one prompt gives one line"
+else
+  no "a worker reported in both forms in one prompt gives one line" "$OUT"
+fi
+
+# A resumed worker that finishes again adds a second row with cumulative usage.
+n="$(ledger_rows)"
+python3 -c 'import json,sys; open(sys.argv[1], "a").write(json.dumps({"type": "assistant", "timestamp": "2026-11-10T11:00:00.000Z", "message": {"id": "late", "model": "claude-opus-5-5", "usage": {"output_tokens": 7}}}) + "\n")' "$SUB/agent-aW.jsonl"
+notify aW toolu_W
+if [ "$(ledger_rows)" = $((n + 1)) ] && [ "$(lj 'r["ended_at"]')" = 2026-11-10T11:00:00.000Z ] &&
+  [ "$(lj 'r["usage"]["output_tokens"]')" = 17 ]; then
+  ok "a resumed worker's next completion adds a row with cumulative usage"
+else
+  no "a resumed worker's next completion adds a row with cumulative usage" "$(ledger_last)"
+fi
+fi
+
+if has_phrase "$O" "A DONE whose checks pass is otherwise reported as normal" &&
+  has_phrase "$O" "needs the user to set \`effort: xhigh\` in \`agents/feature-builder-deep.md\` first" &&
+  has_phrase "$O" "never pass a \`model\` alias other than the tier's"; then
+  ok "policy: a passing fell-back DONE is only labelled; xhigh needs the user's edit; no off-tier alias"
+else
+  no "policy: a passing fell-back DONE is only labelled; xhigh needs the user's edit; no off-tier alias"
 fi
 
 if grep -rl $'\r' "$PLUGIN" >/dev/null 2>&1; then

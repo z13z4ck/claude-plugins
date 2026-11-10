@@ -49,7 +49,9 @@ Three worker types run the same prompt on different models:
 | fable | `feature-crew:feature-builder-deep` (Fable, effort high) | `fable` |
 
 Go through these rules in order; the first that matches decides:
-1. The user named a model or tier for this feature: use that tier.
+1. The user named a model or tier for this feature: use that tier. A
+   model with no tier here (Haiku, a pinned version) maps to the nearest
+   tier or you ask; never pass a `model` alias other than the tier's.
 2. A fable trigger: the work involves a migration, a schema or data model,
    concurrency, performance, security, or a cross-cutting refactor →
    fable tier.
@@ -84,8 +86,9 @@ the tier holds even if a build ignores the agent file's `model:` pin.
   - `ran <model> as chosen (<tier> tier)`: name the model in your report,
     no warning.
   - `FELL BACK: requested <tier>, ran <model>`: start every message about
-    the worker with **WORKER FELL BACK TO <model>**, and apply
-    "Requested model unavailable" below.
+    the worker with **WORKER FELL BACK TO <model>**. A DONE whose checks
+    pass is otherwise reported as normal; only on a failure does
+    "Requested model unavailable" below replace the ladder.
   - `model could not be confirmed`: say the model could not be confirmed;
     no ladder change.
   If no `[feature-crew]` line arrives with the report, run the check
@@ -163,7 +166,10 @@ the tier holds even if a build ignores the agent file's `model:` pin.
        tier); details below.
      - From the fable tier: no climb (the same model and effort would only
        be a retry). Go to step 3, and offer a fresh worker at `xhigh` effort
-       as one of the options.
+       as one of the options: the Agent tool has no effort parameter, so
+       that needs the user to set `effort: xhigh` in
+       `agents/feature-builder-deep.md` first. Never call a run xhigh
+       otherwise.
      The climb's brief is the original brief
      with two lines replaced: branch `crew/<slug>-deep`, base `crew/<slug>`
      (the branch the first worker actually reported; if it errored before
@@ -223,7 +229,7 @@ Workers consult the advisor themselves: they sit on the changed files, and
 the advisor can only read files by path. fable-advisor 1.8.0+ enforces that
 inside `feature-builder` workers with its own hooks (1.10.2+ inside
 `feature-builder-deep`, 1.11.0+ inside `feature-builder-sonnet`), and a
-worker's consultations never count for this session. You still check each DONE, from either worker type, below.
+worker's consultations never count for this session. You still check each DONE, from any worker type, below.
 - **Dispatching is not executing a plan.** Sending a brief to a worker does
   not need an advisor consultation first, unless the brief makes an
   architectural, data-model, interface or dependency decision the user has

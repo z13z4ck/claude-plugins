@@ -201,6 +201,10 @@ def resolve(parent_transcript, ref, tool_use_id):
 
     if tool_use_id:  # a task-notification: the ref is the agent id
         agent_id = ref
+        if tool_use_id not in uses:
+            # Not an Agent call in this transcript: find the call by the
+            # agent id its launch result reported, before .meta.json.
+            tool_use_id = next((k for k, v in results.items() if v == ref), tool_use_id)
     elif ref in results.values() or os.path.isfile(os.path.join(sub_root, "agent-%s.jsonl" % ref)):
         agent_id = ref
         tool_use_id = next((k for k, v in results.items() if v == ref), None)
@@ -287,7 +291,7 @@ def check(who):
         verdict = "fell-back"
         other = [m for m in models if tier not in m.lower()]
         line = ("[feature-crew] worker %s FELL BACK: requested %s, ran %s. Start every message about it "
-                "with WORKER FELL BACK TO %s and apply \"Requested model unavailable\"."
+                "with WORKER FELL BACK TO %s; if its checks failed, apply \"Requested model unavailable\"."
                 % (label, tier, ", ".join(models), other[0]))
     row = {
         "agent_id": who["agent_id"],
@@ -325,11 +329,12 @@ def append_ledger(session_id, row, dedupe):
 
 
 def run(parent_transcript, session_id, refs, ledger=True):
-    lines = []
+    lines, done = [], set()
     for _, ref, use_id in refs:
         who = resolve(parent_transcript, ref, use_id)
-        if not who or not tier_of(who["agent_type"]):
+        if not who or not tier_of(who["agent_type"]) or who["agent_id"] in done:
             continue
+        done.add(who["agent_id"])  # a notification and a hand-back for one worker give one line
         line, row, dedupe = check(who)
         lines.append(line)
         if ledger:
@@ -394,7 +399,11 @@ def cli(argv):
         print("[feature-crew] worker %s: model could not be confirmed (no transcript found for it)." % ref)
         return 0
     sid = args.get("session") or os.path.basename(tp)[:-6]
-    lines = run(tp, sid, [("cli", ref, None)], ledger=not args.get("no-ledger"))
+    try:
+        lines = run(tp, sid, [("cli", ref, None)], ledger=not args.get("no-ledger"))
+    except Exception as e:  # the policy reads silence as "no Python 3"
+        print("[feature-crew] worker %s: model could not be confirmed (check error: %s)." % (ref, type(e).__name__))
+        return 0
     if lines:
         print("\n".join(lines))
     else:
