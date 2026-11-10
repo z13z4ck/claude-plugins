@@ -4,7 +4,7 @@ description: >-
   Sonnet tier of feature-builder (model sonnet, effort medium), same prompt.
   The orchestrator dispatches it only for a well-scoped brief: it names a
   verify command and an existing pattern to copy, covers one area, and
-  leaves no open decision, and has no fable trigger. Builds ONE feature on
+  leaves no open decision, and has no deep trigger. Builds ONE feature on
   its own crew/<slug> branch in an isolated worktree and reports DONE or
   NEEDS-ANSWER exactly like feature-builder.
 background: true

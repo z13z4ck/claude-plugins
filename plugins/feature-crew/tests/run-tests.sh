@@ -226,11 +226,57 @@ else
   no "hooks.json registers the UserPromptSubmit model check through bash, no SubagentStop"
 fi
 
-if grep -q '"version": "0.5.0"' "$PLUGIN/.claude-plugin/plugin.json" &&
-  ! grep -qi 'on Fable' "$PLUGIN/.claude-plugin/plugin.json"; then
-  ok "plugin.json is 0.5.0 and no longer says workers run on Fable"
+if grep -q '"version": "0.6.0"' "$PLUGIN/.claude-plugin/plugin.json" &&
+  ! grep -qi 'on Fable' "$PLUGIN/.claude-plugin/plugin.json" &&
+  ! grep -qi 'Fable worker' "$PLUGIN/.claude-plugin/plugin.json"; then
+  ok "plugin.json is 0.6.0 and no longer says workers run on Fable"
 else
-  no "plugin.json is 0.5.0 and no longer says workers run on Fable"
+  no "plugin.json is 0.6.0 and no longer says workers run on Fable"
+fi
+
+# 0.6.0: Fable is the advisor only. No worker agent pins it, no dispatch
+# passes it, and the policy says so.
+if ! grep -rqx 'model: [f]able' "$PLUGIN/agents" &&
+  ! grep -q 'model: "fable"' "$PLUGIN/policy/orchestrator.md" &&
+  ! grep -qiE 'fable[- ]tier|fable trigger' "$PLUGIN/policy/orchestrator.md" "$PLUGIN/agents"/*.md &&
+  has_phrase "$PLUGIN/policy/orchestrator.md" "Workers run on Sonnet or Opus, never on Fable: Fable is the advisor (\`fable-advisor:advisor\`) only" &&
+  has_phrase "$PLUGIN/policy/orchestrator.md" "Fable for a feature → deep tier, and tell the user in the dispatch reply that Fable is the advisor only"; then
+  ok "no worker runs on Fable; a request for Fable gets the deep tier and the advisor-only note"
+else
+  no "no worker runs on Fable; a request for Fable gets the deep tier and the advisor-only note"
+fi
+
+# The README above its changelog never calls a worker tier Fable, and the
+# marketplace entry carries the plugin.json description.
+sed '/^## Changelog/,$d' "$PLUGIN/README.md" >"$TMP/readme-head.md"
+if ! grep -qiE 'fable[- ]tier|fable trigger|Fable worker|\(Fable, ' "$TMP/readme-head.md"; then
+  ok "README (above the changelog) has no Fable worker tier"
+else
+  no "README (above the changelog) has no Fable worker tier"
+fi
+MKT="$PLUGIN/../../.claude-plugin/marketplace.json"
+if [ ! -f "$MKT" ]; then
+  echo "  SKIP marketplace description (no marketplace.json beside this plugin)"
+elif python3 - "$PLUGIN/.claude-plugin/plugin.json" "$MKT" <<'PY2' 2>/dev/null
+import json, sys
+pj = json.load(open(sys.argv[1]))
+mk = json.load(open(sys.argv[2]))
+e = [p for p in mk["plugins"] if p["name"] == "feature-crew"]
+assert e and e[0]["description"] == pj["description"], "descriptions differ"
+PY2
+then
+  ok "marketplace description matches plugin.json"
+else
+  no "marketplace description matches plugin.json"
+fi
+
+# A worker that ran on Fable is called out, never offered consent for.
+if has_phrase "$PLUGIN/policy/orchestrator.md" "If any model it ran is a Fable model, a worker built code on Fable, which must not happen" &&
+  has_phrase "$PLUGIN/policy/orchestrator.md" "never offer to keep Fable or consent to it for a worker" &&
+  has_phrase "$PLUGIN/policy/orchestrator.md" "for a worker that ran on Fable ask the user whether to resume it or re-dispatch"; then
+  ok "policy calls out a worker that ran on Fable"
+else
+  no "policy calls out a worker that ran on Fable"
 fi
 
 if grep -q 'for c in python3 python "py -3"' "$PLUGIN/bin/model-check.sh" &&
@@ -253,7 +299,7 @@ case "$fm" in
 esac
 
 # 0.5.0: three tiers, same prompt. feature-builder-sonnet (sonnet/medium),
-# feature-builder (opus/medium), feature-builder-deep (fable/high).
+# feature-builder (opus/medium), feature-builder-deep (opus/xhigh, from 0.6.0).
 fm_line() { sed -n '2,/^---$/p' "$1" | grep -x "$2" >/dev/null; }
 S="$PLUGIN/agents/feature-builder-sonnet.md"
 D="$PLUGIN/agents/feature-builder-deep.md"
@@ -261,7 +307,7 @@ tier_ok() {
   [ -f "$1" ] && fm_line "$1" "name: $2" && fm_line "$1" "model: $3" && fm_line "$1" "effort: $4" &&
     fm_line "$1" "background: true" && fm_line "$1" "isolation: worktree"
 }
-for spec in "feature-builder-sonnet sonnet medium" "feature-builder opus medium" "feature-builder-deep fable high"; do
+for spec in "feature-builder-sonnet sonnet medium" "feature-builder opus medium" "feature-builder-deep opus xhigh"; do
   set -- $spec
   if tier_ok "$PLUGIN/agents/$1.md" "$1" "$2" "$3"; then
     ok "$1: own name, model: $2, effort: $3, background, worktree"
@@ -271,13 +317,39 @@ for spec in "feature-builder-sonnet sonnet medium" "feature-builder opus medium"
   fi
 done
 
-# The deep worker is both the fable-tier first dispatch and the climb target,
-# no longer escalation-only.
+# Each agent file's model: equals its TIERS family in bin/model-check.py and
+# the alias in the policy table.
+if python3 -B - "$PLUGIN" <<'PY2'
+import sys
+sys.dont_write_bytecode = True
+import importlib.util, re, sys
+root = sys.argv[1]
+spec = importlib.util.spec_from_file_location("mc", root + "/bin/model-check.py")
+mc = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mc)
+pol = open(root + "/policy/orchestrator.md").read()
+for agent, (label, family) in mc.TIERS.items():
+    fm = open("%s/agents/%s.md" % (root, agent)).read().split("---")[1]
+    model = re.search(r"^model: (\S+)$", fm, re.M).group(1)
+    assert model == family, (agent, model, family)
+    row = re.search(r"^\| %s \| `feature-crew:%s` .*\| `(\w+)` \|$" % (label, agent), pol, re.M)
+    assert row and row.group(1) == family, (agent, row and row.group(1))
+    assert "fable" not in family.lower(), agent
+PY2
+then
+  ok "agent model:, model-check TIERS and the policy alias table agree (and none is fable)"
+else
+  no "agent model:, model-check TIERS and the policy alias table agree (and none is fable)"
+fi
+
+# The deep worker is both the deep-tier first dispatch and the climb target,
+# no longer escalation-only, and it is not a Fable tier.
 dd="$(sed -n '2,/^---$/p' "$D" 2>/dev/null)"
 case "$dd" in
   *"Escalation-only"* | *"Do NOT use it for"*) no "feature-builder-deep's description is no longer escalation-only" ;;
-  *"Fable tier"*"fable trigger"*"climb"*) ok "feature-builder-deep's description: fable-tier first dispatch and the climb target" ;;
-  *) no "feature-builder-deep's description: fable-tier first dispatch and the climb target" ;;
+  *"Fable tier"* | *"model fable"*) no "feature-builder-deep's description no longer calls it a Fable tier" ;;
+  *"Deep tier"*"model opus, effort xhigh"*"deep trigger"*"climb"*) ok "feature-builder-deep's description: deep-tier (Opus, xhigh) first dispatch and the climb target" ;;
+  *) no "feature-builder-deep's description: deep-tier (Opus, xhigh) first dispatch and the climb target" ;;
 esac
 
 sd="$(sed -n '2,/^---$/p' "$S" 2>/dev/null | tr '\n' ' ' | tr -s ' ')"
@@ -344,7 +416,7 @@ fi
 O="$PLUGIN/policy/orchestrator.md"
 if has_phrase "$O" "WORKER FELL BACK TO <model>" && ! has_phrase "$O" "WORKER RAN DEGRADED" &&
   has_phrase "$O" "not the worker's \`model:\` line (informational only), decides the label" &&
-  has_phrase "$O" "as chosen (<tier> tier)" && has_phrase "$O" "FELL BACK: requested <tier>, ran <model>" &&
+  has_phrase "$O" "as chosen (<tier> tier)" && has_phrase "$O" "FELL BACK: requested <requested>, ran <model>" &&
   has_phrase "$O" "model could not be confirmed"; then
   ok "orchestrator labels from the model-check line: as chosen / WORKER FELL BACK TO / unconfirmed"
 else
@@ -381,7 +453,7 @@ fi
 # model alias passed as the Agent model parameter too.
 sed -n '/^## Pick the worker tier/,/^## Keep a roster/p' "$O" >"$TMP/rt.txt"
 r1="$(grep -n '^1\. The user named a model or tier' "$TMP/rt.txt" | cut -d: -f1)"
-r2="$(grep -n '^2\. A fable trigger' "$TMP/rt.txt" | cut -d: -f1)"
+r2="$(grep -n '^2\. A deep trigger' "$TMP/rt.txt" | cut -d: -f1)"
 r3="$(grep -n '^3\. Sonnet tier only if all of these hold' "$TMP/rt.txt" | cut -d: -f1)"
 r4="$(grep -n '^4\. Otherwise → opus tier' "$TMP/rt.txt" | cut -d: -f1)"
 if [ -n "$r1" ] && [ -n "$r2" ] && [ -n "$r3" ] && [ -n "$r4" ] &&
@@ -398,22 +470,24 @@ fi
 if has_phrase "$TMP/rt.txt" "pass the tier's model alias as the Agent tool's \`model\` parameter" &&
   has_phrase "$TMP/rt.txt" "\`feature-crew:feature-builder-sonnet\` (Sonnet, effort medium) | \`sonnet\`" &&
   has_phrase "$TMP/rt.txt" "\`feature-crew:feature-builder\` (Opus, effort medium) | \`opus\`" &&
-  has_phrase "$TMP/rt.txt" "\`feature-crew:feature-builder-deep\` (Fable, effort high) | \`fable\`" &&
+  has_phrase "$TMP/rt.txt" "\`feature-crew:feature-builder-deep\` (Opus, effort xhigh) | \`opus\`" &&
   ! has_phrase "$O" "First dispatch is always"; then
   ok "routing: every dispatch passes the tier's model alias as the Agent model parameter"
 else
   no "routing: every dispatch passes the tier's model alias as the Agent model parameter"
 fi
 
-# One climb: sonnet/opus climb once to the fable tier; the fable tier asks,
-# offering a fresh xhigh worker.
-if has_phrase "$O" "From the sonnet or opus tier: dispatch a fresh \`feature-crew:feature-builder-deep\` with \`model: \"fable\"\`" &&
-  has_phrase "$O" "From the fable tier: no climb" &&
-  has_phrase "$O" "offer a fresh worker at \`xhigh\` effort as one of the options" &&
+# One climb: sonnet/opus climb once to the deep tier; the deep tier asks,
+# offering a fresh deep-tier worker at max effort (never a Fable worker).
+if has_phrase "$O" "From the sonnet or opus tier: dispatch a fresh \`feature-crew:feature-builder-deep\` with \`model: \"opus\"\` (the deep tier)" &&
+  has_phrase "$O" "From the deep tier: no climb" &&
+  has_phrase "$O" "offer as one of the options a fresh deep-tier worker at \`max\` effort" &&
+  has_phrase "$O" "Never offer a Fable worker" &&
+  ! has_phrase "$O" "offer a fresh worker at \`xhigh\` effort" &&
   has_phrase "$O" "At most one model climb happens per feature"; then
-  ok "ladder: one climb from sonnet/opus to the fable tier; the fable tier asks, offering xhigh"
+  ok "ladder: one climb from sonnet/opus to the deep tier; the deep tier asks, offering effort max"
 else
-  no "ladder: one climb from sonnet/opus to the fable tier; the fable tier asks, offering xhigh"
+  no "ladder: one climb from sonnet/opus to the deep tier; the deep tier asks, offering effort max"
 fi
 
 # Rate-limit/overload errors are transient: exactly one retry of the same
@@ -677,17 +751,23 @@ fx aO toolu_O feature-crew:feature-builder opu 0 "claude-opus-5-5"
 notify aO toolu_O
 if has "worker opu ran claude-opus-5-5 as chosen (opus tier)."; then ok "as-chosen: opus tier on an Opus model"; else no "as-chosen: opus tier on an Opus model" "$OUT"; fi
 
-fx aF toolu_F feature-crew:feature-builder-deep fab 0 "claude-fable-5-2"
+fx aF toolu_F feature-crew:feature-builder-deep dp 0 "claude-opus-5-5"
 notify aF toolu_F
-if has "worker fab ran claude-fable-5-2 as chosen (fable tier)."; then ok "as-chosen: fable tier on a Fable model"; else no "as-chosen: fable tier on a Fable model" "$OUT"; fi
-
-fx aB toolu_B feature-crew:feature-builder-deep fb 0 "claude-opus-5-5"
-notify aB toolu_B
-if has "worker fb FELL BACK: requested fable, ran claude-opus-5-5." && has "WORKER FELL BACK TO claude-opus-5-5" &&
-  [ "$(lj 'r["verdict"]')" = fell-back ]; then
-  ok "fell-back: fable requested, Opus ran"
+if has "worker dp ran claude-opus-5-5 as chosen (deep tier)." && [ "$(lj 'r["requested"]')" = deep ]; then
+  ok "as-chosen: deep tier on an Opus model"
 else
-  no "fell-back: fable requested, Opus ran" "$OUT"
+  no "as-chosen: deep tier on an Opus model" "$OUT"
+fi
+
+# 0.6.0: the deep tier runs on Opus; a deep worker that ran on Fable is not
+# as chosen.
+fx aB toolu_B feature-crew:feature-builder-deep fb 0 "claude-fable-5-2"
+notify aB toolu_B
+if has "worker fb FELL BACK: requested opus (deep tier), ran claude-fable-5-2." && has "WORKER FELL BACK TO claude-fable-5-2" &&
+  [ "$(lj 'r["verdict"]')" = fell-back ]; then
+  ok "fell-back: deep tier (opus) requested, Fable ran"
+else
+  no "fell-back: deep tier (opus) requested, Fable ran" "$OUT"
 fi
 
 fx aM toolu_M feature-crew:feature-builder mix 0 "claude-opus-5-5,claude-sonnet-5-5,claude-opus-5-5"
@@ -795,7 +875,7 @@ fi
 
 fx aU toolu_U feature-crew:feature-builder-deep gone 0 none
 notify aU toolu_U
-if has "worker gone (fable tier): model could not be confirmed (transcript unreadable)" &&
+if has "worker gone (deep tier): model could not be confirmed (transcript unreadable)" &&
   [ "$(lj 'r["verdict"]')" = unknown ] && [ "$(lj 'r["actual"]')" = "[]" ]; then
   ok "unreadable worker transcript: verdict unknown"
 else
@@ -824,11 +904,11 @@ if [ -z "$OUT" ]; then ok "FEATURE_CREW=off silences the model check"; else no "
 # transcript path; --transcript lets --agent be a name.
 OUT="$(CLAUDE_CONFIG_DIR="$CFG" bash "$MC" --agent aB --no-ledger 2>&1)"
 o1="$OUT"
-OUT="$(CLAUDE_CONFIG_DIR="$CFG" bash "$MC" --agent fab --transcript "$PARENT" --no-ledger 2>&1)"
+OUT="$(CLAUDE_CONFIG_DIR="$CFG" bash "$MC" --agent dp --transcript "$PARENT" --no-ledger 2>&1)"
 o2="$OUT"
 OUT="$(CLAUDE_CONFIG_DIR="$CFG" bash "$MC" --agent nobody --no-ledger 2>&1)"
 case "$o1|$o2|$OUT" in
-  *"worker fb FELL BACK: requested fable, ran claude-opus-5-5."*"|"*"worker fab ran claude-fable-5-2 as chosen (fable tier)."*"|"*"worker nobody: model could not be confirmed"*)
+  *"worker fb FELL BACK: requested opus (deep tier), ran claude-fable-5-2."*"|"*"worker dp ran claude-opus-5-5 as chosen (deep tier)."*"|"*"worker nobody: model could not be confirmed"*)
     ok "CLI --agent prints the same line (by id, or by name with --transcript)" ;;
   *) no "CLI --agent prints the same line (by id, or by name with --transcript)" "$o1 | $o2 | $OUT" ;;
 esac
@@ -875,11 +955,11 @@ fi
 fi
 
 if has_phrase "$O" "A DONE whose checks pass is otherwise reported as normal" &&
-  has_phrase "$O" "needs the user to set \`effort: xhigh\` in \`<feature-crew root>/agents/feature-builder-deep.md\` first" &&
+  has_phrase "$O" "needs the user to set \`effort: max\` in \`<feature-crew root>/agents/feature-builder-deep.md\` first" &&
   has_phrase "$O" "never pass a \`model\` alias other than the tier's"; then
-  ok "policy: a passing fell-back DONE is only labelled; xhigh needs the user's edit; no off-tier alias"
+  ok "policy: a passing fell-back DONE is only labelled; effort max needs the user's edit; no off-tier alias"
 else
-  no "policy: a passing fell-back DONE is only labelled; xhigh needs the user's edit; no off-tier alias"
+  no "policy: a passing fell-back DONE is only labelled; effort max needs the user's edit; no off-tier alias"
 fi
 
 if grep -rl $'\r' "$PLUGIN" >/dev/null 2>&1; then

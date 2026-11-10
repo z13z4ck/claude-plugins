@@ -17,7 +17,7 @@ later.
 | Plugin | What it does |
 |---|---|
 | [fable-advisor](plugins/fable-advisor/README.md) | A read-only second-opinion advisor on Fable (the `fable` alias — Fable 5.2 today) with a labelled Opus fallback, plus hooks that enforce consulting it: policy at every session start, `ExitPlanMode` gated, unadvised multi-file turns held for review — inside background workers too |
-| [feature-crew](plugins/feature-crew/README.md) | Turn one session into an orchestrator: features you ask for are built by background Fable workers, each on its own `crew/*` branch in its own worktree, while your conversation stays free — with a deeper escalation worker when one fails its checks |
+| [feature-crew](plugins/feature-crew/README.md) | Turn one session into an orchestrator: features you ask for are built by background Sonnet or Opus workers (Fable is the advisor only), each on its own `crew/*` branch in its own worktree, while your conversation stays free — with one climb to a deep (Opus `xhigh`) worker when one fails its checks |
 | [advisor-select](plugins/advisor-select/README.md) | Pick which model advises this session (`opus`, `sonnet`, `haiku`, `fable`) — e.g. main conversation on Sonnet, second opinions from Opus |
 | [pause-resume](plugins/pause-resume/README.md) | Freeze a running agent between tool calls and thaw it later with context intact — for moving locations, losing connectivity, or sleeping the laptop mid-task |
 
@@ -91,14 +91,19 @@ stalled bugs, and a review of any diff of four or more files — and the main
 session checks that verdict before reporting. Nothing is merged, pushed or
 deleted unless you ask.
 
-Quality comes first, cost second: since 0.4.0 workers run on Fable
-(`feature-builder` at `high` effort), plan a check per acceptance criterion
-before coding, and report the model they actually ran on, so a run off Fable
-is flagged WORKER RAN DEGRADED. A worker whose checks still fail after one
-resume is handed to `feature-builder-deep` (Fable at `xhigh`) on
-`crew/<slug>-deep`; if that fails too, you are asked. Each worker costs
-more than the old inherit/medium default; run the orchestrator session
-itself on Fable at `high`.
+Each feature goes to one of three workers running the same prompt: Sonnet
+for well-scoped briefs, Opus at `medium` by default, and the deep tier (Opus
+at `xhigh`) for migrations, data models, concurrency, performance, security
+and cross-cutting refactors. From 0.6.0 no worker runs on Fable: Fable is
+the advisor only. Workers plan a check per acceptance criterion before
+coding, and a model-check hook flags any worker that ran off its tier's
+model as WORKER FELL BACK TO <model>. A worker whose checks still fail after
+one resume is handed once to `feature-builder-deep` on `crew/<slug>-deep`;
+if that fails too, you are asked. Run the orchestrator session itself on
+Opus at `medium` or `high`: it runs on every turn and mostly routes and
+relays, while Fable's judgment reaches the work through the advisor, which
+workers consult before decisions and before DONE and the main session
+dispatches for fallback reviews and undecided brief choices.
 
 ```
 /plugin install feature-crew@z13z4ck-plugins   # project scope recommended

@@ -33,10 +33,13 @@ import re
 import sys
 
 PLUGIN = "feature-crew"
+# agent type -> (tier label, model family the tier must run on). The deep
+# tier runs on Opus (at effort xhigh): workers never run on Fable, which is
+# the advisor only.
 TIERS = {
-    "feature-builder-sonnet": "sonnet",
-    "feature-builder": "opus",
-    "feature-builder-deep": "fable",
+    "feature-builder-sonnet": ("sonnet", "sonnet"),
+    "feature-builder": ("opus", "opus"),
+    "feature-builder-deep": ("deep", "opus"),
 }
 SYNTHETIC = "<synthetic>"
 USAGE_KEYS = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
@@ -74,9 +77,9 @@ def subagent_root(parent_transcript):
 
 
 def tier_of(agent_type):
-    """The tier for a feature-crew worker type, else None. Plugin agents arrive
-    plugin-scoped (feature-crew:feature-builder); a bare name is accepted too,
-    a name scoped to another plugin is not."""
+    """(tier label, model family) for a feature-crew worker type, else None.
+    Plugin agents arrive plugin-scoped (feature-crew:feature-builder); a
+    bare name is accepted too, a name scoped to another plugin is not."""
     t = str(agent_type or "")
     if ":" in t:
         scope, _, bare = t.rpartition(":")
@@ -279,7 +282,9 @@ def worker_run(path):
 
 def check(who):
     """(line, ledger row) for a resolved feature-crew worker."""
-    tier = tier_of(who["agent_type"])
+    tier, family = tier_of(who["agent_type"])
+    # "opus" for the opus tier, "opus (deep tier)" where label and model differ.
+    requested = family if family == tier else "%s (%s tier)" % (family, tier)
     label = who["name"] or who["description"] or who["agent_id"]
     models, usage, ended = worker_run(who["transcript"])
     if not models:
@@ -287,16 +292,16 @@ def check(who):
         reason = "transcript unreadable" if models is None else "no model in its transcript"
         line = ("[feature-crew] worker %s (%s tier): model could not be confirmed (%s). Say so in your "
                 "report; no ladder change." % (label, tier, reason))
-    elif all(tier in m.lower() for m in models):
+    elif all(family in m.lower() for m in models):
         verdict = "as-chosen"
         line = "[feature-crew] worker %s ran %s as chosen (%s tier)." % (label, ", ".join(models), tier)
     else:
         verdict = "fell-back"
-        other = [m for m in models if tier not in m.lower()]
+        other = [m for m in models if family not in m.lower()]
         line = ("[feature-crew] worker %s FELL BACK: requested %s, ran %s. Start every message about it "
                 "with WORKER FELL BACK TO %s; if it failed or left a named check unrun, apply "
                 "\"Requested model unavailable\"."
-                % (label, tier, ", ".join(models), other[0]))
+                % (label, requested, ", ".join(models), other[0]))
     row = {
         "agent_id": who["agent_id"],
         "agent_type": who["agent_type"],

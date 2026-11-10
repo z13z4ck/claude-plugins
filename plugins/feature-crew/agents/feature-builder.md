@@ -8,8 +8,9 @@ description: >-
   free. Brief it as if it has never seen this conversation: goal, acceptance
   criteria, files/areas it owns, files it must not touch, branch name
   (crew/<slug>), base branch, and decisions the user already made. This is
-  the default (Opus) tier; feature-builder-sonnet and feature-builder-deep
-  run the same prompt on Sonnet and on Fable.
+  the default (Opus, effort medium) tier; feature-builder-sonnet and
+  feature-builder-deep run the same prompt on Sonnet and on Opus at effort
+  xhigh.
 background: true
 isolation: worktree
 model: opus
