@@ -213,6 +213,26 @@ else
   no "hooks.json runs bin/session-start.sh through bash"
 fi
 
+if python3 - "$PLUGIN/hooks/hooks.json" <<'PY' 2>/dev/null
+import json, sys
+h = json.load(open(sys.argv[1]))["hooks"]
+cmds = [x["command"] for e in h["UserPromptSubmit"] for x in e["hooks"]]
+assert cmds == ['bash "${CLAUDE_PLUGIN_ROOT}/bin/model-check.sh"'], cmds
+assert set(h) == {"SessionStart", "UserPromptSubmit"}, set(h)
+PY
+then
+  ok "hooks.json registers the UserPromptSubmit model check through bash, no SubagentStop"
+else
+  no "hooks.json registers the UserPromptSubmit model check through bash, no SubagentStop"
+fi
+
+if grep -q 'for c in python3 python "py -3"' "$PLUGIN/bin/model-check.sh" &&
+  grep -q 'FEATURE_CREW:-on' "$PLUGIN/bin/model-check.sh" && grep -q 'PYTHONUTF8=1' "$PLUGIN/bin/model-check.sh"; then
+  ok "model-check.sh probes for a working interpreter on Windows and honours FEATURE_CREW=off"
+else
+  no "model-check.sh probes for a working interpreter on Windows and honours FEATURE_CREW=off"
+fi
+
 if ! grep -q '"hooks"' "$PLUGIN/.claude-plugin/plugin.json"; then
   ok "plugin.json has no hooks key (hooks/hooks.json is auto-loaded)"
 else
@@ -225,47 +245,65 @@ case "$fm" in
   *) no "worker frontmatter: name, background, worktree isolation" ;;
 esac
 
-# 0.4.0: quality over cost. Workers pin Fable; the first dispatch runs at
-# high, the escalation worker at xhigh.
+# 0.5.0: three tiers, same prompt. feature-builder-sonnet (sonnet/medium),
+# feature-builder (opus/medium), feature-builder-deep (fable/high).
 fm_line() { sed -n '2,/^---$/p' "$1" | grep -x "$2" >/dev/null; }
-if fm_line "$PLUGIN/agents/feature-builder.md" "model: fable" && fm_line "$PLUGIN/agents/feature-builder.md" "effort: high"; then
-  ok "feature-builder runs on model: fable at effort: high"
-else
-  no "feature-builder runs on model: fable at effort: high" "$(sed -n '2,/^---$/p' "$PLUGIN/agents/feature-builder.md" | grep -E '^(model|effort):')"
-fi
-
+S="$PLUGIN/agents/feature-builder-sonnet.md"
 D="$PLUGIN/agents/feature-builder-deep.md"
-if [ -f "$D" ] && fm_line "$D" "name: feature-builder-deep" && fm_line "$D" "model: fable" &&
-  fm_line "$D" "effort: xhigh" && fm_line "$D" "background: true" && fm_line "$D" "isolation: worktree"; then
-  ok "feature-builder-deep: own name, model: fable, effort: xhigh, background, worktree"
-else
-  no "feature-builder-deep: own name, model: fable, effort: xhigh, background, worktree"
-fi
+tier_ok() {
+  [ -f "$1" ] && fm_line "$1" "name: $2" && fm_line "$1" "model: $3" && fm_line "$1" "effort: $4" &&
+    fm_line "$1" "background: true" && fm_line "$1" "isolation: worktree"
+}
+for spec in "feature-builder-sonnet sonnet medium" "feature-builder opus medium" "feature-builder-deep fable high"; do
+  set -- $spec
+  if tier_ok "$PLUGIN/agents/$1.md" "$1" "$2" "$3"; then
+    ok "$1: own name, model: $2, effort: $3, background, worktree"
+  else
+    no "$1: own name, model: $2, effort: $3, background, worktree" \
+      "$(sed -n '2,/^---$/p' "$PLUGIN/agents/$1.md" 2>&1 | grep -E '^(name|model|effort):')"
+  fi
+done
 
-if [ -f "$D" ] && sed -n '2,/^---$/p' "$D" | grep -qi "escalation"; then
-  ok "feature-builder-deep's description marks it escalation-only"
-else
-  no "feature-builder-deep's description marks it escalation-only"
-fi
+# The deep worker is both the fable-tier first dispatch and the climb target,
+# no longer escalation-only.
+dd="$(sed -n '2,/^---$/p' "$D" 2>/dev/null)"
+case "$dd" in
+  *"Escalation-only"* | *"Do NOT use it for"*) no "feature-builder-deep's description is no longer escalation-only" ;;
+  *"Fable tier"*"fable trigger"*"climb"*) ok "feature-builder-deep's description: fable-tier first dispatch and the climb target" ;;
+  *) no "feature-builder-deep's description: fable-tier first dispatch and the climb target" ;;
+esac
 
-# Plugin agent files cannot include shared text, so the deep worker is a copy.
-# Strip the three lines allowed to differ (name, the folded description block,
-# effort) and the rest must match byte for byte.
+sd="$(sed -n '2,/^---$/p' "$S" 2>/dev/null | tr '\n' ' ' | tr -s ' ')"
+case "$sd" in
+  *"Sonnet tier"*"verify command"*"pattern to copy"*"one area"*"no open decision"*) ok "feature-builder-sonnet's description states the sonnet routing conditions" ;;
+  *) no "feature-builder-sonnet's description states the sonnet routing conditions" ;;
+esac
+
+# Plugin agent files cannot include shared text, so the tiers are copies.
+# Strip the lines allowed to differ (name, the folded description block,
+# model, effort) and the rest must match byte for byte.
 strip_fm_diffs() {
   awk '
     /^---$/ { fences++ }
     fences == 1 && /^description:/ { skip = 1; next }
     fences == 1 && skip && /^  / { next }
     { skip = 0 }
-    fences == 1 && (/^name: / || /^effort: /) { next }
+    fences == 1 && (/^name: / || /^model: / || /^effort: /) { next }
     { print }
   ' "$1"
 }
-if [ -f "$D" ] && [ "$(strip_fm_diffs "$PLUGIN/agents/feature-builder.md")" = "$(strip_fm_diffs "$D")" ]; then
-  ok "feature-builder-deep matches feature-builder apart from name, description, effort"
+for t in "$S" "$D"; do
+  if [ -f "$t" ] && [ "$(strip_fm_diffs "$PLUGIN/agents/feature-builder.md")" = "$(strip_fm_diffs "$t")" ]; then
+    ok "$(basename "$t" .md) matches feature-builder apart from name, description, model, effort"
+  else
+    no "$(basename "$t" .md) matches feature-builder apart from name, description, model, effort" \
+      "$(diff <(strip_fm_diffs "$PLUGIN/agents/feature-builder.md") <(strip_fm_diffs "$t") 2>&1 | head -5)"
+  fi
+done
+if [ "$(ls "$PLUGIN/agents" | wc -l | tr -d ' ')" -eq 3 ]; then
+  ok "exactly three worker agent files"
 else
-  no "feature-builder-deep matches feature-builder apart from name, description, effort" \
-    "$(diff <(strip_fm_diffs "$PLUGIN/agents/feature-builder.md") <(strip_fm_diffs "$D") 2>&1 | head -5)"
+  no "exactly three worker agent files" "$(ls "$PLUGIN/agents")"
 fi
 
 if has_phrase "$PLUGIN/policy/orchestrator.md" "feature-crew:feature-builder" &&
@@ -294,22 +332,81 @@ else
   no "both final blocks (DONE, NEEDS-ANSWER) carry a model: line" "found $(grep -c '^model: <' "$W")"
 fi
 
-if has_phrase "$PLUGIN/policy/orchestrator.md" "WORKER RAN DEGRADED" && has_phrase "$PLUGIN/policy/orchestrator.md" "model:"; then
-  ok "orchestrator flags a DONE whose model: is not Fable as WORKER RAN DEGRADED"
+# 0.5.0: the label comes from the model-check hook line, not the worker's
+# model: line, and a fallback reads WORKER FELL BACK TO <model>.
+O="$PLUGIN/policy/orchestrator.md"
+if has_phrase "$O" "WORKER FELL BACK TO <model>" && ! has_phrase "$O" "WORKER RAN DEGRADED" &&
+  has_phrase "$O" "not the worker's \`model:\` line (informational only), decides the label" &&
+  has_phrase "$O" "as chosen (<tier> tier)" && has_phrase "$O" "FELL BACK: requested <tier>, ran <model>" &&
+  has_phrase "$O" "model could not be confirmed"; then
+  ok "orchestrator labels from the model-check line: as chosen / WORKER FELL BACK TO / unconfirmed"
 else
-  no "orchestrator flags a DONE whose model: is not Fable as WORKER RAN DEGRADED"
+  no "orchestrator labels from the model-check line: as chosen / WORKER FELL BACK TO / unconfirmed"
 fi
 
-# A deep worker is pinned to Fable too: escalating a Fable-unavailable or
-# degraded run would hit the same wall, so the orchestrator asks instead.
-O="$PLUGIN/policy/orchestrator.md"
-if has_phrase "$O" "Fable unavailable (check before step 1)" &&
-  has_phrase "$O" "skip the whole ladder: no resume, no \`feature-builder-deep\`" &&
-  has_phrase "$O" "would hit the same wall" &&
-  has_phrase "$O" "billing or authentication error"; then
-  ok "orchestrator asks instead of escalating when Fable is unavailable or the worker ran degraded"
+if has_phrase "$O" "If no \`[feature-crew]\` line arrives with the report, run the check yourself" &&
+  has_phrase "$O" "bin/model-check.sh\" --agent <agent ID>" &&
+  has_phrase "$PLUGIN/bin/session-start.sh" "feature-crew root (for the model check CLI)"; then
+  ok "orchestrator falls back to the model-check CLI, and the hook prints the plugin root"
 else
-  no "orchestrator asks instead of escalating when Fable is unavailable or the worker ran degraded"
+  no "orchestrator falls back to the model-check CLI, and the hook prints the plugin root"
+fi
+
+run_hook startup "$REPO"
+if has "feature-crew root (for the model check CLI): $PLUGIN"; then
+  ok "session-start prints the plugin root after the policy"
+else
+  no "session-start prints the plugin root after the policy" "${OUT: -120}"
+fi
+
+# A fell-back run or a refused model never climbs onto the same model.
+if has_phrase "$O" "Requested model unavailable (check before step 1)" &&
+  ! has_phrase "$O" "Fable unavailable" &&
+  has_phrase "$O" "skip the whole ladder: no resume, no climb onto the same unavailable model" &&
+  has_phrase "$O" "the model check says the worker FELL BACK" &&
+  has_phrase "$O" "billing or authentication error"; then
+  ok "orchestrator asks instead of escalating when the requested model is unavailable"
+else
+  no "orchestrator asks instead of escalating when the requested model is unavailable"
+fi
+
+# Routing: ordered rules, first match wins, stated in the brief, and the
+# model alias passed as the Agent model parameter too.
+sed -n '/^## Pick the worker tier/,/^## Keep a roster/p' "$O" >"$TMP/rt.txt"
+r1="$(grep -n '^1\. The user named a model or tier' "$TMP/rt.txt" | cut -d: -f1)"
+r2="$(grep -n '^2\. A fable trigger' "$TMP/rt.txt" | cut -d: -f1)"
+r3="$(grep -n '^3\. Sonnet tier only if all of these hold' "$TMP/rt.txt" | cut -d: -f1)"
+r4="$(grep -n '^4\. Otherwise → opus tier' "$TMP/rt.txt" | cut -d: -f1)"
+if [ -n "$r1" ] && [ -n "$r2" ] && [ -n "$r3" ] && [ -n "$r4" ] &&
+  [ "$r1" -lt "$r2" ] && [ "$r2" -lt "$r3" ] && [ "$r3" -lt "$r4" ] &&
+  has_phrase "$TMP/rt.txt" "the first that matches decides" &&
+  has_phrase "$TMP/rt.txt" "migration, a schema or data model, concurrency, performance, security, or a cross-cutting refactor" &&
+  has_phrase "$TMP/rt.txt" "names a verify command, names an existing pattern in the codebase to copy, covers one area, and leaves no open decision" &&
+  has_phrase "$TMP/rt.txt" "The brief states the tier and the rule that chose it"; then
+  ok "routing: four ordered rules, first match wins, brief states tier and rule"
+else
+  no "routing: four ordered rules, first match wins, brief states tier and rule" "r1=$r1 r2=$r2 r3=$r3 r4=$r4"
+fi
+
+if has_phrase "$TMP/rt.txt" "pass the tier's model alias as the Agent tool's \`model\` parameter" &&
+  has_phrase "$TMP/rt.txt" "\`feature-crew:feature-builder-sonnet\` (Sonnet, effort medium) | \`sonnet\`" &&
+  has_phrase "$TMP/rt.txt" "\`feature-crew:feature-builder\` (Opus, effort medium) | \`opus\`" &&
+  has_phrase "$TMP/rt.txt" "\`feature-crew:feature-builder-deep\` (Fable, effort high) | \`fable\`" &&
+  ! has_phrase "$O" "First dispatch is always"; then
+  ok "routing: every dispatch passes the tier's model alias as the Agent model parameter"
+else
+  no "routing: every dispatch passes the tier's model alias as the Agent model parameter"
+fi
+
+# One climb: sonnet/opus climb once to the fable tier; the fable tier asks,
+# offering a fresh xhigh worker.
+if has_phrase "$O" "From the sonnet or opus tier: dispatch a fresh \`feature-crew:feature-builder-deep\` with \`model: \"fable\"\`" &&
+  has_phrase "$O" "From the fable tier: no climb" &&
+  has_phrase "$O" "offer a fresh worker at \`xhigh\` effort as one of the options" &&
+  has_phrase "$O" "At most one model climb happens per feature"; then
+  ok "ladder: one climb from sonnet/opus to the fable tier; the fable tier asks, offering xhigh"
+else
+  no "ladder: one climb from sonnet/opus to the fable tier; the fable tier asks, offering xhigh"
 fi
 
 # Rate-limit/overload errors are transient: exactly one retry of the same
@@ -317,7 +414,7 @@ fi
 if has_phrase "$O" "Transient error (check before step 1)" &&
   has_phrase "$O" "rate-limit or overload error, retry exactly once per feature" &&
   has_phrase "$O" "same worker type with the same brief" &&
-  has_phrase "$O" "unless the Transient-error or Fable-unavailable rule above applies" &&
+  has_phrase "$O" "unless the Transient-error or Requested-model-unavailable rule above applies" &&
   has_phrase "$O" "do not climb the ladder on transient errors" &&
   ! has_phrase "$O" "billing, rate-limit or overload error"; then
   ok "orchestrator retries a rate-limit/overload failure once, then asks; billing/auth go straight to the user"
@@ -480,6 +577,254 @@ if ! grep -rqi 'smaller slice' "$PLUGIN/agents" "$PLUGIN/policy"; then
   ok "no smaller-slices rule"
 else
   no "no smaller-slices rule"
+fi
+
+echo "model check"
+
+# Fixture transcripts for bin/model-check.py. fx writes, under a throwaway
+# CLAUDE_CONFIG_DIR, one parent session transcript with the Agent call and its
+# result, and the worker's transcript (and .meta.json when asked):
+#   fx <agent id> <tool-use id> <agent type> <name> <meta 0|1> <rows>
+# <rows> is a comma list of model[@message id[@output tokens]]; "none" writes
+# no worker transcript at all.
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "  SKIP model check (no python3)"
+else
+MC="$PLUGIN/bin/model-check.sh"
+CFG="$TMP/cfg"
+SID="sess-1"
+PARENT="$CFG/projects/proj/$SID.jsonl"
+SUB="$CFG/projects/proj/$SID/subagents"
+mkdir -p "$SUB"
+LEDGER="$CFG/feature-crew/ledger/$SID.jsonl"
+cat >"$TMP/fx.py" <<'PY'
+import json, sys
+parent, sub, aid, use, atype, name, meta, rows = sys.argv[1:9]
+call = {"description": "Build " + name, "subagent_type": atype, "prompt": "brief", "run_in_background": True}
+if name != "-":
+    call["name"] = name
+with open(parent, "a") as f:
+    f.write(json.dumps({"type": "assistant", "message": {"role": "assistant", "model": "claude-fable-5-2",
+        "content": [{"type": "tool_use", "id": use, "name": "Agent", "input": call}]}}) + "\n")
+    f.write(json.dumps({"type": "user", "toolUseResult": {"agentId": aid, "status": "async_launched"},
+        "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": use,
+        "content": [{"type": "text", "text": "Async agent launched successfully.\nagentId: %s" % aid}]}]}}) + "\n")
+if meta == "1":
+    json.dump({"agentType": atype, "description": "Build " + name, "toolUseId": use},
+              open("%s/agent-%s.meta.json" % (sub, aid), "w"))
+if rows != "none":
+    with open("%s/agent-%s.jsonl" % (sub, aid), "w") as f:
+        f.write(json.dumps({"type": "user", "message": {"role": "user", "content": "brief"}}) + "\n")
+        for i, r in enumerate(rows.split(",")):
+            parts = r.split("@")
+            model = parts[0]
+            mid = parts[1] if len(parts) > 1 else "msg-%s-%d" % (aid, i)
+            out = int(parts[2]) if len(parts) > 2 else 10
+            f.write(json.dumps({"type": "assistant", "timestamp": "2026-11-10T10:00:%02d.000Z" % i,
+                "uuid": "u%d" % i, "message": {"id": mid, "model": model, "role": "assistant",
+                "content": [{"type": "text", "text": "x"}],
+                "usage": {"input_tokens": 1, "output_tokens": out, "cache_read_input_tokens": 100,
+                          "cache_creation_input_tokens": 5}}}) + "\n")
+PY
+fx() { python3 "$TMP/fx.py" "$PARENT" "$SUB" "$@"; }
+
+# notify <agent id> <tool-use id>: run the hook on a task-notification.
+# handback <from>: run it on a subagent hand-back message.
+hook_in() {
+  python3 -c 'import json,sys; print(json.dumps({"session_id": sys.argv[1], "transcript_path": sys.argv[2], "hook_event_name": "UserPromptSubmit", "prompt": sys.argv[3]}))' "$SID" "$PARENT" "$1"
+}
+notify() {
+  OUT="$(hook_in "<task-notification>
+<task-id>$1</task-id>
+<tool-use-id>$2</tool-use-id>
+<status>completed</status>
+<summary>Agent finished</summary>
+<result>DONE
+branch: crew/x</result>
+</task-notification>" | CLAUDE_CONFIG_DIR="$CFG" bash "$MC" 2>&1)"
+  RC=$?
+}
+handback() {
+  OUT="$(hook_in "Another Claude session sent a message:
+<agent-message from=\"$1\">
+[Subagent hand-back] The text below is the final report of a subagent. The report follows:
+  DONE
+  branch: crew/x
+</agent-message>" | CLAUDE_CONFIG_DIR="$CFG" bash "$MC" 2>&1)"
+  RC=$?
+}
+ledger_last() { tail -n 1 "$LEDGER" 2>/dev/null; }
+ledger_rows() { if [ -f "$LEDGER" ]; then wc -l <"$LEDGER" | tr -d ' '; else echo 0; fi; }
+lj() { ledger_last | python3 -c 'import json,sys; r=json.load(sys.stdin); print(eval(sys.argv[1]))' "$1" 2>/dev/null; }
+
+fx aS toolu_S feature-crew:feature-builder-sonnet son 0 "claude-sonnet-5-5"
+notify aS toolu_S
+if [ "$RC" -eq 0 ] && has '"hookEventName": "UserPromptSubmit"' &&
+  has "[feature-crew] worker son ran claude-sonnet-5-5 as chosen (sonnet tier)."; then
+  ok "as-chosen: sonnet tier on a Sonnet model"
+else
+  no "as-chosen: sonnet tier on a Sonnet model" "$OUT"
+fi
+
+fx aO toolu_O feature-crew:feature-builder opu 0 "claude-opus-5-5"
+notify aO toolu_O
+if has "worker opu ran claude-opus-5-5 as chosen (opus tier)."; then ok "as-chosen: opus tier on an Opus model"; else no "as-chosen: opus tier on an Opus model" "$OUT"; fi
+
+fx aF toolu_F feature-crew:feature-builder-deep fab 0 "claude-fable-5-2"
+notify aF toolu_F
+if has "worker fab ran claude-fable-5-2 as chosen (fable tier)."; then ok "as-chosen: fable tier on a Fable model"; else no "as-chosen: fable tier on a Fable model" "$OUT"; fi
+
+fx aB toolu_B feature-crew:feature-builder-deep fb 0 "claude-opus-5-5"
+notify aB toolu_B
+if has "worker fb FELL BACK: requested fable, ran claude-opus-5-5." && has "WORKER FELL BACK TO claude-opus-5-5" &&
+  [ "$(lj 'r["verdict"]')" = fell-back ]; then
+  ok "fell-back: fable requested, Opus ran"
+else
+  no "fell-back: fable requested, Opus ran" "$OUT"
+fi
+
+fx aM toolu_M feature-crew:feature-builder mix 0 "claude-opus-5-5,claude-sonnet-5-5,claude-opus-5-5"
+notify aM toolu_M
+if has "worker mix FELL BACK: requested opus, ran claude-opus-5-5, claude-sonnet-5-5." &&
+  has "WORKER FELL BACK TO claude-sonnet-5-5" &&
+  [ "$(lj 'r["actual"]')" = "['claude-opus-5-5', 'claude-sonnet-5-5']" ]; then
+  ok "mixed models count as fell-back, every model listed once"
+else
+  no "mixed models count as fell-back, every model listed once" "$OUT"
+fi
+
+fx aY toolu_Y feature-crew:feature-builder-sonnet syn 0 "claude-sonnet-5-5,<synthetic>,claude-sonnet-5-5"
+notify aY toolu_Y
+if has "worker syn ran claude-sonnet-5-5 as chosen" && [ "$(lj 'r["actual"]')" = "['claude-sonnet-5-5']" ] &&
+  [ "$(lj 'r["usage"]["messages"]')" = 2 ]; then
+  ok "<synthetic> rows are ignored"
+else
+  no "<synthetic> rows are ignored" "$OUT"
+fi
+
+fx aD toolu_D feature-crew:feature-builder dup 0 "claude-opus-5-5@m1@100,claude-opus-5-5@m1@100,claude-opus-5-5@m2@50"
+notify aD toolu_D
+if [ "$(lj 'r["usage"]["output_tokens"]')" = 150 ] && [ "$(lj 'r["usage"]["cache_read_input_tokens"]')" = 200 ] &&
+  [ "$(lj 'r["usage"]["messages"]')" = 2 ]; then
+  ok "usage is summed once per message.id"
+else
+  no "usage is summed once per message.id" "$(ledger_last)"
+fi
+
+# Ledger row: every field, under CLAUDE_CONFIG_DIR.
+if [ -f "$LEDGER" ] && [ "$(lj 'sorted(r)')" = "['actual', 'agent_id', 'agent_type', 'description', 'ended_at', 'requested', 'usage', 'verdict']" ] &&
+  [ "$(lj 'r["agent_id"]')" = aD ] && [ "$(lj 'r["agent_type"]')" = feature-crew:feature-builder ] &&
+  [ "$(lj 'r["description"]')" = "Build dup" ] && [ "$(lj 'r["requested"]')" = opus ] &&
+  [ "$(lj 'r["verdict"]')" = as-chosen ] && [ "$(lj 'r["ended_at"]')" = 2026-11-10T10:00:02.000Z ]; then
+  ok "ledger row written to <CLAUDE_CONFIG_DIR>/feature-crew/ledger/<session_id>.jsonl with every field"
+else
+  no "ledger row written to <CLAUDE_CONFIG_DIR>/feature-crew/ledger/<session_id>.jsonl with every field" "$(ledger_last)"
+fi
+if [ ! -e "$HOME/.claude/feature-crew/ledger/$SID.jsonl" ]; then
+  ok "CLAUDE_CONFIG_DIR is honoured (nothing written under ~/.claude)"
+else
+  no "CLAUDE_CONFIG_DIR is honoured (nothing written under ~/.claude)"
+fi
+
+# Missing .meta.json: the agent type comes from the parent's Agent call (every
+# fixture above has no meta). The reverse: no parent call, meta.json only.
+python3 -c 'import json,sys; json.dump({"agentType": "feature-crew:feature-builder-sonnet", "description": "meta only", "name": "metaw"}, open(sys.argv[1], "w"))' "$SUB/agent-aT.meta.json"
+python3 -c 'import json,sys; open(sys.argv[1], "w").write(json.dumps({"type": "assistant", "timestamp": "t", "message": {"id": "z", "model": "claude-sonnet-5-5", "usage": {"output_tokens": 1}}}) + "\n")' "$SUB/agent-aT.jsonl"
+notify aT toolu_none
+if has "worker metaw ran claude-sonnet-5-5 as chosen (sonnet tier)."; then
+  ok "agent type from the parent call without .meta.json, and from .meta.json without a parent call"
+else
+  no "agent type from the parent call without .meta.json, and from .meta.json without a parent call" "$OUT"
+fi
+
+# Both completion forms: a hand-back by agent id and by name.
+fx aH toolu_H feature-crew:feature-builder-sonnet hb 1 "claude-sonnet-5-5"
+handback aH
+o1="$OUT"
+handback hb
+if case "$o1" in *"worker hb ran claude-sonnet-5-5 as chosen"*) true ;; *) false ;; esac &&
+  has "worker hb ran claude-sonnet-5-5 as chosen"; then
+  ok "a subagent hand-back <agent-message from=...> is checked, by agent id and by name"
+else
+  no "a subagent hand-back <agent-message from=...> is checked, by agent id and by name" "$o1 | $OUT"
+fi
+
+n="$(ledger_rows)"
+OUT="$(hook_in "<agent-message from=\"aH\">
+Still working, quick question about the schema?
+</agent-message>" | CLAUDE_CONFIG_DIR="$CFG" bash "$MC" 2>&1)"
+if [ -z "$OUT" ] && [ "$(ledger_rows)" = "$n" ]; then
+  ok "a mid-run agent message that is not a hand-back is ignored"
+else
+  no "a mid-run agent message that is not a hand-back is ignored" "$OUT"
+fi
+
+# A notification and a hand-back for the same finished run add one ledger row.
+fx aR toolu_R feature-crew:feature-builder once 0 "claude-opus-5-5"
+n="$(ledger_rows)"
+notify aR toolu_R
+handback aR
+CLAUDE_CONFIG_DIR="$CFG" bash "$MC" --agent aR >/dev/null 2>&1
+if [ "$(ledger_rows)" = $((n + 1)) ]; then
+  ok "the same finished run is recorded once (hook forms and CLI deduplicated)"
+else
+  no "the same finished run is recorded once (hook forms and CLI deduplicated)" "rows $n -> $(ledger_rows)"
+fi
+
+# Non-crew agents: an advisor, a general-purpose agent, another plugin's
+# feature-builder. No line, no ledger row.
+fx aA toolu_A fable-advisor:advisor adv 0 "claude-fable-5-2"
+fx aG toolu_G general-purpose gp 0 "claude-opus-5-5"
+fx aX toolu_X other-plugin:feature-builder oth 0 "claude-opus-5-5"
+n="$(ledger_rows)"
+notify aA toolu_A; o1="$OUT"
+notify aG toolu_G; o2="$OUT"
+notify aX toolu_X
+if [ -z "$o1$o2$OUT" ] && [ "$(ledger_rows)" = "$n" ]; then
+  ok "non-feature-crew agents are ignored (no line, no ledger row)"
+else
+  no "non-feature-crew agents are ignored (no line, no ledger row)" "$o1|$o2|$OUT"
+fi
+
+fx aU toolu_U feature-crew:feature-builder-deep gone 0 none
+notify aU toolu_U
+if has "worker gone (fable tier): model could not be confirmed (transcript unreadable)" &&
+  [ "$(lj 'r["verdict"]')" = unknown ] && [ "$(lj 'r["actual"]')" = "[]" ]; then
+  ok "unreadable worker transcript: verdict unknown"
+else
+  no "unreadable worker transcript: verdict unknown" "$OUT"
+fi
+
+# Fail-open: garbage, a non-object, a missing transcript, a prompt with no
+# completion. Exit 0 and no output every time.
+bad=""
+for inp in 'not json' '[1,2]' '{"prompt": 5}' \
+  '{"session_id":"s","transcript_path":"/no/such.jsonl","prompt":"<task-notification><task-id>aO</task-id><tool-use-id>toolu_O</tool-use-id></task-notification>"}' \
+  "{\"session_id\":\"s\",\"transcript_path\":\"$PARENT\",\"prompt\":\"please build the thing\"}"; do
+  OUT="$(printf '%s' "$inp" | CLAUDE_CONFIG_DIR="$CFG" bash "$MC" 2>&1)"
+  RC=$?
+  [ "$RC" -eq 0 ] && [ -z "$OUT" ] || bad="$bad [$inp -> rc=$RC out=$OUT]"
+done
+OUT="$(printf '' | CLAUDE_CONFIG_DIR="$CFG" bash "$MC" 2>&1)"
+[ "$?" -eq 0 ] && [ -z "$OUT" ] || bad="$bad [empty]"
+if [ -z "$bad" ]; then ok "fail-open: malformed or irrelevant input exits 0 with no output"; else no "fail-open: malformed or irrelevant input exits 0 with no output" "$bad"; fi
+
+OUT="$(hook_in "<task-notification><task-id>aS</task-id><tool-use-id>toolu_S</tool-use-id></task-notification>" 2>/dev/null |
+  FEATURE_CREW=off CLAUDE_CONFIG_DIR="$CFG" bash "$MC" 2>&1)"
+if [ -z "$OUT" ]; then ok "FEATURE_CREW=off silences the model check"; else no "FEATURE_CREW=off silences the model check" "$OUT"; fi
+
+# CLI fallback: finds the worker under CLAUDE_CONFIG_DIR/projects without a
+# transcript path; --transcript lets --agent be a name.
+OUT="$(CLAUDE_CONFIG_DIR="$CFG" bash "$MC" --agent aB --no-ledger 2>&1)"
+o1="$OUT"
+OUT="$(CLAUDE_CONFIG_DIR="$CFG" bash "$MC" --agent fab --transcript "$PARENT" --no-ledger 2>&1)"
+o2="$OUT"
+OUT="$(CLAUDE_CONFIG_DIR="$CFG" bash "$MC" --agent nobody --no-ledger 2>&1)"
+case "$o1|$o2|$OUT" in
+  *"worker fb FELL BACK: requested fable, ran claude-opus-5-5."*"|"*"worker fab ran claude-fable-5-2 as chosen (fable tier)."*"|"*"worker nobody: model could not be confirmed"*)
+    ok "CLI --agent prints the same line (by id, or by name with --transcript)" ;;
+  *) no "CLI --agent prints the same line (by id, or by name with --transcript)" "$o1 | $o2 | $OUT" ;;
+esac
 fi
 
 if grep -rl $'\r' "$PLUGIN" >/dev/null 2>&1; then
