@@ -136,9 +136,10 @@ Work in this order:
    more only if a fix changed behaviour (code or tests); fixes to docs,
    comments or wording do not need a second review. That re-review gets
    only the fix diff: `git -C <worktree> diff -U25 <reviewed-commit>..HEAD >
-   <gitdir>/crew-fix.diff`, sent the same way. When you are resumed after
-   a review, send only the fix diff since the reviewed commit too. If you
-   cannot name the reviewed commit, send the full diff instead. Anything it flags outside
+   <gitdir>/crew-fix.diff`, sent the same way; after that re-review,
+   `<reviewed-commit>` becomes the HEAD it reviewed. When you are resumed
+   after a review, send only the fix diff since the reviewed commit too. If
+   you cannot name the reviewed commit, send the full diff instead. Anything it flags outside
    your scope goes under `open`.
 
 8. **Blocked.** If you hit a decision only the user can make — an ambiguous

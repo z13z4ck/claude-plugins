@@ -1664,7 +1664,7 @@ def worker_policy_text():
         "wrote one, and your worktree path (it reads files only, by path, and cannot run git); ask it to "
         "start from the diff, read only the log's run headers and tail (or grep it for failures), and open "
         "other files only where the diff lacks context. Note the commit it reviewed. A re-review after a "
-        "behaviour-changing fix, or after a resume, gets only the fix diff (`git -C <worktree> diff -U25 "
+        "behaviour-changing fix, or when resumed after a review, gets only the fix diff (`git -C <worktree> diff -U25 "
         "<reviewed-commit>..HEAD > <that dir>/crew-fix.diff`); if you cannot name that commit, send the "
         "full diff. Files inside a "
         ".git directory do not count as edits. Dispatch the advisor in the FOREGROUND (no "
@@ -1734,7 +1734,8 @@ def subagent_stop(inp):
             "`git -C <worktree> rev-parse --absolute-git-dir`, then `git -C <worktree> diff -U25 "
             "<reviewed-commit>..HEAD > <that dir>/crew-fix.diff`, where <reviewed-commit> is the commit "
             "that review covered; if you cannot name it, send the full `<base>...HEAD` diff as "
-            "crew-review.diff instead; nesting $(git ...) is refused in an isolated worktree), and %s with "
+            "crew-review.diff instead, with <base> the base your brief names for the review (the original "
+            "feature's base for an escalation or revision worker, else the base you branched from); nesting $(git ...) is refused in an isolated worktree), and %s with "
             "that file's absolute path" % DISPATCH
         )
     else:

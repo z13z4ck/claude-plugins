@@ -77,7 +77,8 @@ session.
   while a worker says it is waiting on one, forward the result to that worker
   with SendMessage at once, verbatim.
 - **Failed or unverified DONE** (a worker errors out, or a verify command
-  its brief named was not run, or any check it reports ran and failed):
+  its brief named was not run (the full one, not the quiet one), or any
+  check it reports ran and failed):
   escalate in this order
   without asking, updating the roster item at each step. This is separate
   from an advisor verdict that asks for changes, which you only offer to

@@ -117,13 +117,16 @@ tied to a check.
   decision open, and one verification review of the final diff; mid-way
   only after two failed attempts at the same bug or an unexplained test
   failure. The review diff is written with `git diff -U25 <base>...HEAD` and
-  the advisor starts from it and the verify log, opening other files only
-  where the diff lacks context; a re-review after a behaviour-changing fix
-  gets only the fix diff (`<reviewed-commit>..HEAD`). While iterating the
-  worker runs only the affected tests with a failures-only reporter (each
-  brief names that quiet command next to the full one where the project
-  allows it), runs the full suite once at the end, and reads only the tail
-  of its verify log or a grep of it for failures. Pairs with fable-advisor
+  the advisor starts from it, reads only the verify log's run headers and
+  tail (or a grep of it for failures), and opens other files only where the
+  diff lacks context. A re-review after a behaviour-changing fix, and a
+  review after the worker is resumed following one, gets only the fix diff
+  (`<reviewed-commit>..HEAD`); a worker that cannot name the reviewed commit
+  sends the full diff instead. While iterating the worker runs only the
+  affected tests with a failures-only reporter (each brief names that quiet
+  command next to the full one where the project allows it); the full suite
+  runs as the baseline and once more at the end. The worker reads only the
+  tail of its verify log or a grep of it for failures. Pairs with fable-advisor
   1.10.3, which stops nudging workers mid-build and accepts a fix-diff
   review in its worker hold.
 
