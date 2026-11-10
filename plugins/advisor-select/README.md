@@ -72,7 +72,7 @@ that the advisor could not be reached.
 ## advisor-select vs fable-advisor
 
 - **fable-advisor**: the advisor is always Fable (the `fable` alias — Fable
-  5.1 today), with Opus as a labeled degraded fallback, and it ships
+  5.2 today), with Opus as a labeled degraded fallback, and it ships
   enforcement hooks — `ExitPlanMode` is gated on a consultation and
   unadvised multi-file turns are held for review. Choose it when you
   specifically want top-tier judgment and nothing else, applied by the

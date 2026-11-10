@@ -12,7 +12,8 @@ No commands to learn. Install, enable in a project, and talk normally.
 
 | Component | Purpose |
 |---|---|
-| `agents/feature-builder.md` | The worker. `background: true`, `isolation: worktree`, `model: inherit`, `effort: medium` (workers always run at medium effort, whatever the session uses). Branches as `crew/<slug>`, stays in its assigned files, consults `fable-advisor:advisor` itself when installed, runs tests, commits, and ends with a fixed `DONE` or `NEEDS-ANSWER` block that carries an `advisor:` line. |
+| `agents/feature-builder.md` | The worker. `background: true`, `isolation: worktree`, `model: fable`, `effort: high` (whatever the session uses). Branches as `crew/<slug>`, stays in its assigned files, plans a check per acceptance criterion before coding, consults `fable-advisor:advisor` itself when installed, runs its checks into a log outside the tree, commits, and ends with a fixed `DONE` or `NEEDS-ANSWER` block that carries `model:` and `advisor:` lines. |
+| `agents/feature-builder-deep.md` | The escalation worker: the same prompt at `model: fable`, `effort: xhigh`. Never dispatched first; only when a `feature-builder`'s work still fails its checks after one resume (or it errored and can't be resumed) (see [Quality and escalation](#quality-and-escalation)). Plugin agent files cannot share text, so it is a copy: keep it identical to `feature-builder.md` apart from `name`, `description` and `effort` — `tests/run-tests.sh` fails if they drift. |
 | `hooks/hooks.json` | One `SessionStart` hook, on every start source, that runs `bin/session-start.sh`. |
 | `bin/session-start.sh` | Injects `policy/orchestrator.md` so the main session delegates instead of implementing, keeps a roster, and resumes workers with your answers. Adds a session note after `compact` (re-read the roster), and after `resume`, `fork` or `clear` (earlier workers are gone or out of reach; here are the `crew/*` branches that exist, with their worktrees). Outside a git work tree it prints a one-line "inactive" note instead, since workers need worktrees. Bash and git only, no jq or Python. |
 | `policy/orchestrator.md` | The orchestrator rules. Edit this file to change how the main session behaves. |
@@ -26,6 +27,11 @@ No commands to learn. Install, enable in a project, and talk normally.
 ```
 
 Restart Claude Code after installing: hooks load at session start.
+
+Workers pin `model: fable`. On plans where Fable bills to usage credits,
+run `/model fable` once and accept the consent before dispatching workers;
+otherwise a worker may run on another model, and its DONE is flagged
+WORKER RAN DEGRADED.
 
 **Enable it per project, not globally.** The policy turns every session where
 it is active into an orchestrator. Either install with project scope, or set
@@ -49,6 +55,9 @@ it is active into an orchestrator. Either install with project scope, or set
   branch's files exist only in the worker's worktree. The main session checks
   each 4+-file DONE for a Fable verdict and runs the review itself, against
   the worker's worktree, if it is missing, degraded or unaddressed.
+- **A worker's checks fail (or a named verify command wasn't run):** the main session resumes it
+  once with the failure, then escalates to `feature-builder-deep`, then asks
+  you (see below).
 - **Revisions:** the main session resumes the original worker, or starts a new
   one from that feature's branch.
 - **Merging:** never automatic. Ask the main session to review a branch; it
@@ -57,6 +66,49 @@ it is active into an orchestrator. Either install with project scope, or set
 - **Resuming the session later:** workers from the old conversation are gone.
   The session note lists the `crew/*` branches that exist, and the main
   session offers to continue unfinished ones from their branches.
+
+## Quality and escalation
+
+feature-crew 0.4.0 trades cost for output quality, following Anthropic's
+model-selection guidance: workers run on Fable, and every claim of "done" is
+tied to a check.
+
+- **Workers on Fable at `high`.** `feature-builder` pins `model: fable`,
+  `effort: high`, independent of the session's own model.
+- **Run the orchestrator session on Fable at `high`, not `xhigh`.** Its
+  leverage is the quality of its briefs and reviews, and it has to stay
+  responsive while workers report in; `xhigh` makes every relay slower
+  without making briefs better.
+- **Verify-first briefs.** Each brief gives the worker ownership of the
+  relevant test files and names the verify command(s) for the acceptance
+  criteria, or says none exist. The worker plans a check per criterion
+  before coding, runs the verify commands once as a baseline, writes check
+  output with a header per run (baseline or post-change, command, commit)
+  to `<gitdir>/crew-verify.log` (outside the tree), and hands that log to
+  the advisor with its review diff. Its
+  `verified:` line maps each criterion to evidence or to
+  `not verified: <why>` — an honest answer when no meaningful check exists.
+- **Degraded-model flag.** Each report carries a `model:` line naming the
+  model the worker actually ran on. If a DONE names anything other than a
+  Fable model (Fable unavailable on the account, consent dismissed, a
+  fallback), the main session labels it **WORKER RAN DEGRADED** and tells
+  you.
+- **Escalation ladder.** When a verify command the brief named was not run
+  or failed, or the worker errors: (1) the main session resumes that worker
+  once with the failure evidence; (2) if it fails again, dispatches a fresh
+  `feature-builder-deep` (`effort: xhigh`) from `crew/<slug>` on
+  `crew/<slug>-deep` with the original brief plus what was tried; (3) if that
+  fails too, it stops and asks you. Steps 1 and 2 happen without asking.
+  Failures already present on the base branch that the brief didn't ask
+  the worker to fix, or blocked by a missing tool, dependency or credential,
+  are reported to you with the DONE instead of escalated. If the worker
+  failed because Fable itself is unavailable (access, consent, billing,
+  auth), or ran on another model, the main session asks you instead of
+  escalating: the deep worker is pinned to Fable too and would hit the same
+  wall. A rate-limit or overload error gets exactly one retry of the same
+  worker and brief, then comes to you. A `-deep`
+  branch is reviewed against the feature's original base, so the advisor
+  sees the whole feature, not just the fix.
 
 ## Limits (from the Claude Code docs)
 
@@ -72,7 +124,9 @@ it is active into an orchestrator. Either install with project scope, or set
 - With `fable-advisor` 1.8.0 or later, workers are enforced by its hooks:
   each `feature-builder` gets the worker policy at start, a nudge at 4 files
   edited since its last consultation, and one hold if it tries to finish 4+
-  unreviewed files. Older fable-advisor versions don't enforce inside
+  unreviewed files. `feature-builder-deep` is enforced the same way from
+  fable-advisor 1.10.2; on older versions add it to
+  `FABLE_ADVISOR_SUBAGENTS`. Older fable-advisor versions don't enforce inside
   workers, so there the worker consults on instruction only. Either way the
   main session checks every 4+-file DONE for a verdict.
   Dispatching a brief does not need a consultation first unless the brief
@@ -101,7 +155,12 @@ it is active into an orchestrator. Either install with project scope, or set
   the main session state the base branch in every brief either way.
 - Worktrees need git. Outside a git work tree the plugin stays inactive.
 - Every worker draws on your plan's usage; N workers use it roughly N times as
-  fast.
+  fast, and from 0.4.0 each one runs on Fable at `high` (an escalation at
+  `xhigh`), which costs more per worker than the old inherit/medium default.
+  To trade back, edit `model:` (and `effort:`) in `agents/feature-builder.md`
+  and `model:` in `agents/feature-builder-deep.md` (the sync test allows only
+  name, description and effort to differ) — and expect DONE reports to be
+  flagged WORKER RAN DEGRADED off Fable.
 
 ## Housekeeping
 

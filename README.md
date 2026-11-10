@@ -16,8 +16,8 @@ later.
 
 | Plugin | What it does |
 |---|---|
-| [fable-advisor](plugins/fable-advisor/README.md) | A read-only second-opinion advisor on Fable (the `fable` alias — Fable 5.1 today) with a labelled Opus fallback, plus hooks that enforce consulting it: policy at every session start, `ExitPlanMode` gated, unadvised multi-file turns held for review — inside background workers too |
-| [feature-crew](plugins/feature-crew/README.md) | Turn one session into an orchestrator: features you ask for are built by background workers, each on its own `crew/*` branch in its own worktree, while your conversation stays free |
+| [fable-advisor](plugins/fable-advisor/README.md) | A read-only second-opinion advisor on Fable (the `fable` alias — Fable 5.2 today) with a labelled Opus fallback, plus hooks that enforce consulting it: policy at every session start, `ExitPlanMode` gated, unadvised multi-file turns held for review — inside background workers too |
+| [feature-crew](plugins/feature-crew/README.md) | Turn one session into an orchestrator: features you ask for are built by background Fable workers, each on its own `crew/*` branch in its own worktree, while your conversation stays free — with a deeper escalation worker when one fails its checks |
 | [advisor-select](plugins/advisor-select/README.md) | Pick which model advises this session (`opus`, `sonnet`, `haiku`, `fable`) — e.g. main conversation on Sonnet, second opinions from Opus |
 | [pause-resume](plugins/pause-resume/README.md) | Freeze a running agent between tool calls and thaw it later with context intact — for moving locations, losing connectivity, or sleeping the laptop mid-task |
 
@@ -36,12 +36,12 @@ pause-resume works with any of them.
 </p>
 
 Run your session on any model. Consult a read-only Fable advisor — dispatched
-through the `fable` alias, so Fable 5.1 on current Claude Code, at `high`
+through the `fable` alias, so Fable 5.2 on Claude Code 2.1.321+, at `high`
 reasoning effort with `xhigh` a one-line opt-up — for architectural
 decisions, plan reviews, and stalled debugging. It is a replacement path for
 sessions where Claude Code's built-in advisor tool is not attached (a Fable
-5.1 main model accepts only a Fable 5.1 advisor, so a saved Opus advisor
-silently stops applying): the plugin dispatches Fable through the standard
+main model accepts only a Fable advisor, so a saved Opus advisor silently
+stops applying): the plugin dispatches Fable through the standard
 subagent mechanism instead, and degrades to Opus with a clear label if Fable
 itself is refused. On a session that already runs Fable, the value is a
 fresh-context, file-grounded second look rather than a capability jump.
@@ -61,7 +61,7 @@ sent to the advisor, nudge once four distinct files have been edited without
 a consultation (Bash heredocs and `sed -i` count), and hold a turn that
 edited four or more files unadvised once at its end, asking for a
 verification review before it finishes. Background workers — by default
-feature-crew's `feature-builder` — get their own policy, tally and
+feature-crew's `feature-builder` and `feature-builder-deep` — get their own policy, tally and
 end-of-run hold inside their worktrees, and their reviews never count for
 the session that started them. `FABLE_ADVISOR_ENFORCE=nudge` keeps the
 reminders and drops the gates.
@@ -85,10 +85,20 @@ Talk to one session; it hands each feature or revision to a background
 worktree, and your conversation stays free. The main session keeps a roster,
 relays a worker's `NEEDS-ANSWER` question to you, resumes that same worker
 with your answer, and reports each `DONE` with branch, changes, what was
-verified and the advisor's verdict. With fable-advisor installed, workers
-consult it themselves — on design calls, stalled bugs, and a review of any
-diff of four or more files — and the main session checks that verdict
-before reporting. Nothing is merged, pushed or deleted unless you ask.
+verified per acceptance criterion and the advisor's verdict. With
+fable-advisor installed, workers consult it themselves — on design calls,
+stalled bugs, and a review of any diff of four or more files — and the main
+session checks that verdict before reporting. Nothing is merged, pushed or
+deleted unless you ask.
+
+Quality comes first, cost second: since 0.4.0 workers run on Fable
+(`feature-builder` at `high` effort), plan a check per acceptance criterion
+before coding, and report the model they actually ran on, so a run off Fable
+is flagged WORKER RAN DEGRADED. A worker whose checks still fail after one
+resume is handed to `feature-builder-deep` (Fable at `xhigh`) on
+`crew/<slug>-deep`; if that fails too, you are asked. Each worker costs
+more than the old inherit/medium default; run the orchestrator session
+itself on Fable at `high`.
 
 ```
 /plugin install feature-crew@z13z4ck-plugins   # project scope recommended
@@ -164,8 +174,8 @@ How it fails safe when the hook itself is killed:
 
 ## Requirements
 
-- Claude Code 2.1.257 or later for Fable 5.1 through the `fable` alias
-  (`claude update`). Restart after installing or updating a plugin: hooks
+- Claude Code 2.1.321 or later for Fable 5.2 through the `fable` alias
+  (`claude update`); 2.1.257 to 2.1.320 give Fable 5.1. Restart after installing or updating a plugin: hooks
   load at session start.
 - fable-advisor's hooks need Python 3 on `PATH` (`python3`, or `python` /
   `py -3` on Windows); without it they are a silent no-op.

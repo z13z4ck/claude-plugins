@@ -25,7 +25,8 @@ deletes is never re-added; FABLE_ADVISOR_CLAUDE_MD=off opts out).
   stop-audit     Stop: hold the turn once when it edited >= N files with no
                  consultation, asking for a verification review of the change set
   subagent-start SubagentStart: inject a worker policy into enforced subagent
-                 types (feature-crew:feature-builder by default)
+                 types (feature-crew:feature-builder and
+                 feature-crew:feature-builder-deep by default)
   subagent-stop  SubagentStop: hold an enforced worker once when it edited >= N
                  files since its last consultation, asking for a review first
   status         plain-text summary for /fable-advisor:status
@@ -61,7 +62,8 @@ Configuration (environment variables, e.g. via settings.json "env"):
   FABLE_ADVISOR_STOP_AUDIT      0 disables the end-of-turn hold
   FABLE_ADVISOR_PROMPT_NUDGE    0 disables per-prompt nudges
   FABLE_ADVISOR_SUBAGENTS       comma list of enforced subagent types
-                                (feature-crew:feature-builder); none disables
+                                (feature-crew:feature-builder,
+                                feature-crew:feature-builder-deep); none disables
   FABLE_ADVISOR_SUBAGENT_STOP   0 disables the worker end-of-run hold
   FABLE_ADVISOR_CLAUDE_MD       0 stops the automatic user CLAUDE.md block
   FABLE_ADVISOR_HOME            state + events.log dir (~/.claude/fable-advisor)
@@ -70,8 +72,10 @@ import calendar
 import glob
 import json
 import os
+import posixpath
 import re
 import shlex
+import subprocess
 import sys
 import tempfile
 import time
@@ -80,7 +84,7 @@ ADVISOR = "fable-advisor:advisor"
 DISPATCH_TOOLS = {"Agent", "Task"}
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 STATE_MAX_AGE = 7 * 86400
-DEFAULT_WORKERS = "feature-crew:feature-builder"
+DEFAULT_WORKERS = "feature-crew:feature-builder,feature-crew:feature-builder-deep"
 
 DISPATCH = (
     'dispatch the fable-advisor:advisor agent (Agent tool, subagent_type '
@@ -334,13 +338,92 @@ def _norm_path(p, nt=None):
     return _msys_to_win(p.replace("\\", "/"), nt=True).lower()
 
 
+def _in_git_dir(p):
+    """True when a path has a `.git` directory segment (repo/.git/..., a
+    worktree's .git/worktrees/<id>/crew-verify.log). Only the exact segment
+    counts: `.gitignore`, `.github/` and `foo.git/` are ordinary files."""
+    parts = posixpath.normpath(p.replace("\\", "/")).split("/")
+    return ".git" in parts[:-1]
+
+
+# The directory the hook's session runs in (hook input "cwd"); main() sets it.
+# Used only to ask git where this repository's git dir lives.
+_SESSION_CWD = None
+_GIT_DIRS = None  # per-process cache: tuple of normalised git dirs, or ()
+_IN_GIT_DIR_MEMO = {}  # per-process: path -> bool (Scan re-checks every row)
+
+
+def _session_git_dirs():
+    """The session repository's git dir and common git dir, absolute and
+    normalised, so a git dir without a `.git` segment (`repo.git/worktrees/
+    <id>`, a bare repo, `--separate-git-dir`) is recognised too. Asked of git
+    once per hook process; any failure (no git, not a repo, a bare-repo root
+    with no work tree, timeout) yields () and leaves only the `.git`-segment
+    rule, i.e. the old behaviour. A git dir that equals or contains the work
+    tree (a bare clone with `git worktree add` inside it) is dropped, so it can
+    never hide the project's own files."""
+    global _GIT_DIRS
+    if _GIT_DIRS is not None:
+        return _GIT_DIRS
+    _GIT_DIRS = ()
+    cwd = _SESSION_CWD or os.getcwd()
+    try:
+        out = subprocess.run(
+            ["git", "-C", cwd, "rev-parse", "--show-toplevel", "--absolute-git-dir",
+             "--git-common-dir"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3)
+        lines = [ln.strip() for ln in out.stdout.splitlines()]
+        if out.returncode != 0 or len(lines) < 3 or not all(lines[:3]):
+            return _GIT_DIRS
+
+        def norm(x):
+            if not os.path.isabs(x):
+                x = os.path.join(cwd, x)  # --git-common-dir may be relative
+            return _norm_path(os.path.realpath(x)).replace("\\", "/").rstrip("/")
+
+        top = norm(lines[0])
+        dirs = []
+        for line in lines[1:3]:
+            d = norm(line)
+            if not d or d in dirs or top == d or top.startswith(d + "/"):
+                continue  # a git dir holding the work tree must not hide it
+            dirs.append(d)
+        _GIT_DIRS = tuple(dirs)
+    except Exception:
+        _GIT_DIRS = ()
+    return _GIT_DIRS
+
+
+def _in_session_git_dir(p):
+    """True when a path lies inside the session repository's git dir or
+    common git dir (see _session_git_dirs). Relative paths are resolved
+    against the session directory first."""
+    dirs = _session_git_dirs()
+    if not dirs:
+        return False
+    hit = _IN_GIT_DIR_MEMO.get(p)
+    if hit is not None:
+        return hit
+    q = _msys_to_win(p)
+    if not os.path.isabs(q) and not re.match(r"^[A-Za-z]:[/\\]", q):
+        q = os.path.join(_SESSION_CWD or os.getcwd(), q)
+    q = _norm_path(os.path.realpath(q)).replace("\\", "/")  # git reports resolved paths
+    hit = any(q == d or q.startswith(d + "/") for d in dirs)
+    _IN_GIT_DIR_MEMO[p] = hit
+    return hit
+
+
 def counts_as_edit(fp):
-    """Project edits only: not temp/device paths, not Claude's own plan files or
-    memory notes (which live under the config dir and are written as a matter
-    of course during ordinary work)."""
+    """Project edits only: not temp/device paths, not anything inside a .git
+    directory or the session repository's own git dir (git internals, and the
+    verify logs and review diffs workers write there to keep them out of the
+    tree), not Claude's own plan files or memory notes (which live under the
+    config dir and are written as a matter of course during ordinary work)."""
     if not fp or fp.startswith(_SKIP_WRITE_PREFIXES):
         return False
     p = _norm_path(fp)
+    if _in_git_dir(p):
+        return False
     cfg = _norm_path(_config_dir()).rstrip("/") + "/"
     if p.startswith(cfg + "plans/") or p.startswith(cfg + "projects/"):
         return False
@@ -348,6 +431,8 @@ def counts_as_edit(fp):
         tmp = _norm_path(tempfile.gettempdir()).rstrip("/") + "/"
         if p.startswith(tmp):
             return False
+    if _in_session_git_dir(fp):  # last: the only check that may touch the disk
+        return False
     return True
 
 
@@ -1562,9 +1647,13 @@ def worker_policy_text():
         "attempts at the same bug or a test failure you cannot explain. Before you finish a change of %d+ "
         "files, get a verification review of the committed diff: write it to a file outside the working "
         "tree (run `git -C <worktree> rev-parse --absolute-git-dir`, then `git -C <worktree> diff "
-        "<base>...HEAD > <that dir>/crew-review.diff` with literal paths; a worktree-isolated agent's git "
-        "commands are refused when they nest $(git ...)) and give the advisor that file's absolute path and "
-        "your worktree path (it reads files only, by path, and cannot run git). Dispatch the advisor in "
+        "<base>...HEAD > <that dir>/crew-review.diff` with literal paths; <base> is the base your brief "
+        "names for the review, which for an escalation or revision worker is the original feature's base, "
+        "not the crew/<slug> branch it started from, else the base you branched from; a worktree-isolated agent's git commands are refused "
+        "when they nest $(git ...)) and give the advisor that file's absolute path, the absolute path of "
+        "your check output log (<that dir>/crew-verify.log) if you wrote one, and your worktree path (it "
+        "reads files only, by path, and cannot run git). Files inside a .git directory do not count as edits. "
+        "Dispatch the advisor in "
         "the FOREGROUND (no run_in_background): a background subagent's result is delivered to the "
         "parent session, never to you." % (DISPATCH, CFG.threshold),
         "",
@@ -1618,11 +1707,13 @@ def subagent_stop(inp):
         "decision": "block",
         "reason": (
             "[fable-advisor] You edited %d files since your last advisor consultation: %s. Before "
-            "finishing, get a verification review: commit, write the committed diff against your base "
-            "branch to a file outside the working tree (two plain commands with literal paths: "
-            "`git -C <worktree> rev-parse --absolute-git-dir`, then `git -C <worktree> diff <base>...HEAD > "
-            "<that dir>/crew-review.diff`; nesting $(git ...) is refused in an isolated worktree), and %s "
-            "with that file's absolute path, your "
+            "finishing, get a verification review: commit, write the committed diff against the base your "
+            "brief names for the review (the original feature's base for an escalation or revision worker, "
+            "not the crew/<slug> branch you started from; else the base you branched from) to a file outside the working tree (two plain "
+            "commands with literal paths: `git -C <worktree> rev-parse --absolute-git-dir`, then "
+            "`git -C <worktree> diff <base>...HEAD > <that dir>/crew-review.diff`; nesting $(git ...) is "
+            "refused in an isolated worktree), and %s with that file's absolute path, the absolute path of "
+            "<that dir>/crew-verify.log if you wrote check output there, your "
             "worktree path, the goal and acceptance criteria, and what you ran. Fix what it flags inside "
             "your scope and commit. Then end with your final report again (for feature-builder: the DONE "
             "block, its advisor: line now reading \"reviewed\"). This hold fires once."
@@ -1731,6 +1822,9 @@ def main(argv):
         return 0
     name = argv[1]
     inp = read_input()
+    global _SESSION_CWD
+    if isinstance(inp, dict) and isinstance(inp.get("cwd"), str) and inp.get("cwd"):
+        _SESSION_CWD = _msys_to_win(inp["cwd"])
     try:
         if name in ARGV_HOOKS:
             HOOKS[name](inp, argv[2:])

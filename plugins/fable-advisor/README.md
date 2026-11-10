@@ -3,9 +3,9 @@
 Run your session on any model. Consult a read-only Fable advisor for
 architectural decisions, plan reviews, stalled debugging, and verification of
 a change set before you finish. The advisor is dispatched through the `fable`
-alias, so it tracks Claude Code's newest Fable release — Fable 5.1 on Claude
-Code 2.1.257 or later, Fable 5 on older versions and in Claude apps gateway
-sessions. Built as a replacement path for sessions where Claude Code's
+alias, so it tracks Claude Code's newest Fable release — Fable 5.2 on
+Claude Code 2.1.321 or later, Fable 5.1 from 2.1.257, Fable 5 on older versions and in
+Claude apps gateway sessions. Built as a replacement path for sessions where Claude Code's
 built-in advisor tool is not attached: this plugin dispatches Fable through
 the standard subagent mechanism instead, and degrades to Opus with a clear
 label if Fable itself is refused.
@@ -25,7 +25,7 @@ and the consultation is enforced rather than left to judgment.
 | Component | Purpose |
 |---|---|
 | `agents/advisor.md` | Read-only advisor, `model: fable`, `effort: high` — enforcement makes consultation routine rather than rare, so the default buys a deep tier at a per-call cost you can afford one or two times a turn; `xhigh` is a one-line opt-up. Reads files itself instead of trusting summaries. Every verdict starts with a MODEL line so a silently substituted model can't pass as Fable. |
-| `hooks/hooks.json` + `bin/` | Eight enforcement hooks (below). Transcript-driven and fail-open. Background workers of the types you list (default `feature-crew:feature-builder`) get their own policy, tally and end-of-run hold, and may not background a subagent; see [Subagents](#subagents). |
+| `hooks/hooks.json` + `bin/` | Eight enforcement hooks (below). Transcript-driven and fail-open. Background workers of the types you list (default `feature-crew:feature-builder` and `feature-crew:feature-builder-deep`) get their own policy, tally and end-of-run hold, and may not background a subagent; see [Subagents](#subagents). |
 | `/fable-advisor:consult <question>` | Deterministic consultation. `--model <alias>` overrides the advisor model per call. |
 | `/fable-advisor:review-plan` | Critique the session's current plan before execution. Takes the same `--model <alias>` override as consult. |
 | `/fable-advisor:status` | How many consultations this session, which edits are still unreviewed, which hooks are active, and the last hook events. |
@@ -38,11 +38,11 @@ per-invocation effort override (unlike `model`) — changing it means editing
 when consultations were rare and opt-in; the enforcement hooks made them
 routine — one or two per substantive turn — and at that cadence the
 per-call cost is what matters, so 1.7.0 moved the default down one tier.
-Fable 5.1 deliberately takes longer turns at higher effort, so even at
+Fable 5.1 and later deliberately take longer turns at higher effort, so even at
 `high` a real consultation that reads several files can run for minutes —
 that is the advisor working, not a hang. To buy the deepest tier short of
 `max` back, set `effort: xhigh` in `agents/advisor.md`; it is valid on
-Fable 5.1 and on the Opus and Sonnet fallbacks.
+Fable 5.1 and later and on the Opus and Sonnet fallbacks.
 
 ## Install
 
@@ -53,8 +53,9 @@ Fable 5.1 and on the Opus and Sonnet fallbacks.
 ```
 
 Hooks load at session start, so restart Claude Code after installing or
-updating. Fable 5.1 needs Claude Code 2.1.255 or later, and the `fable`
-alias resolves to it from 2.1.257 (`claude update`). On plans where Fable
+updating. Fable 5.2 needs Claude Code 2.1.321 or later, where the `fable`
+alias resolves to it; 2.1.257 to 2.1.320 resolve it to Fable 5.1
+(`claude update`). On plans where Fable
 bills to usage credits, accept the one-time consent by running `/model fable`
 once before the first consultation — otherwise a dismissed consent prompt
 hands the dispatch to your default model (see below). The hooks need
@@ -75,7 +76,7 @@ harness applies:
 | Prompt nudge | `UserPromptSubmit` | Recognises decision prompts ("should we", "which is better", "trade-offs"), planning prompts ("refactor", "migrate", "design"), stalled fixes ("still failing", "same error" — escalates on the second in a row) and review requests, and states that the policy applies to this turn. Also surfaces any unreviewed edits over the threshold. Silent on trivial prompts, slash commands, and harness messages such as a background agent's `<task-notification>` (which mentions "review" often enough to be mistaken for a request). Since 1.10.1 "end to end" no longer counts as planning, and "schema" and "extract" count only with change or refactor phrasing ("change the users schema", "extract the retry logic into its own module"), so "Verify X end to end" or "extract the zip" gets no nudge. |
 | Plan gate | `PreToolUse` on `ExitPlanMode` | **Denies** exiting plan mode until the advisor was dispatched during this planning episode (an `EnterPlanMode` call or a switch into plan mode starts one; a successful `ExitPlanMode` or a switch out of plan mode ends it — a denied attempt does not). Health checks don't count. Headless (`-p`) sessions have no `ExitPlanMode` tool, so this gate only ever fires interactively. After two denials it stops denying and only adds context, so a session where the Agent tool is unavailable cannot wedge; the normal plan-approval prompt still runs, so the user keeps their veto. |
 | Background gate | `PreToolUse` on `Agent`, `Task` | For enforced worker types only: **denies** an `Agent` (or `Task`) call with `run_in_background: true`, with a reason that says to re-send it in the foreground. A background subagent's completion notice is delivered to the top-level session, never to the worker that started it, so a worker that backgrounds its advisor and ends its turn waiting never wakes up (seen live: 68 minutes idle). Applies to every subagent type, not only the advisor. Background `Bash` and `Monitor` do wake the worker and are not touched; the main session and other subagents are never denied. A denied dispatch does not count as a consultation. It prevents a hang rather than a skipped consultation, so it stays on in `nudge` mode; only `off` disables it. |
-| Edit watch | `PostToolUse` on `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `Bash` | Counts distinct files edited since the last consultation and nudges at every multiple of the threshold (4, 8, 12 …). Bash writes count too — heredocs, `>`/`>>` redirects, `tee`, `sed -i` — because sessions in bypass-permissions mode are steered to edit through Bash, which the Edit/Write tools never see. Temp and device paths, Claude's own plan files and memory notes are ignored. A `cd` is followed: relative writes after `cd /some/dir` are resolved against it (so a scratch dir under `/tmp` drops out), and relative writes after a `cd` it cannot resolve (`cd $DIR`, `cd -`) are skipped rather than guessed into the project; a `cd` inside `( … )` ends with the subshell. Relative Bash writes are resolved against the session's directory, so a file written by `Write` and later by `sed -i` counts once — and a project that itself lives under the temp dir is not enforced, through Bash or the Edit tools. The same hook records advisor dispatches, so a consultation counts the moment it is made even before the transcript has caught up. |
+| Edit watch | `PostToolUse` on `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `Bash` | Counts distinct files edited since the last consultation and nudges at every multiple of the threshold (4, 8, 12 …). Bash writes count too — heredocs, `>`/`>>` redirects, `tee`, `sed -i` — because sessions in bypass-permissions mode are steered to edit through Bash, which the Edit/Write tools never see. Temp and device paths, anything inside a `.git` directory or the session repository's own git dir (asked of `git rev-parse --show-toplevel --absolute-git-dir --git-common-dir` once per hook call, so `repo.git/worktrees/<id>` and `--separate-git-dir` layouts are covered too; a git dir that contains the work tree, as in a bare clone with worktrees checked out inside it, is never excluded, and at a bare root or without git only the `.git` rule applies) — git internals, and the verify logs and review diffs feature-crew workers keep in their git dir; `.gitignore` and `.github/` still count, Claude's own plan files and memory notes are ignored. A `cd` is followed: relative writes after `cd /some/dir` are resolved against it (so a scratch dir under `/tmp` drops out), and relative writes after a `cd` it cannot resolve (`cd $DIR`, `cd -`) are skipped rather than guessed into the project; a `cd` inside `( … )` ends with the subshell. Relative Bash writes are resolved against the session's directory, so a file written by `Write` and later by `sed -i` counts once — and a project that itself lives under the temp dir is not enforced, through Bash or the Edit tools. The same hook records advisor dispatches, so a consultation counts the moment it is made even before the transcript has caught up. |
 | Stop audit | `Stop` | If the turn that is ending edited at least the threshold of distinct files and the advisor was not consulted during that turn, **holds the turn once** with an instruction to get a verification review of the change set. It is a hold, not a lock: after the model has acted on it (or explained why it could not), the next stop goes through. Honours `stop_hook_active`, never holds the same turn twice, and never fires inside a subagent. |
 | Worker policy | `SubagentStart` | For enforced worker types only: puts a worker version of the policy into the subagent before its first prompt — consult before design calls its brief doesn't settle and after two failed fixes, get a review of the committed diff before finishing a change of threshold+ files, and hand the advisor absolute paths, since it reads files only. Logs every subagent start with its raw `agent_type`. |
 | Worker hold | `SubagentStop` | For enforced worker types only: if the worker edited at least the threshold of distinct files since **its own** last consultation (counted across resumes, not per prompt), **holds it once** and asks for a verification review before it reports. Skipped when the worker is stopping with `NEEDS-ANSWER` (the later `DONE` stop still catches it). Honours `stop_hook_active`. |
@@ -104,7 +105,7 @@ Set these in the environment Claude Code runs in — the `env` block of
 | `FABLE_ADVISOR_EDIT_WATCH` | `1` | `0` disables the edit-count nudge. |
 | `FABLE_ADVISOR_STOP_AUDIT` | `1` | `0` disables the end-of-turn hold. |
 | `FABLE_ADVISOR_PROMPT_NUDGE` | `1` | `0` disables per-prompt nudges. |
-| `FABLE_ADVISOR_SUBAGENTS` | `feature-crew:feature-builder` | Comma-separated subagent types enforced as workers (plugin-scoped name or bare frontmatter name). `none` turns worker enforcement off. |
+| `FABLE_ADVISOR_SUBAGENTS` | `feature-crew:feature-builder,feature-crew:feature-builder-deep` | Comma-separated subagent types enforced as workers (plugin-scoped name or bare frontmatter name, compared whole: `feature-builder` does not match `feature-builder-deep`). `none` turns worker enforcement off. Since 1.10.2 the default includes feature-crew's escalation worker. If you set this variable, list both feature-crew workers. |
 | `FABLE_ADVISOR_SUBAGENT_STOP` | `1` | `0` disables the worker hold; the worker policy and nudges stay. |
 | `FABLE_ADVISOR_CLAUDE_MD` | `1` | `0`/`off` stops the automatic advisor-policy block in your user-level CLAUDE.md. It does not remove a block already written — `/fable-advisor:claude-md remove` does. |
 | `FABLE_ADVISOR_HOME` | `~/.claude/fable-advisor` | Where `events.log`, per-session state and the CLAUDE.md stamp (`claude-md.json`) live. State files are reaped after 7 days; the stamp is kept. |
@@ -166,7 +167,7 @@ the gates.
 
 The advisor is a second opinion, not necessarily a stronger one. If your main
 session is on Opus or Sonnet, the advisor escalates to Fable. If your main
-session is itself on Fable 5.1, the advisor is the same model — what you get
+session is itself on Fable, the advisor is the same model — what you get
 is a fresh-context, read-only, file-grounded review with none of the
 session's accumulated assumptions, which Anthropic's Fable guidance rates
 above self-critique. That is still worth it before large plans; just don't
@@ -190,7 +191,7 @@ Since Claude Code 2.1.247 a successful-but-substituted dispatch is the
 common failure, not the rare one, because Claude Code itself re-routes
 subagents in several documented situations:
 
-- **Safety-classifier fallback.** Fable 5.1 and Fable 5 run safety
+- **Safety-classifier fallback.** Fable models (5 and later) run safety
   classifiers, most often on cybersecurity and biology content. A flagged
   request is re-run automatically — cyber on Opus 4.8, bio on Opus 5 — with
   a notice in the transcript. Security-flavored consultations are the
@@ -268,8 +269,8 @@ cross-check when a verdict looks off.
 Claude Code's built-in advisor tool and this plugin use different dispatch
 paths. The built-in tool is silently *not attached* — `/advisor` and a
 notification say so — when its pairing check fails, and the most common
-reason since Fable 5.1 shipped is the pairing itself: a Fable 5.1 main
-model accepts only a Fable 5.1 advisor, so a saved `advisorModel` of `opus`
+reason since Fable 5.1 shipped is the pairing itself: a Fable main
+model accepts only a Fable advisor, so a saved `advisorModel` of `opus`
 or `sonnet` stops applying the moment you switch the session to Fable. The
 other documented reasons are an organization `availableModels` allowlist
 that excludes the advisor, the Fable usage-credits consent not yet
@@ -285,8 +286,8 @@ check against their own model, so with `advisorModel: fable` set, the
 plugin's Fable advisor may itself consult the built-in advisor mid-verdict
 (`/advisor off` gives you one consultation per verdict). And if Fable is
 blocked at the account level, no plugin can conjure it — the two hard blocks
-are a model-access limit on the account, and zero data retention: Fable 5.1
-and Fable 5 require 30-day retention and return a 400 to ZDR organizations
+are a model-access limit on the account, and zero data retention: Fable
+models (5 and later) require 30-day retention and return a 400 to ZDR organizations
 unless Anthropic has expressly authorized them. In both cases the fallback
 keeps the advisory workflow alive on Opus and labels every degraded verdict
 so you never mistake Opus judgment for Fable judgment.

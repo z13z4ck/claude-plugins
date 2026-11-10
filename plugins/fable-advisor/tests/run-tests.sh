@@ -775,6 +775,89 @@ run_hook edit-watch '"tool_name":"Write","tool_input":{"file_path":"e.py"}'
 
 new_transcript e5c
 t_prompt "go"; t_edit a.py; t_edit b.py; t_edit c.py
+# 1.10.2: writes inside a .git directory (the verify log and review diff
+# feature-crew workers keep in their git dir, git internals) are not project
+# edits; .gitignore, .github/ and a foo.git/ directory are.
+gitdir_cases="$(py - "$BIN" <<'PYEOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import advisor_hooks as h
+cases = [
+    ("/repo/.git/worktrees/agent-1/crew-verify.log", False),
+    ("/repo/.git/worktrees/agent-1/crew-review.diff", False),
+    (".git/config", False),
+    ("sub/.git/hooks/pre-commit", False),
+    ("/repo/src/app.py", True),
+    ("/repo/.gitignore", True),
+    (".github/workflows/ci.yml", True),
+    ("/srv/foo.git/README.md", True),
+    ("/repo/.git", True),
+    ("/repo/.git/../src/a.py", True),
+    ("C:\\repo\\.git\\worktrees\\a1\\crew-verify.log", False),
+    ("C:\\repo\\src\\.gitignore", True),
+]
+bad = ["%s -> %s" % (p, h.counts_as_edit(p)) for p, want in cases if h.counts_as_edit(p) != want]
+# Windows-normalised forms (MSYS path, upper-case .GIT): in a git dir or not.
+bad += ["nt %s" % p for p, want in [("/c/repo/.git/x.log", True), ("C:\\Repo\\.GIT\\x.log", True), ("/c/repo/.gitignore", False)]
+        if h._in_git_dir(h._norm_path(p, nt=True)) != want]
+print("ok" if not bad else "; ".join(bad))
+PYEOF
+)"
+[ "$gitdir_cases" = "ok" ] && ok "counts_as_edit: .git/ paths excluded; .gitignore, .github/, foo.git/ still counted" || no "counts_as_edit .git handling" "$gitdir_cases"
+[ -z "$(bw 'bash tests/run.sh >> /repo/.git/worktrees/a1/crew-verify.log 2>&1')" ] && ok "a Bash append to crew-verify.log in the git dir is not an edit" || no "verify log counted as an edit" "$(bw 'bash tests/run.sh >> /repo/.git/worktrees/a1/crew-verify.log 2>&1')"
+[ "$(bw 'echo x > .gitignore')" = ".gitignore" ] && ok "a Bash write to .gitignore still counts" || no ".gitignore not counted" "$(bw 'echo x > .gitignore')"
+[ -z "$(bw 'cd .git && echo x > config')" ] && ok "a write after cd .git is not an edit" || no "cd .git write counted" "$(bw 'cd .git && echo x > config')"
+# Git dirs with no `.git` segment (bare repo, repo.git/worktrees/<id>,
+# --separate-git-dir): counts_as_edit asks git for the session repo's git dir
+# and common dir, once per process, failing open when git can't answer.
+if command -v git >/dev/null 2>&1; then
+  SEP="$WORK/sepgit"
+  rm -rf "$SEP"; mkdir -p "$SEP"
+  git init -q --separate-git-dir="$SEP/store.gitdir" "$SEP/proj" >/dev/null 2>&1
+  # bare clone with a worktree checked out inside it
+  git init -q "$SEP/seed" >/dev/null 2>&1
+  git -C "$SEP/seed" -c user.name=t -c user.email=t@t commit -q --allow-empty -m s >/dev/null 2>&1
+  git clone -q --bare "$SEP/seed" "$SEP/proj.git" >/dev/null 2>&1
+  git -C "$SEP/proj.git" worktree add -q "$SEP/proj.git/main" >/dev/null 2>&1
+  sg="$(py - "$BIN" "$SEP" <<'PYEOF'
+import os, sys
+sys.path.insert(0, sys.argv[1])
+import advisor_hooks as h
+sep = sys.argv[2]
+out = []
+h._SESSION_CWD = os.path.join(sep, "proj"); h._GIT_DIRS = None; h._IN_GIT_DIR_MEMO.clear()
+dirs = h._session_git_dirs()
+out.append("dirs=%d" % len(dirs))
+out.append("in=%s" % h._in_session_git_dir(os.path.join(sep, "store.gitdir", "crew-verify.log")))
+out.append("out=%s" % h._in_session_git_dir(os.path.join(sep, "proj", "src", "a.py")))
+out.append("sibling=%s" % h._in_session_git_dir(os.path.join(sep, "store.gitdirx", "a.py")))
+h._SESSION_CWD = os.path.join(sep, "nowhere-not-a-repo"); h._GIT_DIRS = None
+out.append("norepo=%s" % (h._session_git_dirs() == ()))
+# Bare clone with a worktree inside it: the common dir contains the work
+# tree, so it is dropped; the git dir of the worktree still excludes.
+bare = os.path.join(sep, "proj.git")
+h._SESSION_CWD = os.path.join(bare, "main"); h._GIT_DIRS = None; h._IN_GIT_DIR_MEMO.clear()
+out.append("nested_src=%s" % h._in_session_git_dir(os.path.join(bare, "main", "src", "a.py")))
+out.append("nested_log=%s" % h._in_session_git_dir(os.path.join(bare, "worktrees", "main", "crew-verify.log")))
+h._SESSION_CWD = bare; h._GIT_DIRS = None; h._IN_GIT_DIR_MEMO.clear()
+out.append("bareroot=%s" % (h._session_git_dirs() == ()))
+# counts_as_edit wiring, on a path outside every temp prefix
+srv = os.path.abspath(os.sep + "srv")
+h._SESSION_CWD = os.path.join(srv, "x"); h._IN_GIT_DIR_MEMO.clear()
+h._GIT_DIRS = (h._norm_path(os.path.join(srv, "repo.git")).replace("\\", "/"),)
+out.append("bare=%s" % h.counts_as_edit(os.path.join(srv, "repo.git", "worktrees", "w1", "crew-verify.log")))
+out.append("work=%s" % h.counts_as_edit(os.path.join(srv, "wt", "src", "app.py")))
+h._GIT_DIRS = (); h._IN_GIT_DIR_MEMO.clear()
+out.append("open=%s" % h.counts_as_edit(os.path.join(srv, "repo.git", "worktrees", "w1", "crew-verify.log")))
+print(" ".join(out))
+PYEOF
+)"
+  [ "$sg" = "dirs=1 in=True out=False sibling=False norepo=True nested_src=False nested_log=True bareroot=True bare=False work=True open=True" ] \
+    && ok "session git dir without a .git segment is excluded; a worktree inside a bare clone still counts; no repo or bare root fails open" \
+    || no "session git dir exclusion" "$sg"
+else
+  ok "session git dir exclusion: git not installed, skipped"
+fi
 t_edit "$CLAUDE_CONFIG_DIR/plans/some-plan.md"; t_edit "$CLAUDE_CONFIG_DIR/projects/-x/memory/note.md"; t_edit "/tmp/scratch.txt"
 run_hook edit-watch "\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$CLAUDE_CONFIG_DIR/plans/other-plan.md\"}"
 [ -z "$HOOK_OUT" ] && ok "plan files, memory notes and temp paths are not project edits" || no "non-project paths counted" "$HOOK_OUT"
@@ -974,6 +1057,21 @@ in_worker t_edit a.py; in_worker t_edit b.py; in_worker t_edit c.py
 worker_hook post-tool aw3 "feature-builder" '"tool_name":"Edit","tool_input":{"file_path":"d.py"}'
 contains "$(context_of "$HOOK_OUT")" "You have edited 4" && ok "bare agent_type 'feature-builder' is enforced too" || no "bare name not matched" "$HOOK_OUT"
 
+# 1.10.2: the escalation worker is enforced by default as well, and a
+# feature-builder entry does not also match feature-builder-deep (names are
+# compared whole, so each worker type is listed on its own).
+new_worker w3d aw3d
+in_worker t_prompt "Build it deeper"
+in_worker t_edit a.py; in_worker t_edit b.py; in_worker t_edit c.py
+worker_hook post-tool aw3d "feature-crew:feature-builder-deep" '"tool_name":"Edit","tool_input":{"file_path":"d.py"}'
+contains "$(context_of "$HOOK_OUT")" "You have edited 4" && ok "feature-crew:feature-builder-deep is enforced by default" || no "deep worker not enforced" "$HOOK_OUT"
+[ -f "$(wstate aw3d)" ] && ok "deep worker keeps its own state file" || no "no deep worker state file"
+new_worker w3e aw3e
+in_worker t_prompt "Build it deeper"
+in_worker t_edit a.py; in_worker t_edit b.py; in_worker t_edit c.py
+FABLE_ADVISOR_SUBAGENTS="feature-crew:feature-builder" worker_hook post-tool aw3e "feature-crew:feature-builder-deep" '"tool_name":"Edit","tool_input":{"file_path":"d.py"}'
+[ ! -f "$(wstate aw3e)" ] && ok "a feature-builder entry alone does not enforce feature-builder-deep" || no "deep worker matched by the feature-builder entry" "$HOOK_OUT"
+
 new_worker w4 aw4
 t_prompt "go"
 for f in a.py b.py c.py d.py; do
@@ -1000,6 +1098,7 @@ new_transcript ss-w
 worker_hook subagent-start aw7 "$WK"
 [ "$(jget "$HOOK_OUT" hookSpecificOutput.hookEventName)" = "SubagentStart" ] && contains "$(context_of "$HOOK_OUT")" "Advisor policy for this worker" && ok "subagent-start injects the worker policy into enforced types" || no "no worker policy" "$HOOK_OUT"
 contains "$(context_of "$HOOK_OUT")" "absolute path" && ok "worker policy says the advisor reads by absolute path" || no "path guidance missing"
+contains "$(context_of "$HOOK_OUT")" "crew-verify.log" && contains "$(context_of "$HOOK_OUT")" "original feature's base" && ok "worker policy names the verify log and the original feature's base" || no "worker policy lacks verify log / base wording" "$(context_of "$HOOK_OUT")"
 worker_hook subagent-start aw8 Explore
 [ -z "$HOOK_OUT" ] && ok "subagent-start is silent for other types" || no "policy injected into Explore"
 grep -q "event=subagent-start agent_type=Explore enforced=0" "$FABLE_ADVISOR_HOME/events.log" && ok "subagent-start logs the raw agent_type" || no "agent_type not logged"
@@ -1014,6 +1113,8 @@ worker_hook subagent-stop as1 "$WK" '"stop_hook_active":false,"last_assistant_me
 contains "$(jget "$HOOK_OUT" reason)" "absolute path" && ok "hold reason asks for a diff file by absolute path" || no "hold reason lacks path guidance"
 r="$(jget "$HOOK_OUT" reason)"
 contains "$r" "git -C <worktree> rev-parse --absolute-git-dir" && ! contains "$r" '"$(git' && ok "hold reason gives plain git -C commands the worktree guard accepts" || no "hold reason uses a refused git form"
+contains "$r" "crew-verify.log" && ok "hold reason hands the advisor the verify log" || no "hold reason lacks crew-verify.log" "$r"
+contains "$r" "original feature's base" && ! contains "$r" "against your base branch" && ok "hold reason diffs against the original feature's base (deep/revision workers)" || no "hold reason base wording" "$r"
 worker_hook subagent-stop as1 "$WK" '"stop_hook_active":false,"last_assistant_message":"DONE"'
 [ -z "$HOOK_OUT" ] && ok "the worker hold fires once per prompt" || no "held twice" "$HOOK_OUT"
 grep -q "event=subagent-stop-hold" "$FABLE_ADVISOR_HOME/events.log" && ok "events.log records worker holds" || no "worker hold not logged"
