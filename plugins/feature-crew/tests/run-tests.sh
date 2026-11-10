@@ -875,7 +875,7 @@ fi
 fi
 
 if has_phrase "$O" "A DONE whose checks pass is otherwise reported as normal" &&
-  has_phrase "$O" "needs the user to set \`effort: xhigh\` in \`agents/feature-builder-deep.md\` first" &&
+  has_phrase "$O" "needs the user to set \`effort: xhigh\` in \`<feature-crew root>/agents/feature-builder-deep.md\` first" &&
   has_phrase "$O" "never pass a \`model\` alias other than the tier's"; then
   ok "policy: a passing fell-back DONE is only labelled; xhigh needs the user's edit; no off-tier alias"
 else

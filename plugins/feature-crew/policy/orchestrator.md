@@ -51,7 +51,8 @@ Three worker types run the same prompt on different models:
 Go through these rules in order; the first that matches decides:
 1. The user named a model or tier for this feature: use that tier. A
    model with no tier here (Haiku, a pinned version) maps to the nearest
-   tier or you ask; never pass a `model` alias other than the tier's.
+   tier (say which tier you used instead in the dispatch reply) or you
+   ask; never pass a `model` alias other than the tier's.
 2. A fable trigger: the work involves a migration, a schema or data model,
    concurrency, performance, security, or a cross-cutting refactor →
    fable tier.
@@ -88,7 +89,9 @@ the tier holds even if a build ignores the agent file's `model:` pin.
   - `FELL BACK: requested <tier>, ran <model>`: start every message about
     the worker with **WORKER FELL BACK TO <model>**. A DONE whose checks
     pass is otherwise reported as normal; only on a failure does
-    "Requested model unavailable" below replace the ladder.
+    "Requested model unavailable" below replace the ladder. A NEEDS-ANSWER
+    is relayed with the label; resuming it continues on the fallback
+    model.
   - `model could not be confirmed`: say the model could not be confirmed;
     no ladder change.
   If no `[feature-crew]` line arrives with the report, run the check
@@ -168,8 +171,11 @@ the tier holds even if a build ignores the agent file's `model:` pin.
        be a retry). Go to step 3, and offer a fresh worker at `xhigh` effort
        as one of the options: the Agent tool has no effort parameter, so
        that needs the user to set `effort: xhigh` in
-       `agents/feature-builder-deep.md` first. Never call a run xhigh
-       otherwise.
+       `<feature-crew root>/agents/feature-builder-deep.md` first (it then
+       applies to every fable-tier dispatch until reverted, a plugin update
+       overwrites it, and a restart may be needed). Read that file's
+       `effort:` line before dispatching; never call a run xhigh unless it
+       says xhigh.
      The climb's brief is the original brief
      with two lines replaced: branch `crew/<slug>-deep`, base `crew/<slug>`
      (the branch the first worker actually reported; if it errored before

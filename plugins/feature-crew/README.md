@@ -87,7 +87,9 @@ migrations, major refactors and architecture):
 The main session picks the tier by four ordered rules; the first that
 matches decides, and the brief says which rule chose it:
 
-1. You named a model or tier for the feature.
+1. You named a model or tier for the feature. A model with no tier
+   (Haiku, a pinned version) maps to the nearest tier, and the main session
+   tells you which, or it asks.
 2. A fable trigger: a migration, a schema or data model, concurrency,
    performance, security, or a cross-cutting refactor → fable.
 3. Sonnet only if the brief names a verify command, names an existing
@@ -106,7 +108,7 @@ parameter, so routing holds even if a build ignores the agent file's pin.
   `<synthetic>`). Its verdict reaches the main session as one line: **as
   chosen** (every model matches the tier), **FELL BACK** (any model does not,
   mixed runs included; the main session labels the worker **WORKER FELL BACK
-  TO <model>** and asks you instead of escalating), or **could not be
+  TO <model>**, and if it also failed, asks you instead of escalating), or **could not be
   confirmed** (either side unreadable; no ladder change). It parses both
   completion forms seen in practice, a `<task-notification>` and a subagent
   hand-back, and ignores agents that are not feature-crew workers. If no
@@ -150,8 +152,10 @@ and spends Fable only where the brief calls for it.
   fable-tier worker does not climb (the same model and effort would only be
   a retry); (3) the main session stops and asks you, offering a fresh
   `xhigh` worker as one option after a fable-tier failure (you set
-  `effort: xhigh` in `agents/feature-builder-deep.md` for it: the Agent tool
-  has no effort parameter). A worker that fell back but passed its checks
+  `effort: xhigh` in `<feature-crew root>/agents/feature-builder-deep.md`
+  for it, since the Agent tool has no effort parameter; that applies to every
+  later fable-tier dispatch until you revert it, a plugin update overwrites
+  it, and a restart may be needed). A worker that fell back but passed its checks
   is reported with the label, not stopped. Steps 1 and 2
   happen without asking; at most one model climb happens per feature.
   Failures already present on the base branch that the brief didn't ask

@@ -218,6 +218,9 @@ def resolve(parent_transcript, ref, tool_use_id):
     tool_use_id = tool_use_id or meta.get("toolUseId")
     more(tool_use_id)
     call = uses.get(tool_use_id) if tool_use_id else None
+    if call is None and meta.get("toolUseId") and meta["toolUseId"] != tool_use_id:
+        more(meta["toolUseId"])
+        call = uses.get(meta["toolUseId"])
     if call is not None:
         agent_type = call.get("subagent_type") or "general-purpose"
     else:
@@ -291,7 +294,8 @@ def check(who):
         verdict = "fell-back"
         other = [m for m in models if tier not in m.lower()]
         line = ("[feature-crew] worker %s FELL BACK: requested %s, ran %s. Start every message about it "
-                "with WORKER FELL BACK TO %s; if its checks failed, apply \"Requested model unavailable\"."
+                "with WORKER FELL BACK TO %s; if it failed or left a named check unrun, apply "
+                "\"Requested model unavailable\"."
                 % (label, tier, ", ".join(models), other[0]))
     row = {
         "agent_id": who["agent_id"],
