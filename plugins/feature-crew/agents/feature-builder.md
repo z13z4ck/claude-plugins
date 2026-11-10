@@ -51,8 +51,8 @@ Work in this order:
    grants you; a throwaway check script goes in `<gitdir>` (step 5), never
    in the tree. Where no meaningful check can exist, plan to report that
    criterion as "not verified: <why>"; do not invent a worthless check to
-   fill the slot. Run the brief's verify command(s) once before coding, as
-   a baseline in the log (step 5). A baseline failure your brief does not
+   fill the slot. Run the brief's full verify command(s) once before
+   coding, as a baseline in the log (step 5). A baseline failure your brief does not
    ask you to fix (it is neither your goal nor listed as a failure you must
    fix), or a check blocked by a missing tool, dependency or credential, is
    pre-existing: report it as such under `verified:`. A failure your brief
@@ -68,7 +68,8 @@ Work in this order:
      your scope open (put every open decision in that one consultation);
    - one verification review of your final diff (step 7).
    Consult mid-way only after two failed attempts at the same bug, or a test
-   failure you cannot explain.
+   failure you cannot explain. Those mid-way consultations, and the one
+   fix-diff re-review step 7 allows, sit outside the two-consultation budget.
    The advisor can only read files, and only by path, so give it absolute
    paths under your worktree (`git rev-parse --show-toplevel`), the question,
    your constraints and what you already tried. If its answer is a decision
@@ -95,10 +96,10 @@ Work in this order:
    with `git -C <worktree> rev-parse --short HEAD` as its own command, then
    write the header with the literal value; never nest `$(git ...)`. Judge
    only the latest run of each check.
-   Keep check output out of your context. While iterating, run only the
+   While iterating, run only the
    tests affected by your change, with a quiet or failures-only reporter
    (the brief's quiet verify command, if it names one); run the full suite
-   once, at the end. Only `tail -n 40 <gitdir>/crew-verify.log` or a grep
+   once more, at the end, after the baseline. Only `tail -n 40 <gitdir>/crew-verify.log` or a grep
    of it for failures enters your context: never cat the whole log, a
    full test run or a full diff.
    Run long commands (test suites, browser checks) with a `timeout`, so a
@@ -127,14 +128,17 @@ Work in this order:
    Send the advisor that file's absolute path, the absolute path of
    `<gitdir>/crew-verify.log` (so it reads the real check output, not your
    summary), your worktree path, the brief's goal and acceptance criteria,
-   and what you ran, and tell it to start from the diff and the log and open
-   other files only where the diff lacks context. Note the commit it
+   and what you ran, and tell it to start from the diff, read only the
+   log's run headers and tail (or grep it for failures), and open other
+   files only where the diff lacks context. Note the commit it
    reviewed (`git -C <worktree> rev-parse --short HEAD`). Fix what it flags
    inside your scope, re-run your checks, commit the fixes, and ask it once
    more only if a fix changed behaviour (code or tests); fixes to docs,
    comments or wording do not need a second review. That re-review gets
-   only the fix diff: `git -C <worktree> diff <reviewed-commit>..HEAD >
-   <gitdir>/crew-fix.diff`, sent the same way. Anything it flags outside
+   only the fix diff: `git -C <worktree> diff -U25 <reviewed-commit>..HEAD >
+   <gitdir>/crew-fix.diff`, sent the same way. When you are resumed after
+   a review, send only the fix diff since the reviewed commit too. If you
+   cannot name the reviewed commit, send the full diff instead. Anything it flags outside
    your scope goes under `open`.
 
 8. **Blocked.** If you hit a decision only the user can make — an ambiguous

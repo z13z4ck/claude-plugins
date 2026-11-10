@@ -1110,7 +1110,13 @@ contains "$p" "at most two planned consultations" && contains "$p" "one on the d
   && ok "worker policy drops the two-approaches trigger and the four-file nudge wording" || no "worker policy still has old triggers" "$p"
 contains "$p" "<reviewed-commit>..HEAD" && contains "$p" "crew-fix.diff" && contains "$p" "diff -U25 <base>...HEAD" \
   && ok "worker policy: -U25 review diff, fix-diff re-review" || no "worker policy diff wording" "$p"
-contains "$p" "start from the diff" && ok "worker policy tells the advisor to start from the diff" || no "diff-first wording missing" "$p"
+contains "$p" "start from the diff" && contains "$p" "run headers and tail" && ok "worker policy tells the advisor to start from the diff and the log's tail" || no "diff-first wording missing" "$p"
+contains "$p" "Outside that budget" && contains "$p" "held once" && ok "worker policy: re-review sits outside the budget; full mode promises the hold" || no "budget scope / hold wording" "$p"
+FABLE_ADVISOR_ENFORCE=nudge worker_hook subagent-start aw7n "$WK"
+p="$(context_of "$HOOK_OUT")"
+! contains "$p" "held once" && contains "$p" "no hold at the end in this mode" && ok "ENFORCE=nudge: worker policy does not promise a hold" || no "nudge-mode policy promises a hold" "$p"
+FABLE_ADVISOR_SUBAGENT_STOP=0 worker_hook subagent-start aw7s "$WK"
+contains "$(context_of "$HOOK_OUT")" "no hold at the end in this mode" && ok "SUBAGENT_STOP=0: worker policy does not promise a hold" || no "SUBAGENT_STOP=0 policy promises a hold" "$HOOK_OUT"
 worker_hook subagent-start aw8 Explore
 [ -z "$HOOK_OUT" ] && ok "subagent-start is silent for other types" || no "policy injected into Explore"
 grep -q "event=subagent-start agent_type=Explore enforced=0" "$FABLE_ADVISOR_HOME/events.log" && ok "subagent-start logs the raw agent_type" || no "agent_type not logged"
@@ -1178,8 +1184,9 @@ worker_hook subagent-stop as6 "$WK" '"stop_hook_active":false'
 r="$(jget "$HOOK_OUT" reason)"
 [ "$(jget "$HOOK_OUT" decision)" = "block" ] && contains "$r" "edited 4 files" && contains "$r" "e.py" && ! contains "$r" "a.py" \
   && ok "post-review fixes on 4+ files are still held once" || no "post-review fixes not held" "$HOOK_OUT"
-contains "$r" "<reviewed-commit>..HEAD" && contains "$r" "crew-fix.diff" && ! contains "$r" "<base>...HEAD" \
-  && ok "after a review, the hold accepts a fix-diff review instead of a full one" || no "fix-diff hold wording" "$r"
+contains "$r" "diff -U25 <reviewed-commit>..HEAD" && contains "$r" "crew-fix.diff" && ! contains "$r" "diff -U25 <base>...HEAD" \
+  && contains "$r" "if you cannot name it" \
+  && ok "after a review, the hold accepts a -U25 fix-diff review (full diff only as a fallback)" || no "fix-diff hold wording" "$r"
 grep -q "event=subagent-stop-hold files=4 .*agent=as6 kind=fix" "$FABLE_ADVISOR_HOME/events.log" && ok "events.log marks a fix-diff hold kind=fix" || no "hold kind not logged" "$(tail -n 2 "$FABLE_ADVISOR_HOME/events.log")"
 
 new_worker st7 as7
@@ -1190,6 +1197,38 @@ worker_hook subagent-stop as7 "$WK" '"stop_hook_active":false'
 r="$(jget "$HOOK_OUT" reason)"
 contains "$r" "diff -U25 <base>...HEAD" && ! contains "$r" "crew-fix.diff" \
   && ok "a design consultation (no diff file) is not a review: the hold asks for the full diff" || no "design consult taken as a review" "$r"
+
+# The heuristic is narrow: only the diff files the policy names make a review.
+new_worker st9 as9
+in_worker t_prompt "Build it"
+in_worker t_tool_use Agent '{"subagent_type":"fable-advisor:advisor","model":"fable","description":"design","prompt":"Should I use moment.diff() or a.diff.ts helper? See /w/src/foo.diff"}'
+for f in a.py b.py c.py d.py; do in_worker t_edit "$f"; done
+worker_hook subagent-stop as9 "$WK" '"stop_hook_active":false'
+r="$(jget "$HOOK_OUT" reason)"
+contains "$r" "diff -U25 <base>...HEAD" && ! contains "$r" "crew-fix.diff" \
+  && ok "a consultation mentioning other .diff names is not taken for a review" || no "near-miss taken as a review" "$r"
+
+new_worker st10 as10
+in_worker t_prompt "Build it"
+for f in a.py b.py c.py d.py; do in_worker t_edit "$f"; done
+in_worker t_review
+REV_ID="$LAST_ID"
+in_worker t_denied_result "$REV_ID"
+worker_hook subagent-stop as10 "$WK" '"stop_hook_active":false'
+r="$(jget "$HOOK_OUT" reason)"
+contains "$r" "diff -U25 <base>...HEAD" && ! contains "$r" "crew-fix.diff" \
+  && ok "a denied review dispatch is no review: the hold asks for the full diff" || no "denied review counted" "$HOOK_OUT"
+
+new_worker st11 as11
+in_worker t_prompt "Build it"
+for f in a.py b.py c.py d.py; do in_worker t_edit "$f"; done
+in_worker t_review
+in_worker t_consult
+for f in e.py f.py g.py h.py; do in_worker t_edit "$f"; done
+worker_hook subagent-stop as11 "$WK" '"stop_hook_active":false'
+r="$(jget "$HOOK_OUT" reason)"
+contains "$r" "crew-fix.diff" && contains "$r" "e.py" && ! contains "$r" "a.py" \
+  && ok "review, then a mid-way consultation, then 4 edits: still a fix-diff hold" || no "earlier review forgotten" "$r"
 
 new_worker st8 as8
 in_worker t_prompt "Build it"

@@ -102,11 +102,11 @@ Set these in the environment Claude Code runs in — the `env` block of
 | `FABLE_ADVISOR_ENFORCE` | `full` | `nudge` keeps the context injection but never denies or holds, except the background gate, which prevents a stalled worker; `off` silences every hook. |
 | `FABLE_ADVISOR_FILE_THRESHOLD` | `4` | Distinct files that trigger the edit watch and the stop audit. The injected policy says "more than N−1 files" accordingly. |
 | `FABLE_ADVISOR_PLAN_GATE` | `1` | `0` disables the `ExitPlanMode` gate. |
-| `FABLE_ADVISOR_EDIT_WATCH` | `1` | `0` disables the edit-count nudge. |
+| `FABLE_ADVISOR_EDIT_WATCH` | `1` | `0` disables the edit-count nudge, and a worker's `edit-tally` log line (its hold still counts from the transcript). |
 | `FABLE_ADVISOR_STOP_AUDIT` | `1` | `0` disables the end-of-turn hold. |
 | `FABLE_ADVISOR_PROMPT_NUDGE` | `1` | `0` disables per-prompt nudges. |
 | `FABLE_ADVISOR_SUBAGENTS` | `feature-crew:feature-builder,feature-crew:feature-builder-deep` | Comma-separated subagent types enforced as workers (plugin-scoped name or bare frontmatter name, compared whole: `feature-builder` does not match `feature-builder-deep`). `none` turns worker enforcement off. Since 1.10.2 the default includes feature-crew's escalation worker. If you set this variable, list both feature-crew workers. |
-| `FABLE_ADVISOR_SUBAGENT_STOP` | `1` | `0` disables the worker hold; the worker policy and nudges stay. |
+| `FABLE_ADVISOR_SUBAGENT_STOP` | `1` | `0` disables the worker hold; the worker policy stays (workers get no edit nudge since 1.10.3). |
 | `FABLE_ADVISOR_CLAUDE_MD` | `1` | `0`/`off` stops the automatic advisor-policy block in your user-level CLAUDE.md. It does not remove a block already written — `/fable-advisor:claude-md remove` does. |
 | `FABLE_ADVISOR_HOME` | `~/.claude/fable-advisor` | Where `events.log`, per-session state and the CLAUDE.md stamp (`claude-md.json`) live. State files are reaped after 7 days; the stamp is kept. |
 
@@ -128,7 +128,7 @@ cases:
 
 | Subagent | Treatment |
 |---|---|
-| An enforced worker type (`FABLE_ADVISOR_SUBAGENTS`) | Its own state file (`<session>--<agent_id>.json`) and its own transcript. Its edits, nudges, consultations and hold are its own and never count for the parent — a worker's review does not excuse the parent from its own, and a worker's edits never hold the parent. Since 1.10.0 it must dispatch the advisor and any other subagent in the foreground: the background gate denies `run_in_background: true`, and the worker policy says why. |
+| An enforced worker type (`FABLE_ADVISOR_SUBAGENTS`) | Its own state file (`<session>--<agent_id>.json`) and its own transcript. Its edits, consultations and hold are its own and never count for the parent — a worker's review does not excuse the parent from its own, and a worker's edits never hold the parent. Since 1.10.0 it must dispatch the advisor and any other subagent in the foreground: the background gate denies `run_in_background: true`, and the worker policy says why. |
 | The advisor itself | Silent. |
 | Anything else (`general-purpose`, `Explore`, your own agents) | Counted for the parent, as before: it works in the parent's tree, so a turn that delegates six edits to a subagent is still held. |
 

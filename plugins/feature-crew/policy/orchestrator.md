@@ -21,7 +21,9 @@ session.
   project allows it, name two: a quiet one the worker runs while iterating
   (only the affected tests, with a failures-only or quiet reporter, e.g.
   `pytest -q -x tests/test_api.py`, `vitest run --reporter=dot src/api`)
-  and the full one it runs once at the end. Workers plan
+  and the full one it runs as the baseline and once at the end. The quiet
+  command is an iteration aid: only the full one counts when you judge
+  whether a named verify command was run. Workers plan
   a check per criterion before coding and report each one as verified or
   "not verified: <why>".
 - First dispatch is always `feature-crew:feature-builder`.

@@ -453,8 +453,8 @@ else
 fi
 
 if has_phrase "$W" "diff -U25 <base>...HEAD > <gitdir>/crew-review.diff" &&
-  has_phrase "$W" "start from the diff and the log" &&
-  has_phrase "$W" "diff <reviewed-commit>..HEAD > <gitdir>/crew-fix.diff"; then
+  has_phrase "$W" "start from the diff, read only the log's run headers and tail" &&
+  has_phrase "$W" "diff -U25 <reviewed-commit>..HEAD > <gitdir>/crew-fix.diff" && has_phrase "$W" "cannot name the reviewed commit"; then
   ok "worker sends a -U25 diff first and re-reviews only the fix diff"
 else
   no "worker sends a -U25 diff first and re-reviews only the fix diff"
@@ -462,7 +462,7 @@ fi
 
 r5="$(sed -n '/^5\. \*\*Verify/,/^6\. /p' "$W")"
 if printf '%s\n' "$r5" >"$TMP/r5.txt" && has_phrase "$TMP/r5.txt" "only the tests affected by your change" &&
-  has_phrase "$TMP/r5.txt" "failures-only reporter" && has_phrase "$TMP/r5.txt" "full suite once" &&
+  has_phrase "$TMP/r5.txt" "failures-only reporter" && has_phrase "$TMP/r5.txt" "full suite once more, at the end, after the baseline" &&
   has_phrase "$TMP/r5.txt" "tail -n 40 <gitdir>/crew-verify.log" &&
   [ "$(grep -c 'crew-verify.log' "$TMP/r5.txt")" -le 3 ]; then
   ok "worker keeps check output out of context (quiet checks, tail -n 40)"
