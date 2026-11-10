@@ -814,13 +814,18 @@ if command -v git >/dev/null 2>&1; then
   SEP="$WORK/sepgit"
   rm -rf "$SEP"; mkdir -p "$SEP"
   git init -q --separate-git-dir="$SEP/store.gitdir" "$SEP/proj" >/dev/null 2>&1
+  # bare clone with a worktree checked out inside it
+  git init -q "$SEP/seed" >/dev/null 2>&1
+  git -C "$SEP/seed" -c user.name=t -c user.email=t@t commit -q --allow-empty -m s >/dev/null 2>&1
+  git clone -q --bare "$SEP/seed" "$SEP/proj.git" >/dev/null 2>&1
+  git -C "$SEP/proj.git" worktree add -q "$SEP/proj.git/main" >/dev/null 2>&1
   sg="$(py - "$BIN" "$SEP" <<'PYEOF'
 import os, sys
 sys.path.insert(0, sys.argv[1])
 import advisor_hooks as h
 sep = sys.argv[2]
 out = []
-h._SESSION_CWD = os.path.join(sep, "proj"); h._GIT_DIRS = None
+h._SESSION_CWD = os.path.join(sep, "proj"); h._GIT_DIRS = None; h._IN_GIT_DIR_MEMO.clear()
 dirs = h._session_git_dirs()
 out.append("dirs=%d" % len(dirs))
 out.append("in=%s" % h._in_session_git_dir(os.path.join(sep, "store.gitdir", "crew-verify.log")))
@@ -828,17 +833,27 @@ out.append("out=%s" % h._in_session_git_dir(os.path.join(sep, "proj", "src", "a.
 out.append("sibling=%s" % h._in_session_git_dir(os.path.join(sep, "store.gitdirx", "a.py")))
 h._SESSION_CWD = os.path.join(sep, "nowhere-not-a-repo"); h._GIT_DIRS = None
 out.append("norepo=%s" % (h._session_git_dirs() == ()))
+# Bare clone with a worktree inside it: the common dir contains the work
+# tree, so it is dropped; the git dir of the worktree still excludes.
+bare = os.path.join(sep, "proj.git")
+h._SESSION_CWD = os.path.join(bare, "main"); h._GIT_DIRS = None; h._IN_GIT_DIR_MEMO.clear()
+out.append("nested_src=%s" % h._in_session_git_dir(os.path.join(bare, "main", "src", "a.py")))
+out.append("nested_log=%s" % h._in_session_git_dir(os.path.join(bare, "worktrees", "main", "crew-verify.log")))
+h._SESSION_CWD = bare; h._GIT_DIRS = None; h._IN_GIT_DIR_MEMO.clear()
+out.append("bareroot=%s" % (h._session_git_dirs() == ()))
 # counts_as_edit wiring, on a path outside every temp prefix
-h._SESSION_CWD = "/srv/x"; h._GIT_DIRS = ("/srv/repo.git",)
-out.append("bare=%s" % h.counts_as_edit("/srv/repo.git/worktrees/w1/crew-verify.log"))
-out.append("work=%s" % h.counts_as_edit("/srv/wt/src/app.py"))
-h._GIT_DIRS = ()
-out.append("open=%s" % h.counts_as_edit("/srv/repo.git/worktrees/w1/crew-verify.log"))
+srv = os.path.abspath(os.sep + "srv")
+h._SESSION_CWD = os.path.join(srv, "x"); h._IN_GIT_DIR_MEMO.clear()
+h._GIT_DIRS = (h._norm_path(os.path.join(srv, "repo.git")).replace("\\", "/"),)
+out.append("bare=%s" % h.counts_as_edit(os.path.join(srv, "repo.git", "worktrees", "w1", "crew-verify.log")))
+out.append("work=%s" % h.counts_as_edit(os.path.join(srv, "wt", "src", "app.py")))
+h._GIT_DIRS = (); h._IN_GIT_DIR_MEMO.clear()
+out.append("open=%s" % h.counts_as_edit(os.path.join(srv, "repo.git", "worktrees", "w1", "crew-verify.log")))
 print(" ".join(out))
 PYEOF
 )"
-  [ "$sg" = "dirs=1 in=True out=False sibling=False norepo=True bare=False work=True open=True" ] \
-    && ok "session git dir without a .git segment is excluded; other paths still count; no repo fails open" \
+  [ "$sg" = "dirs=1 in=True out=False sibling=False norepo=True nested_src=False nested_log=True bareroot=True bare=False work=True open=True" ] \
+    && ok "session git dir without a .git segment is excluded; a worktree inside a bare clone still counts; no repo or bare root fails open" \
     || no "session git dir exclusion" "$sg"
 else
   ok "session git dir exclusion: git not installed, skipped"

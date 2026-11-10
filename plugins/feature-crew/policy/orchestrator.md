@@ -77,11 +77,15 @@ session.
   from an advisor verdict that asks for changes, which you only offer to
   the user (see "Act on the verdict"). Check the three rules below first.
   - Transient error (check before step 1): if the dispatch or the worker
-    failed with a rate-limit or overload error, retry exactly once: dispatch
-    the same worker type with the same brief (on `crew/<slug>-r<N>` from its
-    branch if it already committed work). This retry is not a ladder step.
-    If the retry fails the same way, tell the user and ask; do not climb
-    the ladder on transient errors.
+    failed with a rate-limit or overload error, retry exactly once per
+    feature, whichever worker hit it: resume the worker with SendMessage if
+    it can be resumed; otherwise dispatch the same worker type with the
+    same brief, saving uncommitted work first as under "Stopped by the
+    user", on `crew/<slug>-r<N>` from its branch if it already committed
+    work, naming the original feature's base as its review base. This
+    retry is not a ladder step. If the retry fails the same way, tell the
+    user and ask; do not climb the ladder on transient errors. If the
+    Fable-unavailable rule also matches, it wins.
   - Fable unavailable (check before step 1): if the dispatch or the worker
     failed because the Fable model is unavailable or refused (no access on
     the account, the usage-credits consent not accepted, a model, billing or
@@ -126,7 +130,7 @@ session.
      ask the user how to proceed, with both workers' evidence. Do not
      dispatch further workers unasked.
   If the worker errored before reporting and cannot be resumed, skip to 2,
-  unless the Fable-unavailable rule above applies.
+  unless the Transient-error or Fable-unavailable rule above applies.
 - **Stopped by the user**: a stopped worker cannot be resumed. Save its
   uncommitted work at once, before its worktree can be cleaned up. Stage
   everything so new and binary files come along (`git -C <worktree> add -A`),

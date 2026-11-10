@@ -350,14 +350,18 @@ def _in_git_dir(p):
 # Used only to ask git where this repository's git dir lives.
 _SESSION_CWD = None
 _GIT_DIRS = None  # per-process cache: tuple of normalised git dirs, or ()
+_IN_GIT_DIR_MEMO = {}  # per-process: path -> bool (Scan re-checks every row)
 
 
 def _session_git_dirs():
     """The session repository's git dir and common git dir, absolute and
     normalised, so a git dir without a `.git` segment (`repo.git/worktrees/
     <id>`, a bare repo, `--separate-git-dir`) is recognised too. Asked of git
-    once per hook process; any failure (no git, not a repo, timeout) yields ()
-    and leaves only the `.git`-segment rule, i.e. the old behaviour."""
+    once per hook process; any failure (no git, not a repo, a bare-repo root
+    with no work tree, timeout) yields () and leaves only the `.git`-segment
+    rule, i.e. the old behaviour. A git dir that equals or contains the work
+    tree (a bare clone with `git worktree add` inside it) is dropped, so it can
+    never hide the project's own files."""
     global _GIT_DIRS
     if _GIT_DIRS is not None:
         return _GIT_DIRS
@@ -365,20 +369,25 @@ def _session_git_dirs():
     cwd = _SESSION_CWD or os.getcwd()
     try:
         out = subprocess.run(
-            ["git", "-C", cwd, "rev-parse", "--absolute-git-dir", "--git-common-dir"],
-            capture_output=True, text=True, timeout=3)
-        if out.returncode != 0:
+            ["git", "-C", cwd, "rev-parse", "--show-toplevel", "--absolute-git-dir",
+             "--git-common-dir"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3)
+        lines = [ln.strip() for ln in out.stdout.splitlines()]
+        if out.returncode != 0 or len(lines) < 3 or not all(lines[:3]):
             return _GIT_DIRS
+
+        def norm(x):
+            if not os.path.isabs(x):
+                x = os.path.join(cwd, x)  # --git-common-dir may be relative
+            return _norm_path(os.path.realpath(x)).replace("\\", "/").rstrip("/")
+
+        top = norm(lines[0])
         dirs = []
-        for line in out.stdout.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            if not os.path.isabs(line):
-                line = os.path.join(cwd, line)  # --git-common-dir may be relative
-            d = _norm_path(os.path.realpath(line)).rstrip("/\\")
-            if d and d not in dirs:
-                dirs.append(d)
+        for line in lines[1:3]:
+            d = norm(line)
+            if not d or d in dirs or top == d or top.startswith(d + "/"):
+                continue  # a git dir holding the work tree must not hide it
+            dirs.append(d)
         _GIT_DIRS = tuple(dirs)
     except Exception:
         _GIT_DIRS = ()
@@ -392,14 +401,16 @@ def _in_session_git_dir(p):
     dirs = _session_git_dirs()
     if not dirs:
         return False
-    if not os.path.isabs(p) and not re.match(r"^[A-Za-z]:[/\\]", p):
-        p = os.path.join(_SESSION_CWD or os.getcwd(), p)
-    q = _norm_path(os.path.realpath(p)).replace("\\", "/")  # git reports resolved paths
-    for d in dirs:
-        d = d.replace("\\", "/")
-        if q == d or q.startswith(d + "/"):
-            return True
-    return False
+    hit = _IN_GIT_DIR_MEMO.get(p)
+    if hit is not None:
+        return hit
+    q = _msys_to_win(p)
+    if not os.path.isabs(q) and not re.match(r"^[A-Za-z]:[/\\]", q):
+        q = os.path.join(_SESSION_CWD or os.getcwd(), q)
+    q = _norm_path(os.path.realpath(q)).replace("\\", "/")  # git reports resolved paths
+    hit = any(q == d or q.startswith(d + "/") for d in dirs)
+    _IN_GIT_DIR_MEMO[p] = hit
+    return hit
 
 
 def counts_as_edit(fp):
@@ -411,7 +422,7 @@ def counts_as_edit(fp):
     if not fp or fp.startswith(_SKIP_WRITE_PREFIXES):
         return False
     p = _norm_path(fp)
-    if _in_git_dir(p) or _in_session_git_dir(fp):
+    if _in_git_dir(p):
         return False
     cfg = _norm_path(_config_dir()).rstrip("/") + "/"
     if p.startswith(cfg + "plans/") or p.startswith(cfg + "projects/"):
@@ -420,6 +431,8 @@ def counts_as_edit(fp):
         tmp = _norm_path(tempfile.gettempdir()).rstrip("/") + "/"
         if p.startswith(tmp):
             return False
+    if _in_session_git_dir(fp):  # last: the only check that may touch the disk
+        return False
     return True
 
 

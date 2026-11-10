@@ -200,8 +200,8 @@ if [ "$RC" -eq 0 ] && has "Policy file missing"; then ok "missing policy file is
 # in a policy or agent file can never break a check.
 has_phrase() {
   local text want
-  text="$(tr '\n\t' '  ' <"$1" | tr -s ' ')"
-  want="$(printf '%s' "$2" | tr '\n\t' '  ' | tr -s ' ')"
+  text="$(tr '\r\n\t' '   ' <"$1" | tr -s ' ')"
+  want="$(printf '%s' "$2" | tr '\r\n\t' '   ' | tr -s ' ')"
   case "$text" in *"$want"*) return 0 ;; *) return 1 ;; esac
 }
 
@@ -315,8 +315,9 @@ fi
 # Rate-limit/overload errors are transient: exactly one retry of the same
 # worker and brief, never the ladder, then the user.
 if has_phrase "$O" "Transient error (check before step 1)" &&
-  has_phrase "$O" "rate-limit or overload error, retry exactly once" &&
+  has_phrase "$O" "rate-limit or overload error, retry exactly once per feature" &&
   has_phrase "$O" "same worker type with the same brief" &&
+  has_phrase "$O" "unless the Transient-error or Fable-unavailable rule above applies" &&
   has_phrase "$O" "do not climb the ladder on transient errors" &&
   ! has_phrase "$O" "billing, rate-limit or overload error"; then
   ok "orchestrator retries a rate-limit/overload failure once, then asks; billing/auth go straight to the user"
