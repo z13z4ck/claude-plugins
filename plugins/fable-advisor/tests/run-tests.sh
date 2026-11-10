@@ -1036,7 +1036,11 @@ t_prompt "dispatch a worker"
 in_worker t_prompt "Build the credit API"
 for f in a.py b.py c.py; do in_worker t_edit "$f"; done
 worker_hook post-tool aw1 "$WK" '"tool_name":"Edit","prompt_id":"p-main","tool_input":{"file_path":"d.py"}'
-contains "$(context_of "$HOOK_OUT")" "You have edited 4 distinct files" && ok "enforced worker: its own transcript is scanned and it is nudged at 4" || no "worker not nudged" "$HOOK_OUT"
+# 1.10.3: workers keep the tally but get no mid-build four-file nudge.
+[ -z "$HOOK_OUT" ] && ok "enforced worker: no PostToolUse nudge at 4 files (1.10.3)" || no "worker nudged" "$HOOK_OUT"
+grep -q '"a.py"' "$(wstate aw1)" && grep -q '"d.py"' "$(wstate aw1)" && ok "enforced worker: its own transcript is scanned and the tally keeps all 4 files" || no "worker tally incomplete" "$(cat "$(wstate aw1)" 2>/dev/null)"
+grep -q "event=edit-tally files=4 .*agent=aw1" "$FABLE_ADVISOR_HOME/events.log" && ok "enforced worker: events.log records the tally as edit-tally" || no "edit-tally not logged" "$(tail -n 3 "$FABLE_ADVISOR_HOME/events.log")"
+! grep -q "event=edit-nudge .*agent=aw1" "$FABLE_ADVISOR_HOME/events.log" && ok "enforced worker: no edit-nudge logged" || no "worker edit-nudge logged"
 [ -f "$(wstate aw1)" ] && ok "enforced worker: state lives in its own file (sid--agent_id)" || no "no worker state file"
 if [ ! -f "$FABLE_ADVISOR_HOME/state/$SID.json" ]; then ok "enforced worker edits never touch the parent's state (leak fix)"; else no "parent state written by worker" "$(cat "$FABLE_ADVISOR_HOME/state/$SID.json")"; fi
 run_hook stop-audit '"stop_hook_active":false,"prompt_id":"p-main"'
@@ -1055,7 +1059,7 @@ new_worker w3 aw3
 in_worker t_prompt "Build it"
 in_worker t_edit a.py; in_worker t_edit b.py; in_worker t_edit c.py
 worker_hook post-tool aw3 "feature-builder" '"tool_name":"Edit","tool_input":{"file_path":"d.py"}'
-contains "$(context_of "$HOOK_OUT")" "You have edited 4" && ok "bare agent_type 'feature-builder' is enforced too" || no "bare name not matched" "$HOOK_OUT"
+[ -f "$(wstate aw3)" ] && [ -z "$HOOK_OUT" ] && ok "bare agent_type 'feature-builder' is enforced too" || no "bare name not matched" "$HOOK_OUT"
 
 # 1.10.2: the escalation worker is enforced by default as well, and a
 # feature-builder entry does not also match feature-builder-deep (names are
@@ -1064,7 +1068,7 @@ new_worker w3d aw3d
 in_worker t_prompt "Build it deeper"
 in_worker t_edit a.py; in_worker t_edit b.py; in_worker t_edit c.py
 worker_hook post-tool aw3d "feature-crew:feature-builder-deep" '"tool_name":"Edit","tool_input":{"file_path":"d.py"}'
-contains "$(context_of "$HOOK_OUT")" "You have edited 4" && ok "feature-crew:feature-builder-deep is enforced by default" || no "deep worker not enforced" "$HOOK_OUT"
+grep -q "event=edit-tally files=4 .*agent=aw3d" "$FABLE_ADVISOR_HOME/events.log" && ok "feature-crew:feature-builder-deep is enforced by default" || no "deep worker not enforced" "$HOOK_OUT"
 [ -f "$(wstate aw3d)" ] && ok "deep worker keeps its own state file" || no "no deep worker state file"
 new_worker w3e aw3e
 in_worker t_prompt "Build it deeper"
@@ -1099,6 +1103,14 @@ worker_hook subagent-start aw7 "$WK"
 [ "$(jget "$HOOK_OUT" hookSpecificOutput.hookEventName)" = "SubagentStart" ] && contains "$(context_of "$HOOK_OUT")" "Advisor policy for this worker" && ok "subagent-start injects the worker policy into enforced types" || no "no worker policy" "$HOOK_OUT"
 contains "$(context_of "$HOOK_OUT")" "absolute path" && ok "worker policy says the advisor reads by absolute path" || no "path guidance missing"
 contains "$(context_of "$HOOK_OUT")" "crew-verify.log" && contains "$(context_of "$HOOK_OUT")" "original feature's base" && ok "worker policy names the verify log and the original feature's base" || no "worker policy lacks verify log / base wording" "$(context_of "$HOOK_OUT")"
+p="$(context_of "$HOOK_OUT")"
+contains "$p" "at most two planned consultations" && contains "$p" "one on the design" && contains "$p" "verification review of your final diff" \
+  && ok "worker policy states the two-consultation budget (1.10.3)" || no "worker policy lacks the budget" "$p"
+! contains "$p" "two viable approaches" && ! contains "$p" "a nudge once" && contains "$p" "no mid-build nudge" \
+  && ok "worker policy drops the two-approaches trigger and the four-file nudge wording" || no "worker policy still has old triggers" "$p"
+contains "$p" "<reviewed-commit>..HEAD" && contains "$p" "crew-fix.diff" && contains "$p" "diff -U25 <base>...HEAD" \
+  && ok "worker policy: -U25 review diff, fix-diff re-review" || no "worker policy diff wording" "$p"
+contains "$p" "start from the diff" && ok "worker policy tells the advisor to start from the diff" || no "diff-first wording missing" "$p"
 worker_hook subagent-start aw8 Explore
 [ -z "$HOOK_OUT" ] && ok "subagent-start is silent for other types" || no "policy injected into Explore"
 grep -q "event=subagent-start agent_type=Explore enforced=0" "$FABLE_ADVISOR_HOME/events.log" && ok "subagent-start logs the raw agent_type" || no "agent_type not logged"
@@ -1115,6 +1127,8 @@ r="$(jget "$HOOK_OUT" reason)"
 contains "$r" "git -C <worktree> rev-parse --absolute-git-dir" && ! contains "$r" '"$(git' && ok "hold reason gives plain git -C commands the worktree guard accepts" || no "hold reason uses a refused git form"
 contains "$r" "crew-verify.log" && ok "hold reason hands the advisor the verify log" || no "hold reason lacks crew-verify.log" "$r"
 contains "$r" "original feature's base" && ! contains "$r" "against your base branch" && ok "hold reason diffs against the original feature's base (deep/revision workers)" || no "hold reason base wording" "$r"
+contains "$r" "diff -U25 <base>...HEAD" && contains "$r" "crew-review.diff" && ! contains "$r" "crew-fix.diff" \
+  && ok "with no earlier review, the hold asks for a full -U25 review" || no "full-review hold wording" "$r"
 worker_hook subagent-stop as1 "$WK" '"stop_hook_active":false,"last_assistant_message":"DONE"'
 [ -z "$HOOK_OUT" ] && ok "the worker hold fires once per prompt" || no "held twice" "$HOOK_OUT"
 grep -q "event=subagent-stop-hold" "$FABLE_ADVISOR_HOME/events.log" && ok "events.log records worker holds" || no "worker hold not logged"
@@ -1151,6 +1165,39 @@ in_worker t_consult
 in_worker t_edit e.py
 worker_hook subagent-stop as3 "$WK" '"stop_hook_active":false'
 [ -z "$HOOK_OUT" ] && ok "edits before the worker's consultation are not held" || no "held after a consultation" "$HOOK_OUT"
+
+# 1.10.3: post-review fixes touching 4+ files are held for a fix-diff review,
+# not a second full <base>...HEAD review.
+t_review() { t_tool_use Agent '{"subagent_type":"fable-advisor:advisor","model":"fable","description":"review","prompt":"Verification review. Diff: /g/crew-review.diff, log: /g/crew-verify.log"}'; }
+new_worker st6 as6
+in_worker t_prompt "Build it"
+for f in a.py b.py c.py d.py; do in_worker t_edit "$f"; done
+in_worker t_review
+for f in e.py f.py g.py h.py; do in_worker t_edit "$f"; done
+worker_hook subagent-stop as6 "$WK" '"stop_hook_active":false'
+r="$(jget "$HOOK_OUT" reason)"
+[ "$(jget "$HOOK_OUT" decision)" = "block" ] && contains "$r" "edited 4 files" && contains "$r" "e.py" && ! contains "$r" "a.py" \
+  && ok "post-review fixes on 4+ files are still held once" || no "post-review fixes not held" "$HOOK_OUT"
+contains "$r" "<reviewed-commit>..HEAD" && contains "$r" "crew-fix.diff" && ! contains "$r" "<base>...HEAD" \
+  && ok "after a review, the hold accepts a fix-diff review instead of a full one" || no "fix-diff hold wording" "$r"
+grep -q "event=subagent-stop-hold files=4 .*agent=as6 kind=fix" "$FABLE_ADVISOR_HOME/events.log" && ok "events.log marks a fix-diff hold kind=fix" || no "hold kind not logged" "$(tail -n 2 "$FABLE_ADVISOR_HOME/events.log")"
+
+new_worker st7 as7
+in_worker t_prompt "Build it"
+in_worker t_consult
+for f in a.py b.py c.py d.py; do in_worker t_edit "$f"; done
+worker_hook subagent-stop as7 "$WK" '"stop_hook_active":false'
+r="$(jget "$HOOK_OUT" reason)"
+contains "$r" "diff -U25 <base>...HEAD" && ! contains "$r" "crew-fix.diff" \
+  && ok "a design consultation (no diff file) is not a review: the hold asks for the full diff" || no "design consult taken as a review" "$r"
+
+new_worker st8 as8
+in_worker t_prompt "Build it"
+for f in a.py b.py c.py d.py; do in_worker t_edit "$f"; done
+in_worker t_review
+for f in e.py f.py g.py; do in_worker t_edit "$f"; done
+worker_hook subagent-stop as8 "$WK" '"stop_hook_active":false'
+[ -z "$HOOK_OUT" ] && ok "post-review fixes on 3 files are not held" || no "held a small fix" "$HOOK_OUT"
 
 new_worker st4 as4
 in_worker t_prompt "Build it"

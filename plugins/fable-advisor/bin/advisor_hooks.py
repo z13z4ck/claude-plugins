@@ -632,6 +632,11 @@ def _block_text(block):
     return ""
 
 
+# A verification review hands the advisor a diff file (crew-review.diff,
+# crew-fix.diff); a design consultation does not.
+_RE_DIFF_FILE = re.compile(r"\.diff\b")
+
+
 class Scan:
     """One pass over the session transcript, keeping only what the hooks need."""
 
@@ -641,6 +646,7 @@ class Scan:
         self.lines = 0
         self.consults = []       # line numbers of advisor dispatches (health checks excluded)
         self.consult_lines = {}  # tool_use_id -> line, to match state-recorded consults
+        self.reviews = []        # consult lines whose prompt hands the advisor a .diff file
         self.health_checks = []  # line numbers of /fable-advisor:health dispatches
         self.edits = []          # (line, file_path)
         self.prompts = []        # (line, text) real user prompts, newest last
@@ -716,6 +722,8 @@ class Scan:
                     self.health_checks.append(n)
                 else:
                     self.consults.append(n)
+                    if _RE_DIFF_FILE.search(prompt):
+                        self.reviews.append(n)
                     if b.get("id"):
                         self.consult_lines[b["id"]] = n
             elif name in EDIT_TOOLS:
@@ -755,6 +763,8 @@ class Scan:
                         line_no = self.consult_lines.pop(tid)
                         if line_no in self.consults:
                             self.consults.remove(line_no)
+                        if line_no in self.reviews:
+                            self.reviews.remove(line_no)
                     if tid in self._exit_ids and not b.get("is_error") \
                             and "[fable-advisor]" not in _block_text(b):
                         # A hook denial also yields a tool_result for the call; only a
@@ -1541,24 +1551,20 @@ def edit_watch(inp):
     state["edit_watch"] = ew
     save_state(sid, state)
     if sc.kind == "worker":
-        text = (
-            "[fable-advisor] You have edited %d distinct files since your last advisor consultation "
-            "(threshold %d): %s. Policy: pause before further edits and %s with your worktree path "
-            "(absolute), the goal, the files changed so far and what remains; adjust course if its "
-            "VERDICT says so." % (n, CFG.threshold, _list_files(files), DISPATCH)
-        )
-    else:
-        text = (
-            "[fable-advisor] %d distinct files have now been edited since the last advisor consultation "
-            "(threshold %d): %s. Policy: pause before further edits and %s with the goal, the files changed "
-            "so far and what remains; present its VERDICT and adjust course if it says so."
-            % (n, CFG.threshold, _list_files(files), DISPATCH)
-        )
+        # 1.10.3: workers keep the tally (the SubagentStop hold reads it) but get
+        # no mid-build nudge. events.log showed workers ignore it, and the nudge
+        # right after a final review set off a second full review. Their budget
+        # is a design consultation and one review of the final diff.
+        log("edit-tally", sid, files=n, boundary=boundary, agent=sc.agent_id)
+        return
+    text = (
+        "[fable-advisor] %d distinct files have now been edited since the last advisor consultation "
+        "(threshold %d): %s. Policy: pause before further edits and %s with the goal, the files changed "
+        "so far and what remains; present its VERDICT and adjust course if it says so."
+        % (n, CFG.threshold, _list_files(files), DISPATCH)
+    )
     context("PostToolUse", text)
-    if sc.kind == "worker":
-        log("edit-nudge", sid, files=n, boundary=boundary, agent=sc.agent_id)
-    else:
-        log("edit-nudge", sid, files=n, boundary=boundary)
+    log("edit-nudge", sid, files=n, boundary=boundary)
 
 
 def pending_edits(scan, state, current=()):
@@ -1642,25 +1648,29 @@ def worker_policy_text():
         "[fable-advisor] Advisor policy for this worker (enforced by fable-advisor hooks: %s)." % CFG.describe(),
         "",
         "You work in your own tree; the session that started you cannot see your files. CONSULT THE "
-        "ADVISOR yourself — %s — BEFORE an architectural, data-model, interface or dependency decision "
-        "your brief does not settle, and before choosing between two viable approaches; AFTER two failed "
-        "attempts at the same bug or a test failure you cannot explain. Before you finish a change of %d+ "
-        "files, get a verification review of the committed diff: write it to a file outside the working "
-        "tree (run `git -C <worktree> rev-parse --absolute-git-dir`, then `git -C <worktree> diff "
+        "ADVISOR yourself — %s. Budget: at most two planned consultations — one on the design, only when "
+        "your brief leaves an architectural, data-model, interface or dependency decision open, and one "
+        "verification review of your final diff. Consult mid-way only AFTER two failed attempts at the "
+        "same bug or a test failure you cannot explain. Before you finish a change of %d+ files, get that "
+        "verification review of the committed diff: write it to a file outside the working tree (run "
+        "`git -C <worktree> rev-parse --absolute-git-dir`, then `git -C <worktree> diff -U25 "
         "<base>...HEAD > <that dir>/crew-review.diff` with literal paths; <base> is the base your brief "
         "names for the review, which for an escalation or revision worker is the original feature's base, "
-        "not the crew/<slug> branch it started from, else the base you branched from; a worktree-isolated agent's git commands are refused "
-        "when they nest $(git ...)) and give the advisor that file's absolute path, the absolute path of "
-        "your check output log (<that dir>/crew-verify.log) if you wrote one, and your worktree path (it "
-        "reads files only, by path, and cannot run git). Files inside a .git directory do not count as edits. "
-        "Dispatch the advisor in "
-        "the FOREGROUND (no run_in_background): a background subagent's result is delivered to the "
-        "parent session, never to you." % (DISPATCH, CFG.threshold),
+        "not the crew/<slug> branch it started from, else the base you branched from; a worktree-isolated "
+        "agent's git commands are refused when they nest $(git ...)) and give the advisor that file's "
+        "absolute path, the absolute path of your check output log (<that dir>/crew-verify.log) if you "
+        "wrote one, and your worktree path (it reads files only, by path, and cannot run git); ask it to "
+        "start from the diff and the log and open other files only where the diff lacks context. Note the "
+        "commit it reviewed. A re-review after a behaviour-changing fix gets only the fix diff "
+        "(`git -C <worktree> diff <reviewed-commit>..HEAD > <that dir>/crew-fix.diff`). Files inside a "
+        ".git directory do not count as edits. Dispatch the advisor in the FOREGROUND (no "
+        "run_in_background): a background subagent's result is delivered to the parent session, never "
+        "to you." % (DISPATCH, CFG.threshold),
         "",
-        "HOOKS IN FORCE: a nudge once %d distinct files were edited since your last consultation; if you "
-        "try to finish with %d+ unreviewed files, you are held once and asked for that review. A decision "
-        "only the user can make is still a question for the user, not for the advisor."
-        % (CFG.threshold, CFG.threshold),
+        "HOOKS IN FORCE: edits are tallied but you get no mid-build nudge; if you try to finish with %d+ "
+        "files edited since your last consultation, you are held once and asked for that review (a "
+        "fix-diff review, if you already had one of the full diff). A decision only the user can make is "
+        "still a question for the user, not for the advisor." % CFG.threshold,
     ])
 
 
@@ -1703,24 +1713,41 @@ def subagent_stop(inp):
         return
     state["subagent_stop_held"] = held_at
     save_state(sc.key, state)
+    if scan.reviews:
+        # It already had a verification review; these are post-review fixes.
+        # A review of the fix diff is enough, not a second full review.
+        what = (
+            "You already had a verification review; get one of the fixes since then: commit, write the fix "
+            "diff to a file outside the working tree (two plain commands with literal paths: "
+            "`git -C <worktree> rev-parse --absolute-git-dir`, then `git -C <worktree> diff "
+            "<reviewed-commit>..HEAD > <that dir>/crew-fix.diff`, where <reviewed-commit> is the commit "
+            "that review covered; nesting $(git ...) is refused in an isolated worktree), and %s with that "
+            "file's absolute path" % DISPATCH
+        )
+    else:
+        what = (
+            "Get a verification review: commit, write the committed diff against the base your brief names "
+            "for the review (the original feature's base for an escalation or revision worker, not the "
+            "crew/<slug> branch you started from; else the base you branched from) to a file outside the "
+            "working tree (two plain commands with literal paths: `git -C <worktree> rev-parse "
+            "--absolute-git-dir`, then `git -C <worktree> diff -U25 <base>...HEAD > "
+            "<that dir>/crew-review.diff`; nesting $(git ...) is refused in an isolated worktree), and %s "
+            "with that file's absolute path" % DISPATCH
+        )
     emit({
         "decision": "block",
         "reason": (
             "[fable-advisor] You edited %d files since your last advisor consultation: %s. Before "
-            "finishing, get a verification review: commit, write the committed diff against the base your "
-            "brief names for the review (the original feature's base for an escalation or revision worker, "
-            "not the crew/<slug> branch you started from; else the base you branched from) to a file outside the working tree (two plain "
-            "commands with literal paths: `git -C <worktree> rev-parse --absolute-git-dir`, then "
-            "`git -C <worktree> diff <base>...HEAD > <that dir>/crew-review.diff`; nesting $(git ...) is "
-            "refused in an isolated worktree), and %s with that file's absolute path, the absolute path of "
-            "<that dir>/crew-verify.log if you wrote check output there, your "
-            "worktree path, the goal and acceptance criteria, and what you ran. Fix what it flags inside "
-            "your scope and commit. Then end with your final report again (for feature-builder: the DONE "
-            "block, its advisor: line now reading \"reviewed\"). This hold fires once."
-            % (len(files), _list_files(files), DISPATCH)
+            "finishing: %s, the absolute path of <that dir>/crew-verify.log if you wrote check output "
+            "there, your worktree path, the goal and acceptance criteria, and what you ran; ask it to start "
+            "from the diff and the log. Fix what it flags inside your scope and commit. Then end with your "
+            "final report again (for feature-builder: the DONE block, its advisor: line now reading "
+            "\"reviewed\"). This hold fires once."
+            % (len(files), _list_files(files), what)
         ),
     })
-    log("subagent-stop-hold", sc.key, files=len(files), agent_type=sc.agent_type, agent=sc.agent_id)
+    log("subagent-stop-hold", sc.key, files=len(files), agent_type=sc.agent_type, agent=sc.agent_id,
+        kind="fix" if scan.reviews else "full")
 
 
 def _newest_transcript(cwd):
