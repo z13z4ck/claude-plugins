@@ -1,7 +1,7 @@
 {
   "name": "feature-crew",
-  "description": "Turns one Claude Code session into an orchestrator: features and revisions you ask for are built by background feature-builder subagents on Fable, each on its own git branch in an isolated worktree, while the main conversation stays free; a worker whose checks still fail escalates to a deeper xhigh worker before you are asked. The main session keeps a roster, relays workers' questions to you, resumes them with your answers, and reports when each one is done.",
-  "version": "0.4.0",
+  "description": "Turns one Claude Code session into an orchestrator: features and revisions you ask for are built by background feature-builder subagents, each on its own git branch in an isolated worktree, while the main conversation stays free. The orchestrator routes each feature to a Sonnet, Opus or Fable worker by a fixed procedure, climbs at most once to Fable when checks still fail, and a model-check hook confirms each worker ran on the model chosen for it and records its token use. The main session keeps a roster, relays workers' questions to you, resumes them with your answers, and reports when each one is done.",
+  "version": "0.5.0",
   "author": {
     "name": "Aziz"
   },
