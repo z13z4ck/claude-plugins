@@ -135,10 +135,12 @@ feature-crew 0.4 tied every claim of "done" to a check; 0.5.0 keeps that
 and spends the top tier only where the brief calls for it; 0.6.0 keeps Fable
 for the advisor alone.
 
-- **Run the orchestrator session on Fable at `high`, not `xhigh`.** Its
-  leverage is the quality of its briefs and reviews, and it has to stay
-  responsive while workers report in; `xhigh` makes every relay slower
-  without making briefs better.
+- **Run the orchestrator session on Opus at `medium` or `high`, not on
+  Fable.** The main session runs on every turn and mostly routes and
+  relays, so it has to stay responsive while workers report in. Fable's
+  judgment already reaches the work through the advisor: workers consult it
+  before decisions and before DONE, and the main session dispatches it for
+  fallback reviews and for brief decisions you haven't made.
 - **Verify-first briefs.** Each brief gives the worker ownership of the
   relevant test files and names the verify command(s) for the acceptance
   criteria, or says none exist. The worker plans a check per criterion
@@ -286,7 +288,9 @@ model check; the worker agents stay available for explicit use.
   `FELL BACK: requested opus (deep tier), ...` on any other model, Fable
   included; a worker that ran on Fable is called out to you as a worker
   building on Fable, not just labelled. Ledger rows for the deep tier now
-  record `requested: "deep"` (pre-0.6.0 rows say `"fable"`).
+  record `requested: "deep"` (pre-0.6.0 rows say `"fable"`). The README
+  now recommends running the orchestrator session on Opus at `medium` or
+  `high` instead of Fable.
 - **0.5.0** — Per-task model routing: three worker tiers (Sonnet, Opus,
   Fable) chosen by four ordered rules, the model alias passed on every
   dispatch, one climb to Fable before asking, "Requested model unavailable"

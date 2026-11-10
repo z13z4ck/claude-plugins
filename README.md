@@ -100,7 +100,10 @@ coding, and a model-check hook flags any worker that ran off its tier's
 model as WORKER FELL BACK TO <model>. A worker whose checks still fail after
 one resume is handed once to `feature-builder-deep` on `crew/<slug>-deep`;
 if that fails too, you are asked. Run the orchestrator session itself on
-Fable at `high`.
+Opus at `medium` or `high`: it runs on every turn and mostly routes and
+relays, while Fable's judgment reaches the work through the advisor, which
+workers consult before decisions and before DONE and the main session
+dispatches for fallback reviews and undecided brief choices.
 
 ```
 /plugin install feature-crew@z13z4ck-plugins   # project scope recommended
