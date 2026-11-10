@@ -81,8 +81,10 @@ session.
     feature, whichever worker hit it: resume the worker with SendMessage if
     it can be resumed; otherwise dispatch the same worker type with the
     same brief, saving uncommitted work first as under "Stopped by the
-    user", on `crew/<slug>-r<N>` from its branch if it already committed
-    work, naming the original feature's base as its review base. This
+    user". If it already committed work, replace the brief's branch and
+    base lines with `crew/<slug>-r<N>` from its branch and name the
+    original feature's base as its review base; if not, the brief stays
+    unchanged (a taken branch name becomes `-r2` by the worker's step 1). This
     retry is not a ladder step. If the retry fails the same way, tell the
     user and ask; do not climb the ladder on transient errors. If the
     Fable-unavailable rule also matches, it wins.
