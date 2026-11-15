@@ -571,7 +571,7 @@ for t in "<system-reminder>${NL}[SYSTEM NOTIFICATION - NOT USER INPUT]${NL}<task
   run_hook prompt "\"prompt\":$(json_str "$t")"
   [ -z "$HOOK_OUT" ] && ok "no nudge: ${t:0:40}" || no "false nudge: ${t:0:40}" "$HOOK_OUT"
 done
-for t in "I'm still stuck on this bug" "I'm stuck on these errors" "still failing after the fix" "can you review this PR" "audit this module" "ask the advisor" \
+for t in "I'm still stuck on this bug" "I'm stuck on the errors" "still failing after the fix" "can you review this PR" "audit this module" "ask the advisor" \
   "<system-reminder>${NL}You are operating in a git worktree.${NL}</system-reminder>${NL}please review my change"; do
   run_hook prompt "\"prompt\":$(json_str "$t")"
   [ -n "$HOOK_OUT" ] && ok "still nudges: ${t:0:40}" || no "missing nudge: ${t:0:40}"
