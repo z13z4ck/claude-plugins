@@ -220,6 +220,16 @@ for txt in "abcdef" "ééééé" "機能機能" "😀😀😀" "a😀é機b"; do
     done
   done
 done
+for spec in "a😀é機b|4|a" "a😀é機b|6|a😀" "a😀é機b|7|a😀é" "a😀é機b|9|a😀é" "a😀é機b|10|a😀é機" \
+  "機能機能|6|機能" "ééééé|4|éé" "abcdef|3|abc"; do
+  IFS='|' read -r txt n want <<EOF
+$spec
+EOF
+  for loc in C en_US.UTF-8; do
+    got="$(LC_ALL=$loc utf8_cut "$txt" "$n")"
+    [ "$got" = "$want" ] || bad="$bad [$txt/$n/$loc: got $got]"
+  done
+done
 if [ -z "$bad" ]; then ok "utf8_cut never splits a character or exceeds the byte limit"; else no "utf8_cut never splits a character or exceeds the byte limit" "$bad"; fi
 
 # The session note and root line come before the core, never after it.

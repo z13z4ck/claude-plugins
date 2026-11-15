@@ -70,8 +70,8 @@ utf8_cut() {
   k=$((${#s} - 1))
   # Walk back over continuation bytes (0x80-0xBF) to the last lead byte.
   while [ "$k" -ge 0 ]; do
-    b=$(printf '%d' "'${s:k:1}")
-    [ "$b" -lt 0 ] && b=$((b + 256))
+    printf -v b '%d' "'${s:k:1}"
+    b=$((b & 255)) # bash 3.2 gives a signed char; musl may map wider
     { [ "$b" -ge 128 ] && [ "$b" -lt 192 ] && [ $((${#s} - k)) -lt 4 ]; } || break
     k=$((k - 1))
   done
