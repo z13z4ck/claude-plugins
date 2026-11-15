@@ -1,15 +1,21 @@
 #!/usr/bin/env bash
 # SessionStart hook: put the orchestrator policy in context.
 #
+# Claude Code caps plain hook stdout at 10,000 characters; anything longer is
+# saved to a file and only a 2,000-character preview reaches context. So this
+# prints the compact core policy plus the absolute path of the full one, which
+# the core tells the orchestrator to Read, and keeps every path under 8,000
+# bytes (tests/run-tests.sh asserts it).
+#
 # Plain stdout from a SessionStart hook is added to the session's context, so
 # this script only prints text. What it prints depends on where and how the
 # session started:
 #   - FEATURE_CREW=off      nothing
 #   - not a git work tree   one line saying the plugin is inactive (workers
 #                           need worktrees, so every dispatch would fail)
-#   - startup               the policy
-#   - compact               the policy + "re-read the roster"
-#   - resume / fork / clear the policy + a reconcile section listing the
+#   - startup               the core policy + full policy path
+#   - compact               the same + "re-read the roster"
+#   - resume / fork / clear the same + a reconcile section listing the
 #                           crew/* branches that exist, because workers from
 #                           the earlier conversation stopped with it (/clear
 #                           ends the session too: SessionEnd reason "clear")
@@ -19,6 +25,7 @@ set -u
 [ "${FEATURE_CREW:-on}" = off ] && exit 0
 
 ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+CORE="$ROOT/policy/orchestrator-core.md"
 POLICY="$ROOT/policy/orchestrator.md"
 
 input="$(cat 2>/dev/null || true)"
@@ -42,18 +49,22 @@ if ! command -v git >/dev/null 2>&1 ||
   exit 0
 fi
 
-if [ ! -f "$POLICY" ]; then
-  echo "[feature-crew] Policy file missing ($POLICY); orchestrator mode is off for this session."
-  exit 0
-fi
+for f in "$CORE" "$POLICY"; do
+  if [ ! -f "$f" ]; then
+    echo "[feature-crew] Policy file missing ($f); orchestrator mode is off for this session."
+    exit 0
+  fi
+done
 
-cat "$POLICY"
+cat "$CORE"
+printf '%s\n' "$POLICY"
 printf '\nfeature-crew root (for the model check CLI): %s\n' "$ROOT"
 
 # crew/* branches with age and subject, plus the worktree each is checked out
-# in, if any. Capped so a repo with many old branches cannot flood context.
+# in, if any. Capped at 25 lines and about 2,000 bytes, subjects cut to 72
+# characters, so many or long branches cannot push the output past the cap.
 crew_branches() {
-  local wt
+  local wt total=0 LC_ALL=C
   wt="$(git -C "$dir" worktree list --porcelain 2>/dev/null |
     awk '/^worktree /{p=substr($0,10)} /^branch refs\/heads\/crew\//{print substr($0,19) "\t" p}')"
   # lstrip=2, not :short: a tag named crew/x would turn :short into heads/crew/x.
@@ -62,8 +73,14 @@ crew_branches() {
     'refs/heads/crew/' 2>/dev/null |
     while IFS="$(printf '\t')" read -r name when subject; do
       path="$(printf '%s\n' "$wt" | awk -F '\t' -v b="$name" '$1==b{print $2; exit}')"
+      [ "${#subject}" -gt 72 ] && subject="${subject:0:69}..."
       line="- $name ($when): $subject"
       [ -n "$path" ] && line="$line [worktree: $path]"
+      total=$((total + ${#line} + 1))
+      if [ "$total" -gt 2000 ]; then
+        printf -- "- (more not shown; run git branch --list 'crew/*')\n"
+        break
+      fi
       printf '%s\n' "$line"
     done
 }

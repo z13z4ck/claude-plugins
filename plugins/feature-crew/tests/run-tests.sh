@@ -41,6 +41,15 @@ run_hook() {
 }
 
 has() { case "$OUT" in *"$1"*) return 0 ;; esac; return 1; }
+# hasf: like has, with every whitespace run folded to one space on both sides,
+# so re-wrapping the policy text cannot break a check.
+hasf() {
+  local text want
+  text="$(printf '%s' "$OUT" | tr '\r\n\t' '   ' | tr -s ' ')"
+  want="$(printf '%s' "$1" | tr '\r\n\t' '   ' | tr -s ' ')"
+  case "$text" in *"$want"*) return 0 ;; esac
+  return 1
+}
 
 git_quiet() { git -c init.defaultBranch=main -c user.email=t@t -c user.name=t "$@" >/dev/null 2>&1; }
 
@@ -150,6 +159,39 @@ run_hook resume "$MANY"
 n="$(printf '%s\n' "$OUT" | grep -c '^- crew/')"
 if [ "$n" -eq 25 ]; then ok "branch list is capped at 25"; else no "branch list is capped at 25" "got $n"; fi
 
+# 0.6.1: Claude Code keeps only a 2,000-character preview of hook stdout over
+# 10,000 characters, so every path must stay under 8,000 bytes. Worst case:
+# resume with 25+ long branch names, long subjects and long worktree paths.
+bytes() { printf '%s\n' "$OUT" | wc -c | tr -d ' '; }
+LONG="$TMP/long"
+mkdir -p "$LONG"
+git_quiet -C "$LONG" init
+git_quiet -C "$LONG" commit --allow-empty -m "init"
+subj="$(printf 'Long subject %.0s' $(seq 1 20))"
+i=1
+while [ "$i" -le 30 ]; do
+  b="crew/a-rather-long-feature-branch-name-for-size-testing-$i"
+  if [ "$i" -le 5 ]; then
+    git_quiet -C "$LONG" worktree add "$TMP/a-long-worktree-directory-name-to-pad-the-path-out-$i" -b "$b"
+    git_quiet -C "$TMP/a-long-worktree-directory-name-to-pad-the-path-out-$i" commit --allow-empty -m "$subj $i"
+  else
+    git_quiet -C "$LONG" branch "$b"
+  fi
+  i=$((i + 1))
+done
+for src in startup compact resume fork clear; do
+  run_hook "$src" "$LONG"
+  if [ "$(bytes)" -lt 8000 ]; then ok "$src output is under 8,000 bytes ($(bytes))"; else no "$src output is under 8,000 bytes" "got $(bytes)"; fi
+done
+run_hook resume "$LONG"
+if has "more not shown" && printf '%s\n' "$OUT" | grep '^- crew/' | grep -q '\.\.\. \[worktree: '; then
+  ok "long branch lists are cut by a byte budget and subjects are shortened"
+else
+  no "long branch lists are cut by a byte budget and subjects are shortened" "$(printf '%s\n' "$OUT" | grep '^- ' | head -3)"
+fi
+run_hook startup "$PLAIN"
+if [ "$(bytes)" -lt 8000 ]; then ok "inactive note is under 8,000 bytes"; else no "inactive note is under 8,000 bytes"; fi
+
 EMPTY="$TMP/empty"
 mkdir -p "$EMPTY"
 git_quiet -C "$EMPTY" init
@@ -193,7 +235,24 @@ if [ "$RC" -eq 0 ] && has "orchestrator mode"; then ok "garbage stdin still yiel
 
 OUT="$(cd "$REPO" && printf '{"source":"startup"}' | CLAUDE_PLUGIN_ROOT="$TMP/nowhere" bash "$HOOK")"
 RC=$?
-if [ "$RC" -eq 0 ] && has "Policy file missing"; then ok "missing policy file is reported, exit 0"; else no "missing policy file is reported, exit 0"; fi
+if [ "$RC" -eq 0 ] && has "Policy file missing" && [ "$(bytes)" -lt 8000 ]; then ok "missing policy file is reported, exit 0, short"; else no "missing policy file is reported, exit 0, short"; fi
+
+# The hook prints the core, not the full policy, and ends the core with the
+# absolute path of the full policy and when to Read it.
+run_hook startup "$REPO"
+if has "orchestrator mode (core rules)" && ! has "## Handle worker events" &&
+  printf '%s\n' "$OUT" | grep -qx "$PLUGIN/policy/orchestrator.md" &&
+  hasf "Before the first dispatch, and whenever handling a worker failure, an escalation, a model-check FELL BACK line, a stopped worker, a revision or a fallback review, use the Read tool on the full policy at this path:"; then
+  ok "startup prints the core and the absolute full-policy path with when to Read it"
+else
+  no "startup prints the core and the absolute full-policy path with when to Read it"
+fi
+for phrase in "## Delegate, don't implement" "branch \`crew/<slug>\`" "## Pick the worker tier" \
+  "| deep | \`feature-crew:feature-builder-deep\`" "## Roster" "**DONE**" "**NEEDS-ANSWER**" \
+  "**Failed or unverified DONE**" "Never merge crew branches, push, or delete branches unless the user asks" \
+  "accept only \`advisor: reviewed — \` with a Fable MODEL"; do
+  if hasf "$phrase"; then ok "startup core carries: $phrase"; else no "startup core carries: $phrase"; fi
+done
 
 # has_phrase <file> <phrase>: fixed-string match after folding every run of
 # whitespace (newlines included) to one space in both, so re-wrapping prose
@@ -226,19 +285,20 @@ else
   no "hooks.json registers the UserPromptSubmit model check through bash, no SubagentStop"
 fi
 
-if grep -q '"version": "0.6.0"' "$PLUGIN/.claude-plugin/plugin.json" &&
+if grep -q '"version": "0.6.1"' "$PLUGIN/.claude-plugin/plugin.json" &&
   ! grep -qi 'on Fable' "$PLUGIN/.claude-plugin/plugin.json" &&
   ! grep -qi 'Fable worker' "$PLUGIN/.claude-plugin/plugin.json"; then
-  ok "plugin.json is 0.6.0 and no longer says workers run on Fable"
+  ok "plugin.json is 0.6.1 and no longer says workers run on Fable"
 else
-  no "plugin.json is 0.6.0 and no longer says workers run on Fable"
+  no "plugin.json is 0.6.1 and no longer says workers run on Fable"
 fi
 
 # 0.6.0: Fable is the advisor only. No worker agent pins it, no dispatch
 # passes it, and the policy says so.
 if ! grep -rqx 'model: [f]able' "$PLUGIN/agents" &&
-  ! grep -q 'model: "fable"' "$PLUGIN/policy/orchestrator.md" &&
-  ! grep -qiE 'fable[- ]tier|fable trigger' "$PLUGIN/policy/orchestrator.md" "$PLUGIN/agents"/*.md &&
+  ! grep -q 'model: "fable"' "$PLUGIN/policy/orchestrator.md" "$PLUGIN/policy/orchestrator-core.md" &&
+  ! grep -qiE 'fable[- ]tier|fable trigger' "$PLUGIN/policy/orchestrator.md" "$PLUGIN/policy/orchestrator-core.md" "$PLUGIN/agents"/*.md &&
+  has_phrase "$PLUGIN/policy/orchestrator-core.md" "Workers run on Sonnet or Opus, never on Fable: Fable is the advisor (\`fable-advisor:advisor\`) only" &&
   has_phrase "$PLUGIN/policy/orchestrator.md" "Workers run on Sonnet or Opus, never on Fable: Fable is the advisor (\`fable-advisor:advisor\`) only" &&
   has_phrase "$PLUGIN/policy/orchestrator.md" "Fable for a feature → deep tier, and tell the user in the dispatch reply that Fable is the advisor only"; then
   ok "no worker runs on Fable; a request for Fable gets the deep tier and the advisor-only note"
@@ -327,8 +387,9 @@ root = sys.argv[1]
 spec = importlib.util.spec_from_file_location("mc", root + "/bin/model-check.py")
 mc = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mc)
-pol = open(root + "/policy/orchestrator.md").read()
+pols = [open(root + "/policy/" + f).read() for f in ("orchestrator.md", "orchestrator-core.md")]
 for agent, (label, family) in mc.TIERS.items():
+  for pol in pols:
     fm = open("%s/agents/%s.md" % (root, agent)).read().split("---")[1]
     model = re.search(r"^model: (\S+)$", fm, re.M).group(1)
     assert model == family, (agent, model, family)
@@ -337,9 +398,19 @@ for agent, (label, family) in mc.TIERS.items():
     assert "fable" not in family.lower(), agent
 PY2
 then
-  ok "agent model:, model-check TIERS and the policy alias table agree (and none is fable)"
+  ok "agent model:, model-check TIERS and both policy alias tables agree (and none is fable)"
 else
-  no "agent model:, model-check TIERS and the policy alias table agree (and none is fable)"
+  no "agent model:, model-check TIERS and both policy alias tables agree (and none is fable)"
+fi
+
+# The core repeats the full policy's tier table; the rows must be identical.
+tier_rows() { grep -E '^\| (sonnet|opus|deep) \|' "$1"; }
+if [ "$(tier_rows "$PLUGIN/policy/orchestrator.md" | wc -l)" -eq 3 ] &&
+  [ "$(tier_rows "$PLUGIN/policy/orchestrator.md")" = "$(tier_rows "$PLUGIN/policy/orchestrator-core.md")" ]; then
+  ok "core and full policy have the same tier table (tier, agent type, model alias)"
+else
+  no "core and full policy have the same tier table (tier, agent type, model alias)" \
+    "$(diff <(tier_rows "$PLUGIN/policy/orchestrator.md") <(tier_rows "$PLUGIN/policy/orchestrator-core.md") 2>&1 | head -4)"
 fi
 
 # The deep worker is both the deep-tier first dispatch and the climb target,
