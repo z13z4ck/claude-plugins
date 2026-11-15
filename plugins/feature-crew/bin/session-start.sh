@@ -15,10 +15,11 @@
 #                           need worktrees, so every dispatch would fail)
 #   - startup               the core policy + full policy path
 #   - compact               a "re-read the roster" note, then the same
-#   - resume / fork / clear a reconcile section, then the same listing the
-#                           crew/* branches that exist, because workers from
-#                           the earlier conversation stopped with it (/clear
-#                           ends the session too: SessionEnd reason "clear")
+#   - resume / fork / clear a reconcile section listing the crew/* branches
+#                           that exist, because workers from the earlier
+#                           conversation stopped with it (/clear ends the
+#                           session too: SessionEnd reason "clear"), then the
+#                           same
 # Dependency-free on purpose (no jq, no python): it runs on Git Bash too.
 set -u
 
@@ -57,7 +58,7 @@ for f in "$CORE" "$POLICY"; do
 done
 
 # Root line and session note go first, the core last (it ends with the full
-# policy's path), so a cut can never drop the note.
+# policy's path), so a cut would drop the core's tail before the note.
 printf 'feature-crew root (for the model check CLI): %s\n' "$ROOT"
 
 # crew/* branches with age and subject, plus the worktree each is checked out

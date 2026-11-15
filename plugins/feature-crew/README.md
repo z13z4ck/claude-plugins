@@ -209,8 +209,8 @@ for the advisor alone.
   before the first dispatch or worker event after every start, compaction,
   resume or clear, and on failures, escalations, fallbacks, stopped workers,
   revisions, review or merge requests and fallback reviews. The root line
-  and any session note come before the core, so they are never the part a
-  cut drops. Every start source stays under 8,000 bytes: the branch list
+  and any session note come before the core, so a cut would drop the core's
+  tail before the note. Every start source stays under 8,000 bytes: the branch list
   after a resume is capped at 25 lines and 1,500 bytes, with subjects cut
   to 72 characters (bytes in a non-UTF-8 locale, without splitting a
   character when `iconv` is available).

@@ -195,7 +195,7 @@ fi
 if ! command -v iconv >/dev/null 2>&1; then
   echo "  SKIP shortened multibyte subjects stay valid UTF-8 (no iconv)"
 else
-  for loc in C "${LANG:-en_US.UTF-8}"; do
+  for loc in C en_US.UTF-8; do
     OUT="$(cd "$LONG" && printf '{"source":"resume"}' | LC_ALL="$loc" CLAUDE_PLUGIN_ROOT="$PLUGIN" bash "$HOOK" 2>&1)"
     if printf '%s' "$OUT" | grep -q '機能' && printf '%s' "$OUT" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1; then
       ok "shortened multibyte subjects stay valid UTF-8 (LC_ALL=$loc)"

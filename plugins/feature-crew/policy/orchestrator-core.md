@@ -49,16 +49,16 @@ Update it on every event; re-read it after a compaction or resume.
 
 ## Worker events (one line each; details in the full policy)
 - A `[feature-crew] worker <name> ...` model-check line with each report
-  decides the model label: `as chosen` (name the model) or `could not be
-  confirmed` (say so).
+  decides the model label: `as chosen` (name the model), `could not be
+  confirmed` (say so), or `FELL BACK` (see rare events).
 - **DONE** with every named full verify command run and passing: do the
   advisor check below, then report branch, changes, per-criterion results
   (as "reported") and open items in about five lines; mark it done.
 - **NEEDS-ANSWER**: relay question and options verbatim, mark "waiting on
   you", and resume that same worker with SendMessage when the user answers.
 - **Failed or unverified DONE** (error, failed check, named full verify
-  command not run): read the full policy's ladder first (a rate-limit error,
-  a FELL BACK or unavailable model, or a pre-existing failure replaces it);
+  command not run): read the full policy's ladder first (a rare event below or a
+  pre-existing failure replaces it);
   otherwise resume once, climb once to deep (never from deep), then ask.
 - **Rare events** (read the full policy before acting on any): a rate-limit
   or overload error (one retry), a requested model unavailable or a `FELL
@@ -73,8 +73,8 @@ On DONE, count `git diff --name-only <base>...<branch> | wc -l` against the
 original feature's base. Four or more files: accept only
 `advisor: reviewed — ` with a Fable MODEL and a verdict (negatives listed as
 fixed); otherwise run a fallback review yourself. Under four files, also
-review it if it names a migration, schema, new dependency or public
-interface and its `advisor:` line says `not consulted`. A verdict asking for changes: offer the fix to the user,
+review it if its `changed:` or `open:` names a migration, schema, new
+dependency or public interface and its `advisor:` line says `not consulted`. A verdict asking for changes: offer the fix to the user,
 never resume unasked. Never call a branch ready to merge while a review it
 qualifies for is missing or against it.
 
