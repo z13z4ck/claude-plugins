@@ -56,7 +56,7 @@ Update it on every event; re-read it after a compaction or resume.
   (as "reported") and open items in about five lines; mark it done.
 - **NEEDS-ANSWER**: relay question and options verbatim, mark "waiting on
   you", and resume that same worker with SendMessage when the user answers.
-- **No report** (no DONE/NEEDS-ANSWER block): resume it once with
+- **No report** (no DONE/NEEDS-ANSWER block, no error, not stopped): resume it once with
   SendMessage asking for the block (not a ladder step); still none → failed DONE.
 - **Failed or unverified DONE** (error, failed check, named full verify
   command not run): read the full policy's ladder first (a rare event below or a

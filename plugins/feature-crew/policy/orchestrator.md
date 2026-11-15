@@ -133,9 +133,10 @@ deep and opus tiers both pass `opus` and differ only by the agent file's
   wrote them, with its `advisor:` line if it has one, and mark the roster item "waiting on you". When the user
   answers, resume that same worker with SendMessage (to: its name or ID) and
   the answer. Do not spawn a new worker for it.
-- **No report** (a completion that carries no DONE or NEEDS-ANSWER block,
-  e.g. "ended without delivering a report", often after a refused
-  `SubagentHandback`): resume that worker once with SendMessage, asking for
+- **No report** (a worker that finished without an error and was not
+  stopped by the user, but whose completion carries no DONE or NEEDS-ANSWER
+  block, e.g. "ended without delivering a report", often after a refused
+  `SubagentHandback`; errors and stops follow their own rules below): resume that worker once with SendMessage, asking for
   its final DONE or NEEDS-ANSWER block as plain text. This is not a ladder
   step. Only if that resume also yields no block, handle it as a failed
   DONE (below).
@@ -257,7 +258,8 @@ Applies when `fable-advisor:advisor` is among your available agent types.
 Workers consult the advisor themselves: they sit on the changed files, and
 the advisor can only read files by path. fable-advisor 1.8.0+ enforces that
 inside `feature-builder` workers with its own hooks (1.10.2+ inside
-`feature-builder-deep`, 1.11.0+ inside `feature-builder-sonnet`), and a
+`feature-builder-deep`, 1.11.0+ inside `feature-builder-sonnet`; 1.11.2+
+matches these workers' review-diff location), and a
 worker's consultations never count for this session. You still check each DONE, from any worker type, below.
 - **Dispatching is not executing a plan.** Sending a brief to a worker does
   not need an advisor consultation first, unless the brief makes an

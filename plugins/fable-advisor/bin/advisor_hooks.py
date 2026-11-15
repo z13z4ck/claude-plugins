@@ -786,7 +786,14 @@ class Scan:
             text = content
         else:
             return
-        if d.get("isMeta") or d.get("isCompactSummary"):
+        meta = d.get("isMeta") or d.get("isCompactSummary")
+        coordinator = ((d.get("origin") or {}).get("kind") == "coordinator"
+                       or text.lstrip().startswith("The coordinator sent a message"))
+        if text.strip() and (coordinator or not meta):
+            # A new message to the worker (a SendMessage resume is an isMeta
+            # coordinator row): an earlier hand-back is not the next stop's report.
+            self.handback = (-1, "")
+        if meta:
             return
         text = text.strip()
         if text:
@@ -1671,7 +1678,7 @@ def worker_policy_text():
         "two failed attempts at the same bug or a test failure you cannot explain, and one fix-diff "
         "re-review after a behaviour-changing fix. Before you finish a change of %d+ files, get that "
         "verification review of the committed diff: write it to a file in the directory your worker "
-        "prompt names for it (<that dir>, outside the repository; `git -C <worktree> diff -U25 <base>...HEAD > <that dir>/crew-review.diff` "
+        "prompt names for it (<that dir>; if it names none, any directory outside the repository; `git -C <worktree> diff -U25 <base>...HEAD > <that dir>/crew-review.diff` "
         "with literal paths; <base> is the base your brief "
         "names for the review, which for an escalation or revision worker is the original feature's base, "
         "not the crew/<slug> branch it started from, else the base you branched from; a worktree-isolated "
@@ -1714,6 +1721,7 @@ def subagent_start(inp):
 
 
 _RE_NEEDS_ANSWER = re.compile(r"^\s*`*\s*NEEDS-ANSWER\b", re.M)
+_RE_DONE = re.compile(r"^\s*`*\s*DONE\b", re.M)
 
 
 def subagent_stop(inp):
@@ -1728,9 +1736,9 @@ def subagent_stop(inp):
     last = inp.get("last_assistant_message")
     if last is None:
         last = scan.last_text  # builds that leave the field out
-    hb_line, hb_msg = scan.handback
-    if hb_line < scan.last_prompt():
-        hb_msg = ""  # a hand-back from before the latest resume is not this stop's report
+    hb_msg = scan.handback[1]
+    if _RE_DONE.search(str(last or "")):
+        hb_msg = ""  # a plain-text DONE after the hand-back is the newer report
     if _RE_NEEDS_ANSWER.search(str(last or "")) or _RE_NEEDS_ANSWER.search(hb_msg):
         # Stopping to ask the user. The count is cumulative, so the DONE stop
         # that follows the answer still catches an unreviewed change.
@@ -1750,7 +1758,7 @@ def subagent_stop(inp):
         # A review of the fix diff is enough, not a second full review.
         what = (
             "You already had a verification review; get one of the fixes since then: commit, write the fix "
-            "diff to a file in the directory your worker prompt names for it (<that dir>, outside the repository; one plain command with "
+            "diff to a file in the directory your worker prompt names for it (<that dir>; if it names none, any directory outside the repository; one plain command with "
             "literal paths: `git -C <worktree> diff -U25 "
             "<reviewed-commit>..HEAD > <that dir>/crew-fix.diff`, where <reviewed-commit> is the commit "
             "that review covered; if you cannot name it, send the full `<base>...HEAD` diff as "
@@ -1763,7 +1771,8 @@ def subagent_stop(inp):
             "Get a verification review: commit, write the committed diff against the base your brief names "
             "for the review (the original feature's base for an escalation or revision worker, not the "
             "crew/<slug> branch you started from; else the base you branched from) to a file outside the "
-            "repository, in the directory your worker prompt names for it (<that dir>; one plain command with literal paths: "
+            "repository, in the directory your worker prompt names for it (<that dir>; if it names none, any directory outside the repository; one plain "
+            "command with literal paths: "
             "`git -C <worktree> diff -U25 <base>...HEAD > <that dir>/crew-review.diff`; nesting $(git ...) is refused in an isolated worktree), and %s "
             "with that file's absolute path" % DISPATCH
         )

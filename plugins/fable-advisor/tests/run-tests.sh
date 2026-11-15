@@ -1209,10 +1209,17 @@ branch: crew/x
 question: which?")}"
 worker_hook subagent-stop as2h "$WK" '"stop_hook_active":false,"last_assistant_message":""'
 [ -z "$HOOK_OUT" ] && ok "a NEEDS-ANSWER sent as the last SubagentHandback message is not held" || no "held a hand-back NEEDS-ANSWER" "$HOOK_OUT"
-in_worker t_prompt "The answer is A; carry on"
+printf '{"type":"user","isSidechain":true,"isMeta":true,"origin":{"kind":"coordinator"},"message":{"role":"user","content":"The coordinator sent a message while you were working: the answer is A"}}\n' >>"$WT"
 in_worker t_edit e.py
-worker_hook subagent-stop as2h "$WK" '"stop_hook_active":false,"last_assistant_message":"DONE"'
+worker_hook subagent-stop as2h "$WK" '"stop_hook_active":false,"last_assistant_message":"Finished, report below."'
 [ "$(jget "$HOOK_OUT" decision)" = "block" ] && ok "a hand-back NEEDS-ANSWER from before the resume does not excuse the next stop" || no "stale hand-back excused a DONE" "$HOOK_OUT"
+new_worker st2b as2b
+in_worker t_prompt "Build it"
+for f in a.py b.py c.py d.py; do in_worker t_edit "$f"; done
+in_worker t_tool_use SubagentHandback "{\"message\":$(json_str "NEEDS-ANSWER
+question: which?")}"
+worker_hook subagent-stop as2b "$WK" '"stop_hook_active":false,"last_assistant_message":"DONE\nbranch: crew/x"'
+[ "$(jget "$HOOK_OUT" decision)" = "block" ] && ok "a plain-text DONE after a hand-back NEEDS-ANSWER is held" || no "older hand-back excused a plain DONE" "$HOOK_OUT"
 new_worker st2d as2d
 in_worker t_prompt "Build it"
 for f in a.py b.py c.py d.py; do in_worker t_edit "$f"; done
@@ -1248,6 +1255,8 @@ in_worker t_review
 for f in e.py f.py g.py h.py; do in_worker t_edit "$f"; done
 worker_hook subagent-stop as6 "$WK" '"stop_hook_active":false'
 r="$(jget "$HOOK_OUT" reason)"
+! contains "$r" "absolute-git-dir" && contains "$r" "the directory your worker prompt names" && contains "$r" "if it names none" \
+  && ok "fix-diff hold defers the diff location to the worker prompt (1.11.2)" || no "fix-diff hold names the git dir" "$r"
 [ "$(jget "$HOOK_OUT" decision)" = "block" ] && contains "$r" "edited 4 files" && contains "$r" "e.py" && ! contains "$r" "a.py" \
   && ok "post-review fixes on 4+ files are still held once" || no "post-review fixes not held" "$HOOK_OUT"
 contains "$r" "diff -U25 <reviewed-commit>..HEAD" && contains "$r" "crew-fix.diff" && ! contains "$r" "diff -U25 <base>...HEAD" \

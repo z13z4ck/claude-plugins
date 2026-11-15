@@ -304,7 +304,8 @@ model check; the worker agents stay available for explicit use.
   commands, and its DONE block names the verify-log path; the orchestrator's
   fallback review takes that path from the DONE block. Workers send their
   report through `SubagentHandback` when the harness asks for it, and as
-  plain text if that call is refused. A completion with no DONE or
+  plain text if that call is refused (the harness may still not deliver
+  that, so the orchestrator now recovers it). A completion with no DONE or
   NEEDS-ANSWER block gets one SendMessage resume asking for it (not a
   ladder step); a second miss is a failed DONE.
 
