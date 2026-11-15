@@ -661,6 +661,7 @@ class Scan:
         self._last_mode = None   # permission-mode rows are written per prompt, not per change
         self.ts_of = {}          # line -> epoch, for rows that carry a timestamp
         self.last_text = ""      # newest assistant text (sidechain scans only)
+        self.handback = (-1, "")  # (line, message) of the newest SubagentHandback call
         self._last_ts = None
         if path and os.path.isfile(path):
             self._parse()
@@ -737,6 +738,8 @@ class Scan:
             elif name == "Bash":
                 for fp in bash_write_targets(inp.get("command"), d.get("cwd")):
                     self.edits.append((n, fp))
+            elif name == "SubagentHandback":
+                self.handback = (n, str(inp.get("message") or ""))
             elif name == "EnterPlanMode":
                 self.plan_marks.append(n)
             elif name == "ExitPlanMode":
@@ -1667,12 +1670,13 @@ def worker_policy_text():
         "verification review of your final diff. Outside that budget: mid-way consultations, only AFTER "
         "two failed attempts at the same bug or a test failure you cannot explain, and one fix-diff "
         "re-review after a behaviour-changing fix. Before you finish a change of %d+ files, get that "
-        "verification review of the committed diff: write it to a file outside the working tree (run "
-        "`git -C <worktree> rev-parse --absolute-git-dir`, then `git -C <worktree> diff -U25 "
-        "<base>...HEAD > <that dir>/crew-review.diff` with literal paths; <base> is the base your brief "
+        "verification review of the committed diff: write it to a file in the directory your worker "
+        "prompt names for it (<that dir>, outside the repository; `git -C <worktree> diff -U25 <base>...HEAD > <that dir>/crew-review.diff` "
+        "with literal paths; <base> is the base your brief "
         "names for the review, which for an escalation or revision worker is the original feature's base, "
         "not the crew/<slug> branch it started from, else the base you branched from; a worktree-isolated "
-        "agent's git commands are refused when they nest $(git ...)) and give the advisor that file's "
+        "agent's git commands are refused when they nest $(git ...) or name paths through shell "
+        "variables) and give the advisor that file's "
         "absolute path, the absolute path of your check output log (<that dir>/crew-verify.log) if you "
         "wrote one, and your worktree path (it reads files only, by path, and cannot run git); ask it to "
         "start from the diff, read only the log's run headers and tail (or grep it for failures), and open "
@@ -1724,7 +1728,10 @@ def subagent_stop(inp):
     last = inp.get("last_assistant_message")
     if last is None:
         last = scan.last_text  # builds that leave the field out
-    if _RE_NEEDS_ANSWER.search(str(last or "")):
+    hb_line, hb_msg = scan.handback
+    if hb_line < scan.last_prompt():
+        hb_msg = ""  # a hand-back from before the latest resume is not this stop's report
+    if _RE_NEEDS_ANSWER.search(str(last or "")) or _RE_NEEDS_ANSWER.search(hb_msg):
         # Stopping to ask the user. The count is cumulative, so the DONE stop
         # that follows the answer still catches an unreviewed change.
         log("subagent-stop-pass", sc.key, reason="needs-answer", agent=sc.agent_id)
@@ -1743,8 +1750,8 @@ def subagent_stop(inp):
         # A review of the fix diff is enough, not a second full review.
         what = (
             "You already had a verification review; get one of the fixes since then: commit, write the fix "
-            "diff to a file outside the working tree (two plain commands with literal paths: "
-            "`git -C <worktree> rev-parse --absolute-git-dir`, then `git -C <worktree> diff -U25 "
+            "diff to a file in the directory your worker prompt names for it (<that dir>, outside the repository; one plain command with "
+            "literal paths: `git -C <worktree> diff -U25 "
             "<reviewed-commit>..HEAD > <that dir>/crew-fix.diff`, where <reviewed-commit> is the commit "
             "that review covered; if you cannot name it, send the full `<base>...HEAD` diff as "
             "crew-review.diff instead, with <base> the base your brief names for the review (the original "
@@ -1756,9 +1763,8 @@ def subagent_stop(inp):
             "Get a verification review: commit, write the committed diff against the base your brief names "
             "for the review (the original feature's base for an escalation or revision worker, not the "
             "crew/<slug> branch you started from; else the base you branched from) to a file outside the "
-            "working tree (two plain commands with literal paths: `git -C <worktree> rev-parse "
-            "--absolute-git-dir`, then `git -C <worktree> diff -U25 <base>...HEAD > "
-            "<that dir>/crew-review.diff`; nesting $(git ...) is refused in an isolated worktree), and %s "
+            "repository, in the directory your worker prompt names for it (<that dir>; one plain command with literal paths: "
+            "`git -C <worktree> diff -U25 <base>...HEAD > <that dir>/crew-review.diff`; nesting $(git ...) is refused in an isolated worktree), and %s "
             "with that file's absolute path" % DISPATCH
         )
     emit({
