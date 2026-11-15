@@ -561,6 +561,22 @@ run_hook prompt "\"prompt\":$(json_str "/fable-advisor:health")"
 
 run_hook prompt "\"prompt\":$(json_str "bump the fable-advisor version to 1.6.0")"
 [ -z "$HOOK_OUT" ] && ok "'fable-advisor' in a prompt is not a review request" || no "false review nudge" "$HOOK_OUT"
+# 1.11.1: harness wrappers and ordinary wording must not nudge
+NL=$'\n'
+for t in "<system-reminder>${NL}[SYSTEM NOTIFICATION - NOT USER INPUT]${NL}<task-notification>Advisor review</task-notification></system-reminder>" \
+  '<cross-session-message from="local_x">please review</cross-session-message>' \
+  'Another Claude session sent a message while you were working: <cross-session-message from="local_x">please review</cross-session-message>' \
+  "<system-reminder>${NL}The session \"X\" you started (local_1) finished; please review</system-reminder>" \
+  "is it still running or it stuck?" "Yes, add audit logging for user edits" "continue where was left off if it stuck"; do
+  run_hook prompt "\"prompt\":$(json_str "$t")"
+  [ -z "$HOOK_OUT" ] && ok "no nudge: ${t:0:40}" || no "false nudge: ${t:0:40}" "$HOOK_OUT"
+done
+for t in "I'm still stuck on this bug" "I'm stuck on the errors" "still failing after the fix" "can you review this PR" "audit this module" "ask the advisor" \
+  "<system-reminder>${NL}You are operating in a git worktree.${NL}</system-reminder>${NL}please review my change"; do
+  run_hook prompt "\"prompt\":$(json_str "$t")"
+  [ -n "$HOOK_OUT" ] && ok "still nudges: ${t:0:40}" || no "missing nudge: ${t:0:40}"
+done
+
 run_hook prompt "\"prompt\":$(json_str "ask the advisor whether this is safe")"
 contains "$(context_of "$HOOK_OUT")" "review or second opinion" && ok "'ask the advisor' is a review request" || no "explicit advisor request missed"
 

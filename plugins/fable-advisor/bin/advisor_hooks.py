@@ -1254,7 +1254,7 @@ def claude_md_status(target):
 # --- prompt classification --------------------------------------------------
 
 _RE_REVIEW = re.compile(
-    r"\b(second opinion|sanity[- ]?check|double[- ]?check|review|critique|audit|"
+    r"\b(second opinion|sanity[- ]?check|double[- ]?check|review|critique|audit (this|the|my|our|it|that)|"
     r"(ask|consult) (the )?(fable )?advisor|ask fable|what do you think|your thoughts)\b", re.I)
 _RE_DECISION = re.compile(
     r"\b(should (i|we)|which (one|approach|option|way|is better|would you)|better (to|approach|option|way)|"
@@ -1274,15 +1274,25 @@ _RE_PLAN = re.compile(
 _RE_STALLED = re.compile(
     r"\b(still (fail\w*|broken|not work\w*|doesn'?t work|isn'?t work\w*|crash\w*|error\w*|wrong|happening)|"
     r"not working|doesn'?t work|isn'?t working|keeps? (failing|crashing|breaking|happening)|"
-    r"same (error|issue|problem|bug|failure)|no luck|stuck|didn'?t (work|help|fix)|"
+    r"same (error|issue|problem|bug|failure)|no luck|still stuck|stuck (on|with) (the|this|that) (bugs?|errors?|issues?|problems?|fix|tests?)|didn'?t (work|help|fix)|"
     r"(failed|failing|broke|broken|crash\w*|error\w*) again|nothing (changed|works)|why (does|is) (it|this) still)\b", re.I)
 
 
-_HARNESS_PREFIXES = ("<task-notification", "<side-sessions-event", "[SYSTEM NOTIFICATION")
+_HARNESS_PREFIXES = ("<task-notification", "<side-sessions-event", "[SYSTEM NOTIFICATION",
+                     "Another Claude session sent a message", "<cross-session-message")
+_RE_REMINDER_OPEN = re.compile(r"<system-reminder>\s*")
 
 
 def is_harness_message(text):
-    return text.lstrip().startswith(_HARNESS_PREFIXES)
+    text = text.lstrip()
+    m = _RE_REMINDER_OPEN.match(text)
+    if m:
+        # Claude Code wraps worker notices in a leading reminder tag; a reminder
+        # of ordinary context (a worktree notice) is not a harness message.
+        text = text[m.end():]
+        if text.startswith('The session "'):
+            return True
+    return text.startswith(_HARNESS_PREFIXES)
 
 
 def classify(text):
