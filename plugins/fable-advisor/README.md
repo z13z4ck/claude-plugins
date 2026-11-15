@@ -184,6 +184,12 @@ satisfies the stop audit for that turn. If that cadence is too much for a
 given project, `FABLE_ADVISOR_ENFORCE=nudge` keeps the reminders and drops
 the gates.
 
+1.11.1 stops false prompt nudges: a background-worker notice wrapped in a
+leading `<system-reminder>`, a cross-session message and a side-session report
+note are harness messages and get no nudge, bare `stuck` no longer reads as a
+stalled fix, and bare `audit` no longer reads as a review request (`audit
+this/the/my/our/it/that` still does).
+
 ## When your session already runs on Fable
 
 The advisor is a second opinion, not necessarily a stronger one. If your main
@@ -316,9 +322,3 @@ so you never mistake Opus judgment for Fable judgment.
 ## License
 
 [MIT](../../LICENSE) © Aziz (z13z4ck)
-
-1.11.1 stops false prompt nudges: a background-worker notice wrapped in a
-leading `<system-reminder>`, a cross-session message and a side-session report
-note are harness messages and get no nudge, bare `stuck` no longer reads as a
-stalled fix, and bare `audit` no longer reads as a review request (`audit
-this/the/my/our/it/that` still does).

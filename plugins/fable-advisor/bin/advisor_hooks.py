@@ -1274,7 +1274,7 @@ _RE_PLAN = re.compile(
 _RE_STALLED = re.compile(
     r"\b(still (fail\w*|broken|not work\w*|doesn'?t work|isn'?t work\w*|crash\w*|error\w*|wrong|happening)|"
     r"not working|doesn'?t work|isn'?t working|keeps? (failing|crashing|breaking|happening)|"
-    r"same (error|issue|problem|bug|failure)|no luck|still stuck|stuck (on|with) (the|this|that) (bug|error|issue|problem|fix|test)|didn'?t (work|help|fix)|"
+    r"same (error|issue|problem|bug|failure)|no luck|still stuck|stuck (on|with) (the|this|that) (bugs?|errors?|issues?|problems?|fix|tests?)|didn'?t (work|help|fix)|"
     r"(failed|failing|broke|broken|crash\w*|error\w*) again|nothing (changed|works)|why (does|is) (it|this) still)\b", re.I)
 
 
