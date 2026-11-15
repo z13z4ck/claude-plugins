@@ -1209,6 +1209,9 @@ branch: crew/x
 question: which?")}"
 worker_hook subagent-stop as2h "$WK" '"stop_hook_active":false,"last_assistant_message":""'
 [ -z "$HOOK_OUT" ] && ok "a NEEDS-ANSWER sent as the last SubagentHandback message is not held" || no "held a hand-back NEEDS-ANSWER" "$HOOK_OUT"
+printf '{"type":"user","isSidechain":true,"isMeta":true,"message":{"role":"user","content":"[handback-send-enforce] Your report has not been delivered"}}\n' >>"$WT"
+worker_hook subagent-stop as2h "$WK" '"stop_hook_active":false,"last_assistant_message":""'
+[ -z "$HOOK_OUT" ] && ok "a harness meta row after the hand-back does not drop its NEEDS-ANSWER" || no "meta row reset the hand-back" "$HOOK_OUT"
 printf '{"type":"user","isSidechain":true,"isMeta":true,"origin":{"kind":"coordinator"},"message":{"role":"user","content":"The coordinator sent a message while you were working: the answer is A"}}\n' >>"$WT"
 in_worker t_edit e.py
 worker_hook subagent-stop as2h "$WK" '"stop_hook_active":false,"last_assistant_message":"Finished, report below."'

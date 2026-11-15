@@ -793,6 +793,7 @@ class Scan:
             # A new message to the worker (a SendMessage resume is an isMeta
             # coordinator row): an earlier hand-back is not the next stop's report.
             self.handback = (-1, "")
+            self.last_text = ""
         if meta:
             return
         text = text.strip()

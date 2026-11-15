@@ -188,7 +188,7 @@ the gates.
 (the injected worker policy and the worker hold no longer name the git dir,
 which Claude Code's worktree guard sometimes refused), and the worker hold
 also reads a `NEEDS-ANSWER` sent as the message of the worker's last
-`SubagentHandback` call (reset by any later message to the worker, and
+`SubagentHandback` call (reset by a later prompt or coordinator resume, and
 overridden by a plain-text `DONE`).
 
 1.11.1 stops false prompt nudges: a background-worker notice wrapped in a
