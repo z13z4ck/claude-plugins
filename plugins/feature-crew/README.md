@@ -17,8 +17,9 @@ No commands to learn. Install, enable in a project, and talk normally.
 | `agents/feature-builder-deep.md` | The deep tier: the same prompt at `model: opus`, `effort: xhigh`. Dispatched first for briefs with a deep trigger, and as the one climb when a sonnet- or opus-tier worker still fails its checks after one resume. Plugin agent files cannot share text, so the three are copies: keep them identical apart from `name`, `description`, `model` and `effort` — `tests/run-tests.sh` fails if they drift. |
 | `hooks/hooks.json` | A `SessionStart` hook, on every start source, that runs `bin/session-start.sh`, and a `UserPromptSubmit` hook that runs `bin/model-check.sh`. |
 | `bin/model-check.py` (+ `model-check.sh`) | The model check. On a worker's completion notice it reads the worker's transcript, compares the models it ran on with the tier it was dispatched as, adds one `[feature-crew]` line for the main session, and appends a ledger row with the worker's token use. Also a CLI (`--agent <id>`) the policy falls back to. Python 3, no dependencies, fail-open. |
-| `bin/session-start.sh` | Injects `policy/orchestrator.md` so the main session delegates instead of implementing, keeps a roster, and resumes workers with your answers. Adds a session note after `compact` (re-read the roster), and after `resume`, `fork` or `clear` (earlier workers are gone or out of reach; here are the `crew/*` branches that exist, with their worktrees). Outside a git work tree it prints a one-line "inactive" note instead, since workers need worktrees. Bash and git only, no jq or Python. |
-| `policy/orchestrator.md` | The orchestrator rules. Edit this file to change how the main session behaves. |
+| `bin/session-start.sh` | Injects `policy/orchestrator-core.md` and the absolute path of `policy/orchestrator.md` so the main session delegates instead of implementing, keeps a roster, and resumes workers with your answers. Adds a session note after `compact` (re-read the roster), and after `resume`, `fork` or `clear` (earlier workers are gone or out of reach; here are the `crew/*` branches that exist, with their worktrees). Outside a git work tree it prints a one-line "inactive" note instead, since workers need worktrees. Bash and git only, no jq or Python. |
+| `policy/orchestrator.md` | The full orchestrator rules. Edit this file to change how the main session behaves. |
+| `policy/orchestrator-core.md` | The compact core the hook injects on every start. Keep it in step with `orchestrator.md` (the tests compare their tier tables). |
 | `tests/run-tests.sh` | `bash tests/run-tests.sh` — exercises the hook against throwaway repos and checks the plugin files agree. |
 
 ## Install
@@ -146,7 +147,8 @@ for the advisor alone.
   criteria, or says none exist. The worker plans a check per criterion
   before coding, runs the verify commands once as a baseline, writes check
   output with a header per run (baseline or post-change, command, commit)
-  to `<gitdir>/crew-verify.log` (outside the tree), and hands that log to
+  to `crew-verify.log` in a per-feature folder under `/tmp` (outside the
+  repository; the worker prompt names it), and hands that log to
   the advisor with its review diff. Its
   `verified:` line maps each criterion to evidence or to
   `not verified: <why>` — an honest answer when no meaningful check exists.
@@ -198,6 +200,21 @@ for the advisor alone.
 
 ## Limits (from the Claude Code docs)
 
+- Hook output added to context is capped at 10,000 characters; longer stdout
+  is saved to a file and only a 2,000-character preview reaches the model.
+  The full policy is about 18 KB, so the hook prints a compact core
+  (`policy/orchestrator-core.md`: delegation and briefs, tier table and
+  rules, roster, one line per worker event, triggers for the rare events,
+  the merge rule and the advisor check on DONE) and the absolute path of
+  `policy/orchestrator.md`, which the core tells the orchestrator to Read
+  before the first dispatch or worker event after every start, compaction,
+  resume or clear, and on failures, escalations, fallbacks, stopped workers,
+  revisions, review or merge requests and fallback reviews. The root line
+  and any session note come before the core, so a cut would drop the core's
+  tail before the note. Every start source stays under 8,000 bytes: the branch list
+  after a resume is capped at 25 lines and 1,500 bytes, with subjects cut
+  to 72 bytes without splitting a UTF-8 character (pure bash, any locale).
+
 - Up to 20 subagents run at once per session by default
   (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`).
 - Background workers stop when the main session ends. Close it only after the
@@ -247,7 +264,8 @@ for the advisor alone.
   consultations. The ledger records each worker's own tokens (not the advisor
   consultations it ran, which have their own transcripts).
   To change a tier's model or effort, edit `model:` and `effort:` in its
-  agent file and the alias table in `policy/orchestrator.md` together: the
+  agent file and the alias tables in `policy/orchestrator.md` and
+  `policy/orchestrator-core.md` together: the
   model check compares the models run against the tier's model in
   `bin/model-check.py` (`TIERS`), so update it too, or a tier pointed at
   another model reads as fell back. Do not point a worker tier at Fable.
@@ -277,6 +295,29 @@ earlier leave it behind.
 model check; the worker agents stay available for explicit use.
 
 ## Changelog
+
+- **0.6.2** — Workers wrote `crew-review.diff`, `crew-fix.diff` and
+  `crew-verify.log` into the worktree's git dir, and Claude Code's worktree
+  guard refused some of those commands, so the advisor reviewed without a
+  diff. The worker prompt now puts them, and throwaway check scripts, in a
+  literal per-feature folder under `/tmp`, written with plain `git -C`
+  commands, and its DONE block names the verify-log path; the orchestrator's
+  fallback review takes that path from the DONE block. Workers send their
+  report through `SubagentHandback` when the harness asks for it, and as
+  plain text if that call is refused (the harness may still not deliver
+  that, so the orchestrator now recovers it). A completion with no DONE or
+  NEEDS-ANSWER block gets one SendMessage resume asking for it (not a
+  ladder step); a second miss is a failed DONE.
+
+- **0.6.1** — The SessionStart hook printed the whole 18 KB policy, over
+  Claude Code's 10,000-character hook-output cap, so sessions saw only a
+  2 KB preview. It now prints a compact core (`policy/orchestrator-core.md`)
+  plus the absolute path of the full policy, which the core says to Read
+  before the first dispatch or worker event after every start, compaction,
+  resume or clear, and on failures, escalations, fallbacks, stops,
+  revisions, review or merge requests and fallback reviews. The session
+  note and root line now come before the core. Output stays under 8,000 bytes on every
+  start source; long crew-branch lists are cut by a byte budget.
 
 - **0.6.0** — Fable is the advisor only: the deep tier
   (`feature-builder-deep`) runs on Opus at effort `xhigh` instead of Fable at

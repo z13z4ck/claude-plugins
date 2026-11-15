@@ -41,6 +41,15 @@ run_hook() {
 }
 
 has() { case "$OUT" in *"$1"*) return 0 ;; esac; return 1; }
+# hasf: like has, with every whitespace run folded to one space on both sides,
+# so re-wrapping the policy text cannot break a check.
+hasf() {
+  local text want
+  text="$(printf '%s' "$OUT" | tr '\r\n\t' '   ' | tr -s ' ')"
+  want="$(printf '%s' "$1" | tr '\r\n\t' '   ' | tr -s ' ')"
+  case "$text" in *"$want"*) return 0 ;; esac
+  return 1
+}
 
 git_quiet() { git -c init.defaultBranch=main -c user.email=t@t -c user.name=t "$@" >/dev/null 2>&1; }
 
@@ -150,6 +159,95 @@ run_hook resume "$MANY"
 n="$(printf '%s\n' "$OUT" | grep -c '^- crew/')"
 if [ "$n" -eq 25 ]; then ok "branch list is capped at 25"; else no "branch list is capped at 25" "got $n"; fi
 
+# 0.6.1: Claude Code keeps only a 2,000-character preview of hook stdout over
+# 10,000 characters, so every path must stay under 8,000 bytes. Worst case:
+# resume with 25+ long branch names, long subjects and long worktree paths.
+bytes() { printf '%s\n' "$OUT" | wc -c | tr -d ' '; }
+LONG="$TMP/long"
+mkdir -p "$LONG"
+git_quiet -C "$LONG" init
+git_quiet -C "$LONG" commit --allow-empty -m "init"
+subj="$(printf 'Long subject %.0s' $(seq 1 20))"
+i=1
+while [ "$i" -le 30 ]; do
+  b="crew/a-rather-long-feature-branch-name-for-size-testing-$i"
+  if [ "$i" -le 5 ]; then
+    git_quiet -C "$LONG" worktree add "$TMP/a-long-worktree-directory-name-to-pad-the-path-out-$i" -b "$b"
+    git_quiet -C "$TMP/a-long-worktree-directory-name-to-pad-the-path-out-$i" commit --allow-empty -m "$subj $i"
+  else
+    # Multibyte subjects: the byte budget must count bytes, not characters.
+    git_quiet -C "$LONG" checkout -q -b "$b" main
+    # The leading x makes a 69-byte cut split a 3-byte character.
+    git_quiet -C "$LONG" commit --allow-empty -m "x$(printf '機能%.0s' $(seq 1 40)) $i"
+  fi
+  i=$((i + 1))
+done
+for src in startup compact resume fork clear; do
+  run_hook "$src" "$LONG"
+  if [ "$(bytes)" -lt 8000 ]; then ok "$src output is under 8,000 bytes ($(bytes))"; else no "$src output is under 8,000 bytes" "got $(bytes)"; fi
+done
+run_hook resume "$LONG"
+if has "more not shown" && printf '%s\n' "$OUT" | grep '^- crew/' | grep -q '\.\.\.'; then
+  ok "long branch lists are cut by a byte budget and subjects are shortened"
+else
+  no "long branch lists are cut by a byte budget and subjects are shortened" "$(printf '%s\n' "$OUT" | grep '^- ' | head -3)"
+fi
+valid_utf8() { python3 -c 'import sys; sys.stdin.buffer.read().decode("utf-8")' 2>/dev/null; }
+for loc in C en_US.UTF-8; do
+  OUT="$(cd "$LONG" && printf '{"source":"resume"}' | LC_ALL="$loc" CLAUDE_PLUGIN_ROOT="$PLUGIN" bash "$HOOK" 2>&1)"
+  if printf '%s' "$OUT" | grep -q '機能' && printf '%s' "$OUT" | valid_utf8; then
+    ok "shortened multibyte subjects stay valid UTF-8 (LC_ALL=$loc)"
+  else
+    no "shortened multibyte subjects stay valid UTF-8 (LC_ALL=$loc)"
+  fi
+done
+
+# utf8_cut on 1-, 2-, 3- and 4-byte characters at every cut length: never
+# over the byte limit, never more than 3 bytes short, always valid UTF-8.
+eval "$(sed -n '/^utf8_cut() {/,/^}/p' "$HOOK")"
+bad=""
+for txt in "abcdef" "ééééé" "機能機能" "😀😀😀" "a😀é機b"; do
+  full="$(printf '%s' "$txt" | wc -c | tr -d ' ')"
+  for n in 1 2 3 4 5 6 7 8 9 10; do
+    want=$n
+    [ "$full" -lt "$n" ] && want=$full
+    for loc in C en_US.UTF-8; do
+      got="$(LC_ALL=$loc utf8_cut "$txt" "$n")"
+      len="$(printf '%s' "$got" | wc -c | tr -d ' ')"
+      if [ "$len" -gt "$want" ] || [ "$len" -lt $((want - 3)) ] || ! printf '%s' "$got" | valid_utf8; then
+        bad="$bad [$txt/$n/$loc:$len]"
+      fi
+    done
+  done
+done
+for spec in "a😀é機b|4|a" "a😀é機b|6|a😀" "a😀é機b|7|a😀é" "a😀é機b|9|a😀é" "a😀é機b|10|a😀é機" \
+  "機能機能|6|機能" "ééééé|4|éé" "abcdef|3|abc"; do
+  IFS='|' read -r txt n want <<EOF
+$spec
+EOF
+  for loc in C en_US.UTF-8; do
+    got="$(LC_ALL=$loc utf8_cut "$txt" "$n")"
+    [ "$got" = "$want" ] || bad="$bad [$txt/$n/$loc: got $got]"
+  done
+done
+if [ -z "$bad" ]; then ok "utf8_cut never splits a character or exceeds the byte limit"; else no "utf8_cut never splits a character or exceeds the byte limit" "$bad"; fi
+
+# The session note and root line come before the core, never after it.
+for src in compact resume; do
+  run_hook "$src" "$LONG"
+  note="${OUT%%Session note*}"
+  core="${OUT%%orchestrator mode (core rules)*}"
+  root="${OUT%%feature-crew root (for the model check CLI)*}"
+  if [ "${#note}" -lt "${#core}" ] && [ "${#root}" -lt "${#core}" ] && [ "${#core}" -lt "${#OUT}" ] &&
+    [ "$(printf '%s\n' "$OUT" | tail -n 1)" = "$PLUGIN/policy/orchestrator.md" ]; then
+    ok "$src: session note and root line come before the core, full-policy path last"
+  else
+    no "$src: session note and root line come before the core, full-policy path last"
+  fi
+done
+run_hook startup "$PLAIN"
+if [ "$(bytes)" -lt 8000 ]; then ok "inactive note is under 8,000 bytes"; else no "inactive note is under 8,000 bytes"; fi
+
 EMPTY="$TMP/empty"
 mkdir -p "$EMPTY"
 git_quiet -C "$EMPTY" init
@@ -193,7 +291,27 @@ if [ "$RC" -eq 0 ] && has "orchestrator mode"; then ok "garbage stdin still yiel
 
 OUT="$(cd "$REPO" && printf '{"source":"startup"}' | CLAUDE_PLUGIN_ROOT="$TMP/nowhere" bash "$HOOK")"
 RC=$?
-if [ "$RC" -eq 0 ] && has "Policy file missing"; then ok "missing policy file is reported, exit 0"; else no "missing policy file is reported, exit 0"; fi
+if [ "$RC" -eq 0 ] && has "Policy file missing" && [ "$(bytes)" -lt 8000 ]; then ok "missing policy file is reported, exit 0, short"; else no "missing policy file is reported, exit 0, short"; fi
+
+# The hook prints the core, not the full policy, and ends the core with the
+# absolute path of the full policy and when to Read it.
+run_hook startup "$REPO"
+if has "orchestrator mode (core rules)" && ! has "## Handle worker events" &&
+  printf '%s\n' "$OUT" | grep -qxF "$PLUGIN/policy/orchestrator.md" &&
+  hasf "Before the first dispatch or worker event after every session start, compaction, resume or clear" &&
+  hasf "a model-check FELL BACK line or a missing one, a stopped worker, a revision, a review or merge request, or a fallback review, use the Read tool on the full policy at this path (if the Read fails, tell the user):"; then
+  ok "startup prints the core and the absolute full-policy path with when to Read it"
+else
+  no "startup prints the core and the absolute full-policy path with when to Read it"
+fi
+for phrase in "## Delegate, don't implement" "branch \`crew/<slug>\`" "## Pick the worker tier" \
+  "| deep | \`feature-crew:feature-builder-deep\`" "## Roster" "**DONE**" "**NEEDS-ANSWER**" \
+  "**Failed or unverified DONE**" "Never merge crew branches, push, or delete branches unless the user asks" \
+  "accept only \`advisor: reviewed — \` with a Fable MODEL" "never resume unasked" \
+  "read the full policy's ladder first" "climb once to deep (never from deep)" \
+  "**Rare events** (read the full policy before acting on any): a rate-limit or overload error (one retry), a requested model unavailable or a \`FELL BACK\` line, no model-check line, a deep-tier worker failing again (the max-effort offer), a worker stopped by the user (save its patch at once)"; do
+  if hasf "$phrase"; then ok "startup core carries: $phrase"; else no "startup core carries: $phrase"; fi
+done
 
 # has_phrase <file> <phrase>: fixed-string match after folding every run of
 # whitespace (newlines included) to one space in both, so re-wrapping prose
@@ -226,19 +344,20 @@ else
   no "hooks.json registers the UserPromptSubmit model check through bash, no SubagentStop"
 fi
 
-if grep -q '"version": "0.6.0"' "$PLUGIN/.claude-plugin/plugin.json" &&
+if grep -q '"version": "0.6.2"' "$PLUGIN/.claude-plugin/plugin.json" &&
   ! grep -qi 'on Fable' "$PLUGIN/.claude-plugin/plugin.json" &&
   ! grep -qi 'Fable worker' "$PLUGIN/.claude-plugin/plugin.json"; then
-  ok "plugin.json is 0.6.0 and no longer says workers run on Fable"
+  ok "plugin.json is 0.6.2 and no longer says workers run on Fable"
 else
-  no "plugin.json is 0.6.0 and no longer says workers run on Fable"
+  no "plugin.json is 0.6.2 and no longer says workers run on Fable"
 fi
 
 # 0.6.0: Fable is the advisor only. No worker agent pins it, no dispatch
 # passes it, and the policy says so.
 if ! grep -rqx 'model: [f]able' "$PLUGIN/agents" &&
-  ! grep -q 'model: "fable"' "$PLUGIN/policy/orchestrator.md" &&
-  ! grep -qiE 'fable[- ]tier|fable trigger' "$PLUGIN/policy/orchestrator.md" "$PLUGIN/agents"/*.md &&
+  ! grep -q 'model: "fable"' "$PLUGIN/policy/orchestrator.md" "$PLUGIN/policy/orchestrator-core.md" &&
+  ! grep -qiE 'fable[- ]tier|fable trigger' "$PLUGIN/policy/orchestrator.md" "$PLUGIN/policy/orchestrator-core.md" "$PLUGIN/agents"/*.md &&
+  has_phrase "$PLUGIN/policy/orchestrator-core.md" "Workers run on Sonnet or Opus, never on Fable: Fable is the advisor (\`fable-advisor:advisor\`) only" &&
   has_phrase "$PLUGIN/policy/orchestrator.md" "Workers run on Sonnet or Opus, never on Fable: Fable is the advisor (\`fable-advisor:advisor\`) only" &&
   has_phrase "$PLUGIN/policy/orchestrator.md" "Fable for a feature → deep tier, and tell the user in the dispatch reply that Fable is the advisor only"; then
   ok "no worker runs on Fable; a request for Fable gets the deep tier and the advisor-only note"
@@ -327,8 +446,9 @@ root = sys.argv[1]
 spec = importlib.util.spec_from_file_location("mc", root + "/bin/model-check.py")
 mc = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mc)
-pol = open(root + "/policy/orchestrator.md").read()
+pols = [open(root + "/policy/" + f).read() for f in ("orchestrator.md", "orchestrator-core.md")]
 for agent, (label, family) in mc.TIERS.items():
+  for pol in pols:
     fm = open("%s/agents/%s.md" % (root, agent)).read().split("---")[1]
     model = re.search(r"^model: (\S+)$", fm, re.M).group(1)
     assert model == family, (agent, model, family)
@@ -337,9 +457,29 @@ for agent, (label, family) in mc.TIERS.items():
     assert "fable" not in family.lower(), agent
 PY2
 then
-  ok "agent model:, model-check TIERS and the policy alias table agree (and none is fable)"
+  ok "agent model:, model-check TIERS and both policy alias tables agree (and none is fable)"
 else
-  no "agent model:, model-check TIERS and the policy alias table agree (and none is fable)"
+  no "agent model:, model-check TIERS and both policy alias tables agree (and none is fable)"
+fi
+
+# The core paraphrases the tier rules; their key conditions must match.
+for f in orchestrator.md orchestrator-core.md; do
+  if has_phrase "$PLUGIN/policy/$f" "concurrency, performance, security, or a cross-cutting refactor" &&
+    has_phrase "$PLUGIN/policy/$f" "covers one area, and leaves no open decision"; then
+    ok "$f states the deep trigger and the sonnet conditions"
+  else
+    no "$f states the deep trigger and the sonnet conditions"
+  fi
+done
+
+# The core repeats the full policy's tier table; the rows must be identical.
+tier_rows() { grep -E '^\| (sonnet|opus|deep) \|' "$1"; }
+if [ "$(tier_rows "$PLUGIN/policy/orchestrator.md" | wc -l)" -eq 3 ] &&
+  [ "$(tier_rows "$PLUGIN/policy/orchestrator.md")" = "$(tier_rows "$PLUGIN/policy/orchestrator-core.md")" ]; then
+  ok "core and full policy have the same tier table (tier, agent type, model alias)"
+else
+  no "core and full policy have the same tier table (tier, agent type, model alias)" \
+    "$(diff <(tier_rows "$PLUGIN/policy/orchestrator.md") <(tier_rows "$PLUGIN/policy/orchestrator-core.md") 2>&1 | head -4)"
 fi
 
 # The deep worker is both the deep-tier first dispatch and the climb target,
@@ -393,7 +533,7 @@ else
 fi
 
 W="$PLUGIN/agents/feature-builder.md"
-if has_phrase "$W" 'subagent_type: "fable-advisor:advisor"' && has_phrase "$W" "absolute-git-dir"; then
+if has_phrase "$W" 'subagent_type: "fable-advisor:advisor"' && has_phrase "$W" "/tmp/crew/<slug>/crew-review.diff"; then
   ok "worker consults the advisor and writes its review diff outside the tree"
 else
   no "worker consults the advisor and writes its review diff outside the tree"
@@ -433,9 +573,9 @@ fi
 
 run_hook startup "$REPO"
 if has "feature-crew root (for the model check CLI): $PLUGIN"; then
-  ok "session-start prints the plugin root after the policy"
+  ok "session-start prints the plugin root"
 else
-  no "session-start prints the plugin root after the policy" "${OUT: -120}"
+  no "session-start prints the plugin root" "${OUT:0:200}"
 fi
 
 # A fell-back run or a refused model never climbs onto the same model.
@@ -546,7 +686,7 @@ if [ "$steps" = 12345678 ]; then ok "worker steps are numbered 1-8 in order"; el
 
 # Claude Code's worktree guard refuses nested $(git ...) in an isolated
 # worker (seen live), so the worker's instructions must not use it.
-if ! grep -q '"\$(git ' "$W" && has_phrase "$W" 'git -C <worktree> rev-parse --absolute-git-dir'; then
+if ! grep -q '"\$(git ' "$W" && has_phrase "$W" 'git -C <worktree> diff -U25 <base>...HEAD > /tmp/crew/<slug>/crew-review.diff'; then
   ok "worker's diff instructions use plain git -C commands, no nested \$(git ...)"
 else
   no "worker's diff instructions use plain git -C commands, no nested \$(git ...)"
@@ -630,18 +770,56 @@ else
   no "worker states the two-consultation advisor budget, no two-approaches trigger"
 fi
 
-if has_phrase "$W" "diff -U25 <base>...HEAD > <gitdir>/crew-review.diff" &&
+if has_phrase "$W" "diff -U25 <base>...HEAD > /tmp/crew/<slug>/crew-review.diff" &&
   has_phrase "$W" "start from the diff, read only the log's run headers and tail" &&
-  has_phrase "$W" "diff -U25 <reviewed-commit>..HEAD > <gitdir>/crew-fix.diff" && has_phrase "$W" "cannot name the reviewed commit"; then
+  has_phrase "$W" "diff -U25 <reviewed-commit>..HEAD > /tmp/crew/<slug>/crew-fix.diff" && has_phrase "$W" "cannot name the reviewed commit"; then
   ok "worker sends a -U25 diff first and re-reviews only the fix diff"
 else
   no "worker sends a -U25 diff first and re-reviews only the fix diff"
 fi
 
+# 0.6.2: worker scratch files live in literal /tmp/crew/<slug>/ (the worktree
+# guard refused writes into .git/worktrees/<name>); the three agent files share
+# one prompt body, nothing tells a worker to use <gitdir>, and the path is
+# spelled only in the worker prompts.
+body() { sed '1,/^---$/d' "$1" | sed '1,/^---$/d'; }
+if [ "$(body "$W")" = "$(body "$S")" ] && [ "$(body "$W")" = "$(body "$D")" ]; then
+  ok "all three worker agent files carry the same prompt body"
+else
+  no "all three worker agent files carry the same prompt body"
+fi
+if ! grep -l 'absolute-git-dir\|<gitdir>' "$PLUGIN"/agents/*.md >/dev/null &&
+  has_phrase "$W" "mkdir -p /tmp/crew/<slug>" && has_phrase "$W" "check script goes in \`/tmp/crew/<slug>/\`" &&
+  has_phrase "$W" "then the log path, /tmp/crew/<slug>/crew-verify.log" &&
+  [ -z "$(grep -rl '/tmp/crew/' "$PLUGIN" --exclude-dir=agents --exclude=run-tests.sh)" ]; then
+  ok "worker scratch files go to /tmp/crew/<slug>/, spelled only in the worker prompts"
+else
+  no "worker scratch files go to /tmp/crew/<slug>/, spelled only in the worker prompts" "$(grep -rn 'absolute-git-dir\|<gitdir>' "$PLUGIN"/agents; grep -rl '/tmp/crew/' "$PLUGIN" --exclude-dir=agents --exclude=run-tests.sh)"
+fi
+if has_phrase "$W" "deliver your report with \`SubagentHandback\`, send the whole block as its \`message\`; if that call is refused, write the same block as your final plain-text message"; then
+  ok "worker sends its report through SubagentHandback, plain text if refused"
+else
+  no "worker sends its report through SubagentHandback, plain text if refused"
+fi
+for f in orchestrator.md orchestrator-core.md; do
+  P2="$PLUGIN/policy/$f"
+  if has_phrase "$P2" "**No report**" && has_phrase "$P2" "not a ladder step" && has_phrase "$P2" "failed DONE" &&
+    ! grep -q 'git -C <worktree> rev-parse --absolute-git-dir' "$P2"; then
+    ok "$f resumes a worker once for a missing report and does not look for its log in <gitdir>"
+  else
+    no "$f resumes a worker once for a missing report and does not look for its log in <gitdir>"
+  fi
+done
+if has_phrase "$O" "the path its DONE block's \`verified:\` line names" && has_phrase "$PLUGIN/policy/orchestrator-core.md" "verify log: the path in its DONE block"; then
+  ok "fallback review takes the worker's verify log path from its DONE block"
+else
+  no "fallback review takes the worker's verify log path from its DONE block"
+fi
+
 r5="$(sed -n '/^5\. \*\*Verify/,/^6\. /p' "$W")"
 if printf '%s\n' "$r5" >"$TMP/r5.txt" && has_phrase "$TMP/r5.txt" "only the tests affected by your change" &&
   has_phrase "$TMP/r5.txt" "failures-only reporter" && has_phrase "$TMP/r5.txt" "full suite once more, at the end, after the baseline" &&
-  has_phrase "$TMP/r5.txt" "tail -n 40 <gitdir>/crew-verify.log" &&
+  has_phrase "$TMP/r5.txt" "tail -n 40 /tmp/crew/<slug>/crew-verify.log" &&
   [ "$(grep -c 'crew-verify.log' "$TMP/r5.txt")" -le 3 ]; then
   ok "worker keeps check output out of context (quiet checks, tail -n 40)"
 else

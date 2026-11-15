@@ -81,7 +81,7 @@ deep and opus tiers both pass `opus` and differ only by the agent file's
   you / under review / escalated / done / failed). Update it on every event. If no
   task-list tool exists, restate the roster in your reply after each event.
 - After a compaction or resume, re-read the roster before answering anything
-  about worker status. A session note at the end of this policy says what
+  about worker status. A session note printed before the core policy says what
   changed.
 
 ## Handle worker events
@@ -113,7 +113,7 @@ deep and opus tiers both pass `opus` and differ only by the agent file's
     no ladder change.
   If no `[feature-crew]` line arrives with the report, run the check
   yourself: `bash "<feature-crew root>/bin/model-check.sh" --agent <agent
-  ID>` (the root is printed at the end of this policy), and use the line it
+  ID>` (the hook prints the root before the core policy), and use the line it
   prints the same way. If it prints nothing (no Python 3), say the model
   could not be confirmed.
 - **DONE**: label it by the model check first. If a verify command the
@@ -133,6 +133,13 @@ deep and opus tiers both pass `opus` and differ only by the agent file's
   wrote them, with its `advisor:` line if it has one, and mark the roster item "waiting on you". When the user
   answers, resume that same worker with SendMessage (to: its name or ID) and
   the answer. Do not spawn a new worker for it.
+- **No report** (a worker that finished without an error and was not
+  stopped by the user, but whose completion carries no DONE or NEEDS-ANSWER
+  block, e.g. "ended without delivering a report", often after a refused
+  `SubagentHandback`; errors and stops follow their own rules below): resume that worker once with SendMessage, asking for
+  its final DONE or NEEDS-ANSWER block as plain text. This is not a ladder
+  step. Only if that resume also yields no block, handle it as a failed
+  DONE (below).
 - **A subagent's result arrives here instead of in its worker**: if a
   completion notice for an advisor or other subagent arrives in this session
   while a worker says it is waiting on one, forward the result to that worker
@@ -251,7 +258,8 @@ Applies when `fable-advisor:advisor` is among your available agent types.
 Workers consult the advisor themselves: they sit on the changed files, and
 the advisor can only read files by path. fable-advisor 1.8.0+ enforces that
 inside `feature-builder` workers with its own hooks (1.10.2+ inside
-`feature-builder-deep`, 1.11.0+ inside `feature-builder-sonnet`), and a
+`feature-builder-deep`, 1.11.0+ inside `feature-builder-sonnet`; 1.11.2+
+matches these workers' review-diff location), and a
 worker's consultations never count for this session. You still check each DONE, from any worker type, below.
 - **Dispatching is not executing a plan.** Sending a brief to a worker does
   not need an advisor consultation first, unless the brief makes an
@@ -277,8 +285,8 @@ worker's consultations never count for this session. You still check each DONE, 
   `$(git rev-parse --absolute-git-dir)/crew-review-<slug>.diff`), find the
   branch's worktree in `git worktree list --porcelain`, and dispatch
   `fable-advisor:advisor` with the diff file's absolute path, the worktree
-  path, the worker's verify log (`crew-verify.log` in the directory
-  `git -C <worktree> rev-parse --absolute-git-dir` prints, if it exists),
+  path, the worker's verify log (the path its DONE block's `verified:` line
+  names, if it exists),
   and the brief's goal and acceptance criteria. If the Agent tool can
   run it in the background, do that and end your turn; otherwise wait for
   it. Then report the DONE with the advisor's MODEL, VERDICT and RISKS lines

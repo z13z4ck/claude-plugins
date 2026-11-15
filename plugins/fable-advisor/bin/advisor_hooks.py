@@ -661,6 +661,7 @@ class Scan:
         self._last_mode = None   # permission-mode rows are written per prompt, not per change
         self.ts_of = {}          # line -> epoch, for rows that carry a timestamp
         self.last_text = ""      # newest assistant text (sidechain scans only)
+        self.handback = (-1, "")  # (line, message) of the newest SubagentHandback call
         self._last_ts = None
         if path and os.path.isfile(path):
             self._parse()
@@ -737,6 +738,8 @@ class Scan:
             elif name == "Bash":
                 for fp in bash_write_targets(inp.get("command"), d.get("cwd")):
                     self.edits.append((n, fp))
+            elif name == "SubagentHandback":
+                self.handback = (n, str(inp.get("message") or ""))
             elif name == "EnterPlanMode":
                 self.plan_marks.append(n)
             elif name == "ExitPlanMode":
@@ -783,7 +786,15 @@ class Scan:
             text = content
         else:
             return
-        if d.get("isMeta") or d.get("isCompactSummary"):
+        meta = d.get("isMeta") or d.get("isCompactSummary")
+        coordinator = ((d.get("origin") or {}).get("kind") == "coordinator"
+                       or text.lstrip().startswith("The coordinator sent a message"))
+        if text.strip() and (coordinator or not meta):
+            # A new message to the worker (a SendMessage resume is an isMeta
+            # coordinator row): an earlier hand-back is not the next stop's report.
+            self.handback = (-1, "")
+            self.last_text = ""
+        if meta:
             return
         text = text.strip()
         if text:
@@ -1254,7 +1265,7 @@ def claude_md_status(target):
 # --- prompt classification --------------------------------------------------
 
 _RE_REVIEW = re.compile(
-    r"\b(second opinion|sanity[- ]?check|double[- ]?check|review|critique|audit|"
+    r"\b(second opinion|sanity[- ]?check|double[- ]?check|review|critique|audit (this|the|my|our|it|that)|"
     r"(ask|consult) (the )?(fable )?advisor|ask fable|what do you think|your thoughts)\b", re.I)
 _RE_DECISION = re.compile(
     r"\b(should (i|we)|which (one|approach|option|way|is better|would you)|better (to|approach|option|way)|"
@@ -1274,15 +1285,25 @@ _RE_PLAN = re.compile(
 _RE_STALLED = re.compile(
     r"\b(still (fail\w*|broken|not work\w*|doesn'?t work|isn'?t work\w*|crash\w*|error\w*|wrong|happening)|"
     r"not working|doesn'?t work|isn'?t working|keeps? (failing|crashing|breaking|happening)|"
-    r"same (error|issue|problem|bug|failure)|no luck|stuck|didn'?t (work|help|fix)|"
+    r"same (error|issue|problem|bug|failure)|no luck|still stuck|stuck (on|with) (the|this|that) (bugs?|errors?|issues?|problems?|fix|tests?)|didn'?t (work|help|fix)|"
     r"(failed|failing|broke|broken|crash\w*|error\w*) again|nothing (changed|works)|why (does|is) (it|this) still)\b", re.I)
 
 
-_HARNESS_PREFIXES = ("<task-notification", "<side-sessions-event", "[SYSTEM NOTIFICATION")
+_HARNESS_PREFIXES = ("<task-notification", "<side-sessions-event", "[SYSTEM NOTIFICATION",
+                     "Another Claude session sent a message", "<cross-session-message")
+_RE_REMINDER_OPEN = re.compile(r"<system-reminder>\s*")
 
 
 def is_harness_message(text):
-    return text.lstrip().startswith(_HARNESS_PREFIXES)
+    text = text.lstrip()
+    m = _RE_REMINDER_OPEN.match(text)
+    if m:
+        # Claude Code wraps worker notices in a leading reminder tag; a reminder
+        # of ordinary context (a worktree notice) is not a harness message.
+        text = text[m.end():]
+        if text.startswith('The session "'):
+            return True
+    return text.startswith(_HARNESS_PREFIXES)
 
 
 def classify(text):
@@ -1657,12 +1678,13 @@ def worker_policy_text():
         "verification review of your final diff. Outside that budget: mid-way consultations, only AFTER "
         "two failed attempts at the same bug or a test failure you cannot explain, and one fix-diff "
         "re-review after a behaviour-changing fix. Before you finish a change of %d+ files, get that "
-        "verification review of the committed diff: write it to a file outside the working tree (run "
-        "`git -C <worktree> rev-parse --absolute-git-dir`, then `git -C <worktree> diff -U25 "
-        "<base>...HEAD > <that dir>/crew-review.diff` with literal paths; <base> is the base your brief "
+        "verification review of the committed diff: write it to a file in the directory your worker "
+        "prompt names for it (<that dir>; if it names none, any directory outside the repository; `git -C <worktree> diff -U25 <base>...HEAD > <that dir>/crew-review.diff` "
+        "with literal paths; <base> is the base your brief "
         "names for the review, which for an escalation or revision worker is the original feature's base, "
         "not the crew/<slug> branch it started from, else the base you branched from; a worktree-isolated "
-        "agent's git commands are refused when they nest $(git ...)) and give the advisor that file's "
+        "agent's git commands are refused when they nest $(git ...) or name paths through shell "
+        "variables) and give the advisor that file's "
         "absolute path, the absolute path of your check output log (<that dir>/crew-verify.log) if you "
         "wrote one, and your worktree path (it reads files only, by path, and cannot run git); ask it to "
         "start from the diff, read only the log's run headers and tail (or grep it for failures), and open "
@@ -1700,6 +1722,7 @@ def subagent_start(inp):
 
 
 _RE_NEEDS_ANSWER = re.compile(r"^\s*`*\s*NEEDS-ANSWER\b", re.M)
+_RE_DONE = re.compile(r"^\s*`*\s*DONE\b", re.M)
 
 
 def subagent_stop(inp):
@@ -1714,7 +1737,10 @@ def subagent_stop(inp):
     last = inp.get("last_assistant_message")
     if last is None:
         last = scan.last_text  # builds that leave the field out
-    if _RE_NEEDS_ANSWER.search(str(last or "")):
+    hb_msg = scan.handback[1]
+    if _RE_DONE.search(str(last or "")):
+        hb_msg = ""  # a plain-text DONE after the hand-back is the newer report
+    if _RE_NEEDS_ANSWER.search(str(last or "")) or _RE_NEEDS_ANSWER.search(hb_msg):
         # Stopping to ask the user. The count is cumulative, so the DONE stop
         # that follows the answer still catches an unreviewed change.
         log("subagent-stop-pass", sc.key, reason="needs-answer", agent=sc.agent_id)
@@ -1733,8 +1759,8 @@ def subagent_stop(inp):
         # A review of the fix diff is enough, not a second full review.
         what = (
             "You already had a verification review; get one of the fixes since then: commit, write the fix "
-            "diff to a file outside the working tree (two plain commands with literal paths: "
-            "`git -C <worktree> rev-parse --absolute-git-dir`, then `git -C <worktree> diff -U25 "
+            "diff to a file in the directory your worker prompt names for it (<that dir>; if it names none, any directory outside the repository; one plain command with "
+            "literal paths: `git -C <worktree> diff -U25 "
             "<reviewed-commit>..HEAD > <that dir>/crew-fix.diff`, where <reviewed-commit> is the commit "
             "that review covered; if you cannot name it, send the full `<base>...HEAD` diff as "
             "crew-review.diff instead, with <base> the base your brief names for the review (the original "
@@ -1746,9 +1772,9 @@ def subagent_stop(inp):
             "Get a verification review: commit, write the committed diff against the base your brief names "
             "for the review (the original feature's base for an escalation or revision worker, not the "
             "crew/<slug> branch you started from; else the base you branched from) to a file outside the "
-            "working tree (two plain commands with literal paths: `git -C <worktree> rev-parse "
-            "--absolute-git-dir`, then `git -C <worktree> diff -U25 <base>...HEAD > "
-            "<that dir>/crew-review.diff`; nesting $(git ...) is refused in an isolated worktree), and %s "
+            "repository, in the directory your worker prompt names for it (<that dir>; if it names none, any directory outside the repository; one plain "
+            "command with literal paths: "
+            "`git -C <worktree> diff -U25 <base>...HEAD > <that dir>/crew-review.diff`; nesting $(git ...) is refused in an isolated worktree), and %s "
             "with that file's absolute path" % DISPATCH
         )
     emit({

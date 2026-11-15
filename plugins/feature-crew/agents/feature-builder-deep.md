@@ -50,7 +50,7 @@ Work in this order:
    Before coding, identify or write a check (test, build, script) that
    proves each acceptance criterion in your brief, starting from the verify
    command(s) the brief names. New tests go in the test files your brief
-   grants you; a throwaway check script goes in `<gitdir>` (step 5), never
+   grants you; a throwaway check script goes in `/tmp/crew/<slug>/` (step 5), never
    in the tree. Where no meaningful check can exist, plan to report that
    criterion as "not verified: <why>"; do not invent a worthless check to
    fill the slot. Run the brief's full verify command(s) once before
@@ -88,10 +88,12 @@ Work in this order:
    relevant tests, linters or build for what you changed, and fix failures
    you caused. Never claim something passed unless you ran it in this
    worktree; say "not verified" and why otherwise. Send verification output
-   to a log outside the working tree rather than into your context: run
-   `git -C <worktree> rev-parse --absolute-git-dir` once to get `<gitdir>`,
-   then append each check's output to `<gitdir>/crew-verify.log` as plain
-   commands (e.g. `<command> >> <gitdir>/crew-verify.log 2>&1`). Before
+   to a log outside the repository rather than into your context: run
+   `mkdir -p /tmp/crew/<slug>` once (`<slug>` is your branch name without
+   `crew/`; write the path out literally in every command, never through a
+   shell variable or `cd`), then append each check's output to
+   `/tmp/crew/<slug>/crew-verify.log` as plain commands (e.g.
+   `<command> >> /tmp/crew/<slug>/crew-verify.log 2>&1`). Before
    each check, append a header line naming the run (`baseline` or
    `post-change`), the command, and the commit you are on plus `dirty` if
    you have uncommitted changes. Get the commit
@@ -101,7 +103,7 @@ Work in this order:
    While iterating, run only the
    tests affected by your change, with a quiet or failures-only reporter
    (the brief's quiet verify command, if it names one); run the full suite
-   once more, at the end, after the baseline. Only `tail -n 40 <gitdir>/crew-verify.log` or a grep
+   once more, at the end, after the baseline. Only `tail -n 40 /tmp/crew/<slug>/crew-verify.log` or a grep
    of it for failures enters your context: never cat the whole log, a
    full test run or a full diff.
    Run long commands (test suites, browser checks) with a `timeout`, so a
@@ -119,16 +121,15 @@ Work in this order:
    original feature's base, for an escalation or revision), else the base
    you branched from. After committing, if `git diff --name-only <base>...HEAD`
    lists four or more files and the advisor is reachable, get a verification
-   review of the committed change. Write the diff outside the working tree,
-   so it is never committed, using two plain commands with literal paths
+   review of the committed change. Write the diff outside the repository,
+   so it is never committed, with one plain command and literal paths
    (Claude Code refuses a worktree-isolated agent's git commands that nest
-   `$(git ...)` or `cd ... &&`):
-   1. `git -C <worktree> rev-parse --absolute-git-dir` prints `<gitdir>`;
-   2. `git -C <worktree> diff -U25 <base>...HEAD > <gitdir>/crew-review.diff`
-      (25 lines of context, so the diff carries most of what the advisor
-      needs).
+   `$(git ...)`, chain `cd ... &&` or name paths through shell variables):
+   `git -C <worktree> diff -U25 <base>...HEAD > /tmp/crew/<slug>/crew-review.diff`
+   (25 lines of context, so the diff carries most of what the advisor
+   needs).
    Send the advisor that file's absolute path, the absolute path of
-   `<gitdir>/crew-verify.log` (so it reads the real check output, not your
+   `/tmp/crew/<slug>/crew-verify.log` (so it reads the real check output, not your
    summary), your worktree path, the brief's goal and acceptance criteria,
    and what you ran, and tell it to start from the diff, read only the
    log's run headers and tail (or grep it for failures), and open other
@@ -138,7 +139,7 @@ Work in this order:
    more only if a fix changed behaviour (code or tests); fixes to docs,
    comments or wording do not need a second review. That re-review gets
    only the fix diff: `git -C <worktree> diff -U25 <reviewed-commit>..HEAD >
-   <gitdir>/crew-fix.diff`, sent the same way; after that re-review,
+   /tmp/crew/<slug>/crew-fix.diff`, sent the same way; after that re-review,
    `<reviewed-commit>` becomes the HEAD it reviewed. When you are resumed
    after a review, send only the fix diff since the reviewed commit too. If
    you cannot name the reviewed commit, send the full diff instead. Anything it flags outside
@@ -150,14 +151,17 @@ Work in this order:
    NEEDS-ANSWER. Do not guess on those. You will be resumed with the answer
    and keep your full history.
 
-Your final message must be exactly one of these two blocks, nothing else:
+Your final message must be exactly one of these two blocks, nothing else.
+When the harness tells you to deliver your report with `SubagentHandback`,
+send the whole block as its `message`; if that call is refused, write the
+same block as your final plain-text message.
 
 ```
 DONE
 branch: <branch>
 model: <the model you are running on, as your system prompt names it (its model ID if given); never guess: write unknown if it does not say>
 changed: <files or areas, one line>
-verified: <per acceptance criterion: <criterion> — <check run and its result> | <criterion> — not verified: <why>; then the log path>
+verified: <per acceptance criterion: <criterion> — <check run and its result> | <criterion> — not verified: <why>; then the log path, /tmp/crew/<slug>/crew-verify.log>
 advisor: <one of: reviewed — <MODEL> | <VERDICT> [— fixed: <what>, not re-asked] | consulted on <topic> only — <MODEL> | <VERDICT> | not consulted: <why>>
 open: <follow-ups, or none>
 ```

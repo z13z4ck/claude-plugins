@@ -561,6 +561,22 @@ run_hook prompt "\"prompt\":$(json_str "/fable-advisor:health")"
 
 run_hook prompt "\"prompt\":$(json_str "bump the fable-advisor version to 1.6.0")"
 [ -z "$HOOK_OUT" ] && ok "'fable-advisor' in a prompt is not a review request" || no "false review nudge" "$HOOK_OUT"
+# 1.11.1: harness wrappers and ordinary wording must not nudge
+NL=$'\n'
+for t in "<system-reminder>${NL}[SYSTEM NOTIFICATION - NOT USER INPUT]${NL}<task-notification>Advisor review</task-notification></system-reminder>" \
+  '<cross-session-message from="local_x">please review</cross-session-message>' \
+  'Another Claude session sent a message while you were working: <cross-session-message from="local_x">please review</cross-session-message>' \
+  "<system-reminder>${NL}The session \"X\" you started (local_1) finished; please review</system-reminder>" \
+  "is it still running or it stuck?" "Yes, add audit logging for user edits" "continue where was left off if it stuck"; do
+  run_hook prompt "\"prompt\":$(json_str "$t")"
+  [ -z "$HOOK_OUT" ] && ok "no nudge: ${t:0:40}" || no "false nudge: ${t:0:40}" "$HOOK_OUT"
+done
+for t in "I'm still stuck on this bug" "I'm stuck on the errors" "still failing after the fix" "can you review this PR" "audit this module" "ask the advisor" \
+  "<system-reminder>${NL}You are operating in a git worktree.${NL}</system-reminder>${NL}please review my change"; do
+  run_hook prompt "\"prompt\":$(json_str "$t")"
+  [ -n "$HOOK_OUT" ] && ok "still nudges: ${t:0:40}" || no "missing nudge: ${t:0:40}"
+done
+
 run_hook prompt "\"prompt\":$(json_str "ask the advisor whether this is safe")"
 contains "$(context_of "$HOOK_OUT")" "review or second opinion" && ok "'ask the advisor' is a review request" || no "explicit advisor request missed"
 
@@ -1136,6 +1152,8 @@ contains "$p" "<reviewed-commit>..HEAD" && contains "$p" "crew-fix.diff" && cont
   && ok "worker policy: -U25 review diff, fix-diff re-review" || no "worker policy diff wording" "$p"
 contains "$p" "when resumed after a review, gets only the fix diff" && ! contains "$p" "or after a resume" \
   && ok "worker policy: a fix diff when resumed after a review (1.11.0)" || no "worker policy resume wording" "$p"
+! contains "$p" "absolute-git-dir" && contains "$p" "the directory your worker prompt names" \
+  && ok "worker policy defers the diff/log location to the worker prompt (1.11.2)" || no "worker policy still names the git dir" "$p"
 contains "$p" "start from the diff" && contains "$p" "run headers and tail" && ok "worker policy tells the advisor to start from the diff and the log's tail" || no "diff-first wording missing" "$p"
 contains "$p" "Outside that budget" && contains "$p" "held once" && ok "worker policy: re-review sits outside the budget; full mode promises the hold" || no "budget scope / hold wording" "$p"
 FABLE_ADVISOR_ENFORCE=nudge worker_hook subagent-start aw7n "$WK"
@@ -1156,7 +1174,7 @@ worker_hook subagent-stop as1 "$WK" '"stop_hook_active":false,"last_assistant_me
 [ "$(jget "$HOOK_OUT" decision)" = "block" ] && contains "$(jget "$HOOK_OUT" reason)" "edited 4 files since your last advisor consultation" && ok "subagent-stop holds an unreviewed 4-file worker" || no "worker not held" "$HOOK_OUT"
 contains "$(jget "$HOOK_OUT" reason)" "absolute path" && ok "hold reason asks for a diff file by absolute path" || no "hold reason lacks path guidance"
 r="$(jget "$HOOK_OUT" reason)"
-contains "$r" "git -C <worktree> rev-parse --absolute-git-dir" && ! contains "$r" '"$(git' && ok "hold reason gives plain git -C commands the worktree guard accepts" || no "hold reason uses a refused git form"
+contains "$r" "git -C <worktree> diff -U25" && ! contains "$r" '"$(git' && ! contains "$r" "absolute-git-dir" && contains "$r" "the directory your worker prompt names" && ok "hold reason gives a plain git -C command into the worker prompt's directory, not the git dir" || no "hold reason uses a refused git form or the git dir" "$r"
 contains "$r" "crew-verify.log" && ok "hold reason hands the advisor the verify log" || no "hold reason lacks crew-verify.log" "$r"
 contains "$r" "original feature's base" && ! contains "$r" "against your base branch" && ok "hold reason diffs against the original feature's base (deep/revision workers)" || no "hold reason base wording" "$r"
 contains "$r" "diff -U25 <base>...HEAD" && contains "$r" "crew-review.diff" && ! contains "$r" "crew-fix.diff" \
@@ -1182,6 +1200,38 @@ in_worker t_tool_use Bash '{"command":"git commit -m wip"}'
 printf '{"type":"assistant","isSidechain":true,"message":{"role":"assistant","content":[{"type":"text","text":"NEEDS-ANSWER\\nbranch: crew/x\\nquestion: which?"}]}}\n' >>"$WT"
 worker_hook subagent-stop as2 "$WK" '"stop_hook_active":false'
 [ -z "$HOOK_OUT" ] && ok "without last_assistant_message, NEEDS-ANSWER is read from the worker transcript" || no "fallback missed NEEDS-ANSWER" "$HOOK_OUT"
+# 1.11.2: a report sent through SubagentHandback is the worker's report too.
+new_worker st2h as2h
+in_worker t_prompt "Build it"
+for f in a.py b.py c.py d.py; do in_worker t_edit "$f"; done
+in_worker t_tool_use SubagentHandback "{\"message\":$(json_str "NEEDS-ANSWER
+branch: crew/x
+question: which?")}"
+worker_hook subagent-stop as2h "$WK" '"stop_hook_active":false,"last_assistant_message":""'
+[ -z "$HOOK_OUT" ] && ok "a NEEDS-ANSWER sent as the last SubagentHandback message is not held" || no "held a hand-back NEEDS-ANSWER" "$HOOK_OUT"
+printf '{"type":"user","isSidechain":true,"isMeta":true,"message":{"role":"user","content":"[handback-send-enforce] Your report has not been delivered"}}\n' >>"$WT"
+worker_hook subagent-stop as2h "$WK" '"stop_hook_active":false,"last_assistant_message":""'
+[ -z "$HOOK_OUT" ] && ok "a harness meta row after the hand-back does not drop its NEEDS-ANSWER" || no "meta row reset the hand-back" "$HOOK_OUT"
+printf '{"type":"user","isSidechain":true,"isMeta":true,"origin":{"kind":"coordinator"},"message":{"role":"user","content":"The coordinator sent a message while you were working: the answer is A"}}\n' >>"$WT"
+in_worker t_edit e.py
+worker_hook subagent-stop as2h "$WK" '"stop_hook_active":false,"last_assistant_message":"Finished, report below."'
+[ "$(jget "$HOOK_OUT" decision)" = "block" ] && ok "a hand-back NEEDS-ANSWER from before the resume does not excuse the next stop" || no "stale hand-back excused a DONE" "$HOOK_OUT"
+new_worker st2b as2b
+in_worker t_prompt "Build it"
+for f in a.py b.py c.py d.py; do in_worker t_edit "$f"; done
+in_worker t_tool_use SubagentHandback "{\"message\":$(json_str "NEEDS-ANSWER
+question: which?")}"
+worker_hook subagent-stop as2b "$WK" '"stop_hook_active":false,"last_assistant_message":"DONE\nbranch: crew/x"'
+[ "$(jget "$HOOK_OUT" decision)" = "block" ] && ok "a plain-text DONE after a hand-back NEEDS-ANSWER is held" || no "older hand-back excused a plain DONE" "$HOOK_OUT"
+new_worker st2d as2d
+in_worker t_prompt "Build it"
+for f in a.py b.py c.py d.py; do in_worker t_edit "$f"; done
+in_worker t_tool_use SubagentHandback "{\"message\":$(json_str "DONE
+branch: crew/x
+advisor: not consulted: none")}"
+worker_hook subagent-stop as2d "$WK" '"stop_hook_active":false,"last_assistant_message":""'
+[ "$(jget "$HOOK_OUT" decision)" = "block" ] && ok "a DONE via SubagentHandback with 4 unreviewed files is still held" || no "hand-back DONE not held" "$HOOK_OUT"
+
 grep -q "event=subagent-stop-pass reason=needs-answer agent=as2" "$FABLE_ADVISOR_HOME/events.log" && ok "worker log lines carry agent=<id>" || no "agent tag missing in worker log"
 worker_hook subagent-stop as2 Explore '"stop_hook_active":false'
 [ -z "$HOOK_OUT" ] && ok "subagent-stop ignores other agent types" || no "held an Explore agent"
@@ -1208,6 +1258,8 @@ in_worker t_review
 for f in e.py f.py g.py h.py; do in_worker t_edit "$f"; done
 worker_hook subagent-stop as6 "$WK" '"stop_hook_active":false'
 r="$(jget "$HOOK_OUT" reason)"
+! contains "$r" "absolute-git-dir" && contains "$r" "the directory your worker prompt names" && contains "$r" "if it names none" \
+  && ok "fix-diff hold defers the diff location to the worker prompt (1.11.2)" || no "fix-diff hold names the git dir" "$r"
 [ "$(jget "$HOOK_OUT" decision)" = "block" ] && contains "$r" "edited 4 files" && contains "$r" "e.py" && ! contains "$r" "a.py" \
   && ok "post-review fixes on 4+ files are still held once" || no "post-review fixes not held" "$HOOK_OUT"
 contains "$r" "diff -U25 <reviewed-commit>..HEAD" && contains "$r" "crew-fix.diff" && ! contains "$r" "diff -U25 <base>...HEAD" \
