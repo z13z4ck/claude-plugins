@@ -61,10 +61,34 @@ done
 # policy's path), so a cut would drop the core's tail before the note.
 printf 'feature-crew root (for the model check CLI): %s\n' "$ROOT"
 
+# utf8_cut <text> <bytes>: the first <bytes> bytes of <text>, minus a UTF-8
+# character the cut would split. Runs in a subshell ($(...)) so LC_ALL=C
+# (byte semantics in any locale, no iconv) does not leak.
+utf8_cut() {
+  LC_ALL=C
+  local s="${1:0:$2}" k b need
+  k=$((${#s} - 1))
+  # Walk back over continuation bytes (0x80-0xBF) to the last lead byte.
+  while [ "$k" -ge 0 ]; do
+    b=$(printf '%d' "'${s:k:1}")
+    [ "$b" -lt 0 ] && b=$((b + 256))
+    { [ "$b" -ge 128 ] && [ "$b" -lt 192 ] && [ $((${#s} - k)) -lt 4 ]; } || break
+    k=$((k - 1))
+  done
+  if [ "$k" -ge 0 ]; then
+    need=1
+    [ "$b" -ge 192 ] && need=2
+    [ "$b" -ge 224 ] && need=3
+    [ "$b" -ge 240 ] && need=4
+    [ $((${#s} - k)) -lt "$need" ] && s="${s:0:k}"
+  fi
+  printf '%s' "$s"
+}
+
 # crew/* branches with age and subject, plus the worktree each is checked out
 # in, if any. Capped at 25 lines and 1,500 bytes (wc -c, so multibyte
-# subjects count in full), subjects cut to 72 characters in the session's
-# locale, so many or long branches cannot push the output past the cap.
+# subjects count in full), subjects over 72 bytes cut to 69 plus "...", so
+# many or long branches cannot push the output past the cap.
 crew_branches() {
   local wt total=0
   wt="$(git -C "$dir" worktree list --porcelain 2>/dev/null |
@@ -75,13 +99,7 @@ crew_branches() {
     'refs/heads/crew/' 2>/dev/null |
     while IFS="$(printf '\t')" read -r name when subject; do
       path="$(printf '%s\n' "$wt" | awk -F '\t' -v b="$name" '$1==b{print $2; exit}')"
-      if [ "${#subject}" -gt 72 ]; then
-        # In a C locale (likely for hooks) this cuts bytes; iconv -c drops a
-        # split UTF-8 character. Without iconv the raw cut is kept.
-        cut="${subject:0:69}"
-        subject="$(printf '%s' "$cut" | iconv -c -f UTF-8 -t UTF-8 2>/dev/null)"
-        subject="${subject:-$cut}..."
-      fi
+      [ "$(printf '%s' "$subject" | wc -c)" -gt 72 ] && subject="$(utf8_cut "$subject" 69)..."
       line="- $name ($when): $subject"
       [ -n "$path" ] && line="$line [worktree: $path]"
       total=$((total + $(printf '%s\n' "$line" | wc -c)))

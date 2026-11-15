@@ -212,8 +212,7 @@ for the advisor alone.
   and any session note come before the core, so a cut would drop the core's
   tail before the note. Every start source stays under 8,000 bytes: the branch list
   after a resume is capped at 25 lines and 1,500 bytes, with subjects cut
-  to 72 characters (bytes in a non-UTF-8 locale, without splitting a
-  character when `iconv` is available).
+  to 72 bytes without splitting a UTF-8 character (pure bash, any locale).
 
 - Up to 20 subagents run at once per session by default
   (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`).

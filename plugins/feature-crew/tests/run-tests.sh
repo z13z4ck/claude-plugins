@@ -192,18 +192,35 @@ if has "more not shown" && printf '%s\n' "$OUT" | grep '^- crew/' | grep -q '\.\
 else
   no "long branch lists are cut by a byte budget and subjects are shortened" "$(printf '%s\n' "$OUT" | grep '^- ' | head -3)"
 fi
-if ! command -v iconv >/dev/null 2>&1; then
-  echo "  SKIP shortened multibyte subjects stay valid UTF-8 (no iconv)"
-else
-  for loc in C en_US.UTF-8; do
-    OUT="$(cd "$LONG" && printf '{"source":"resume"}' | LC_ALL="$loc" CLAUDE_PLUGIN_ROOT="$PLUGIN" bash "$HOOK" 2>&1)"
-    if printf '%s' "$OUT" | grep -q '機能' && printf '%s' "$OUT" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1; then
-      ok "shortened multibyte subjects stay valid UTF-8 (LC_ALL=$loc)"
-    else
-      no "shortened multibyte subjects stay valid UTF-8 (LC_ALL=$loc)"
-    fi
+valid_utf8() { python3 -c 'import sys; sys.stdin.buffer.read().decode("utf-8")' 2>/dev/null; }
+for loc in C en_US.UTF-8; do
+  OUT="$(cd "$LONG" && printf '{"source":"resume"}' | LC_ALL="$loc" CLAUDE_PLUGIN_ROOT="$PLUGIN" bash "$HOOK" 2>&1)"
+  if printf '%s' "$OUT" | grep -q '機能' && printf '%s' "$OUT" | valid_utf8; then
+    ok "shortened multibyte subjects stay valid UTF-8 (LC_ALL=$loc)"
+  else
+    no "shortened multibyte subjects stay valid UTF-8 (LC_ALL=$loc)"
+  fi
+done
+
+# utf8_cut on 1-, 2-, 3- and 4-byte characters at every cut length: never
+# over the byte limit, never more than 3 bytes short, always valid UTF-8.
+eval "$(sed -n '/^utf8_cut() {/,/^}/p' "$HOOK")"
+bad=""
+for txt in "abcdef" "ééééé" "機能機能" "😀😀😀" "a😀é機b"; do
+  full="$(printf '%s' "$txt" | wc -c | tr -d ' ')"
+  for n in 1 2 3 4 5 6 7 8 9 10; do
+    want=$n
+    [ "$full" -lt "$n" ] && want=$full
+    for loc in C en_US.UTF-8; do
+      got="$(LC_ALL=$loc utf8_cut "$txt" "$n")"
+      len="$(printf '%s' "$got" | wc -c | tr -d ' ')"
+      if [ "$len" -gt "$want" ] || [ "$len" -lt $((want - 3)) ] || ! printf '%s' "$got" | valid_utf8; then
+        bad="$bad [$txt/$n/$loc:$len]"
+      fi
+    done
   done
-fi
+done
+if [ -z "$bad" ]; then ok "utf8_cut never splits a character or exceeds the byte limit"; else no "utf8_cut never splits a character or exceeds the byte limit" "$bad"; fi
 
 # The session note and root line come before the core, never after it.
 for src in compact resume; do
