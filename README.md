@@ -56,12 +56,14 @@ fresh-context, file-grounded second look rather than a capability jump.
 
 Consultation is enforced, not just suggested. Hooks put the advisor policy in
 context at every session start and after every compaction, flag prompts that
-call for advice as they arrive, deny `ExitPlanMode` until the plan has been
+call for advice as they arrive (not background-agent or other-session
+notices), deny `ExitPlanMode` until the plan has been
 sent to the advisor, nudge once four distinct files have been edited without
 a consultation (Bash heredocs and `sed -i` count), and hold a turn that
 edited four or more files unadvised once at its end, asking for a
 verification review before it finishes. Background workers — by default
-feature-crew's `feature-builder` and `feature-builder-deep` — get their own policy, tally and
+feature-crew's `feature-builder`, `feature-builder-sonnet` and
+`feature-builder-deep` — get their own policy, tally and
 end-of-run hold inside their worktrees, and their reviews never count for
 the session that started them. `FABLE_ADVISOR_ENFORCE=nudge` keeps the
 reminders and drops the gates.
@@ -77,7 +79,7 @@ DEGRADED". Hook table, configuration and the auto-written CLAUDE.md block:
 # feature-crew — one session as an orchestrator for background feature work
 
 <p align="center">
-  <img src="assets/feature-crew.svg" alt="An orchestrator session dispatches background feature-builder workers, each in its own worktree on a crew branch; workers consult the Fable advisor and report DONE, or NEEDS-ANSWER which you answer and the worker resumes" width="100%">
+  <img src="assets/feature-crew.svg" alt="An orchestrator session dispatches background feature-builder workers on Sonnet, Opus or a deep Opus xhigh tier, each in its own worktree on a crew branch; workers consult the Fable advisor and report DONE, or NEEDS-ANSWER which you answer and the worker resumes" width="100%">
 </p>
 
 Talk to one session; it hands each feature or revision to a background
@@ -114,6 +116,11 @@ every session where it is active into an orchestrator, so enable it per
 project (`FEATURE_CREW=off` in user settings, `on` where you want it); it
 stays inactive outside a git repository. After a resume it lists the
 `crew/*` branches that exist, since workers stop when their session ends.
+At every session start it injects a compact core of the orchestrator rules, kept under
+Claude Code's 10,000-character hook-output cap, and points the session at
+the full policy file. Workers keep their review diff and verify log under
+`/tmp/crew/<slug>/`, and a worker that ends without a report is asked for
+it once. Use feature-crew 0.6.2 with fable-advisor 1.11.2 or later.
 Limits and worktree housekeeping:
 [plugins/feature-crew](plugins/feature-crew/README.md).
 

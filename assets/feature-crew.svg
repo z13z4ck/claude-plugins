@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="520" viewBox="0 0 1200 520" role="img" aria-labelledby="title desc">
   <title id="title">feature-crew</title>
-  <desc id="desc">One main session acts as orchestrator while you keep talking. It dispatches background feature-builder workers, each in its own worktree on a crew/slug branch. Workers consult the Fable advisor before reporting, then return DONE, or NEEDS-ANSWER, which you answer and the worker is resumed.</desc>
+  <desc id="desc">One main session acts as orchestrator while you keep talking. It dispatches background feature-builder workers on a Sonnet, Opus or deep (Opus xhigh) tier, each in its own worktree on a crew/slug branch. Fable is the advisor only. Workers consult the Fable advisor before reporting, then return DONE, or NEEDS-ANSWER, which you answer and the worker is resumed.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#0f1419"/>
@@ -86,7 +86,7 @@
     <!-- workers -->
     <!-- worker 1 -->
     <rect x="520" y="140" width="320" height="100" rx="14" fill="#1c2128" stroke="#30363d" stroke-width="1.5"/>
-    <text x="540" y="170" font-size="15" font-weight="600" fill="#e6edf3">feature-builder</text>
+    <text x="540" y="170" font-size="15" font-weight="600" fill="#e6edf3">Sonnet worker</text>
     <rect x="760" y="153" width="64" height="24" rx="12" fill="#2dd4bf" fill-opacity="0.14"/>
     <text x="792" y="170" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#2dd4bf">DONE</text>
     <g transform="translate(540 184)" fill="none" stroke="#2dd4bf" stroke-width="1.5" stroke-linecap="round">
@@ -98,7 +98,7 @@
 
     <!-- worker 2 -->
     <rect x="520" y="260" width="320" height="100" rx="14" fill="#1c2128" stroke="#30363d" stroke-width="1.5"/>
-    <text x="540" y="290" font-size="15" font-weight="600" fill="#e6edf3">feature-builder</text>
+    <text x="540" y="290" font-size="15" font-weight="600" fill="#e6edf3">Opus worker</text>
     <rect x="700" y="273" width="124" height="24" rx="12" fill="#f0b429" fill-opacity="0.14"/>
     <text x="762" y="290" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#f0b429">NEEDS-ANSWER</text>
     <g transform="translate(540 304)" fill="none" stroke="#2dd4bf" stroke-width="1.5" stroke-linecap="round">
@@ -110,7 +110,7 @@
 
     <!-- worker 3 -->
     <rect x="520" y="380" width="320" height="100" rx="14" fill="#1c2128" stroke="#30363d" stroke-width="1.5"/>
-    <text x="540" y="410" font-size="15" font-weight="600" fill="#e6edf3">feature-builder</text>
+    <text x="540" y="410" font-size="15" font-weight="600" fill="#e6edf3">Deep worker<tspan font-weight="400" fill="#8b949e"> · Opus xhigh</tspan></text>
     <rect x="740" y="393" width="84" height="24" rx="12" fill="#8b949e" fill-opacity="0.14"/>
     <text x="782" y="410" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#8b949e">running</text>
     <g transform="translate(540 424)" fill="none" stroke="#2dd4bf" stroke-width="1.5" stroke-linecap="round">

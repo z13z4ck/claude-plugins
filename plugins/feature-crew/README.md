@@ -230,7 +230,10 @@ for the advisor alone.
   keeps the count but no longer nudges workers), and one hold if it tries to
   finish 4+ unreviewed files. `feature-builder-deep` is enforced the same way from
   fable-advisor 1.10.2 and `feature-builder-sonnet` from 1.11.0; on older
-  versions add them to `FABLE_ADVISOR_SUBAGENTS`. Older fable-advisor versions don't enforce inside
+  versions add them to `FABLE_ADVISOR_SUBAGENTS`. From feature-crew 0.6.2 use
+  fable-advisor 1.11.2 or later: older versions tell workers to write their
+  review diff and verify log into the git dir, which contradicts the worker
+  prompt. Versions before 1.8.0 don't enforce inside
   workers, so there the worker consults on instruction only. Either way the
   main session checks every 4+-file DONE for a verdict.
   Dispatching a brief does not need a consultation first unless the brief
@@ -307,7 +310,8 @@ model check; the worker agents stay available for explicit use.
   plain text if that call is refused (the harness may still not deliver
   that, so the orchestrator now recovers it). A completion with no DONE or
   NEEDS-ANSWER block gets one SendMessage resume asking for it (not a
-  ladder step); a second miss is a failed DONE.
+  ladder step); a second miss is a failed DONE. Pairs with fable-advisor
+  1.11.2.
 
 - **0.6.1** — The SessionStart hook printed the whole 18 KB policy, over
   Claude Code's 10,000-character hook-output cap, so sessions saw only a
