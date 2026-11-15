@@ -344,12 +344,12 @@ else
   no "hooks.json registers the UserPromptSubmit model check through bash, no SubagentStop"
 fi
 
-if grep -q '"version": "0.6.1"' "$PLUGIN/.claude-plugin/plugin.json" &&
+if grep -q '"version": "0.6.2"' "$PLUGIN/.claude-plugin/plugin.json" &&
   ! grep -qi 'on Fable' "$PLUGIN/.claude-plugin/plugin.json" &&
   ! grep -qi 'Fable worker' "$PLUGIN/.claude-plugin/plugin.json"; then
-  ok "plugin.json is 0.6.1 and no longer says workers run on Fable"
+  ok "plugin.json is 0.6.2 and no longer says workers run on Fable"
 else
-  no "plugin.json is 0.6.1 and no longer says workers run on Fable"
+  no "plugin.json is 0.6.2 and no longer says workers run on Fable"
 fi
 
 # 0.6.0: Fable is the advisor only. No worker agent pins it, no dispatch
@@ -533,7 +533,7 @@ else
 fi
 
 W="$PLUGIN/agents/feature-builder.md"
-if has_phrase "$W" 'subagent_type: "fable-advisor:advisor"' && has_phrase "$W" "absolute-git-dir"; then
+if has_phrase "$W" 'subagent_type: "fable-advisor:advisor"' && has_phrase "$W" "/tmp/crew/<slug>/crew-review.diff"; then
   ok "worker consults the advisor and writes its review diff outside the tree"
 else
   no "worker consults the advisor and writes its review diff outside the tree"
@@ -686,7 +686,7 @@ if [ "$steps" = 12345678 ]; then ok "worker steps are numbered 1-8 in order"; el
 
 # Claude Code's worktree guard refuses nested $(git ...) in an isolated
 # worker (seen live), so the worker's instructions must not use it.
-if ! grep -q '"\$(git ' "$W" && has_phrase "$W" 'git -C <worktree> rev-parse --absolute-git-dir'; then
+if ! grep -q '"\$(git ' "$W" && has_phrase "$W" 'git -C <worktree> diff -U25 <base>...HEAD > /tmp/crew/<slug>/crew-review.diff'; then
   ok "worker's diff instructions use plain git -C commands, no nested \$(git ...)"
 else
   no "worker's diff instructions use plain git -C commands, no nested \$(git ...)"
@@ -770,18 +770,56 @@ else
   no "worker states the two-consultation advisor budget, no two-approaches trigger"
 fi
 
-if has_phrase "$W" "diff -U25 <base>...HEAD > <gitdir>/crew-review.diff" &&
+if has_phrase "$W" "diff -U25 <base>...HEAD > /tmp/crew/<slug>/crew-review.diff" &&
   has_phrase "$W" "start from the diff, read only the log's run headers and tail" &&
-  has_phrase "$W" "diff -U25 <reviewed-commit>..HEAD > <gitdir>/crew-fix.diff" && has_phrase "$W" "cannot name the reviewed commit"; then
+  has_phrase "$W" "diff -U25 <reviewed-commit>..HEAD > /tmp/crew/<slug>/crew-fix.diff" && has_phrase "$W" "cannot name the reviewed commit"; then
   ok "worker sends a -U25 diff first and re-reviews only the fix diff"
 else
   no "worker sends a -U25 diff first and re-reviews only the fix diff"
 fi
 
+# 0.6.2: worker scratch files live in literal /tmp/crew/<slug>/ (the worktree
+# guard refused writes into .git/worktrees/<name>); the three agent files share
+# one prompt body, nothing tells a worker to use <gitdir>, and the path is
+# spelled only in the worker prompts.
+body() { sed '1,/^---$/d' "$1" | sed '1,/^---$/d'; }
+if [ "$(body "$W")" = "$(body "$S")" ] && [ "$(body "$W")" = "$(body "$D")" ]; then
+  ok "all three worker agent files carry the same prompt body"
+else
+  no "all three worker agent files carry the same prompt body"
+fi
+if ! grep -l 'absolute-git-dir\|<gitdir>' "$PLUGIN"/agents/*.md >/dev/null &&
+  has_phrase "$W" "mkdir -p /tmp/crew/<slug>" && has_phrase "$W" "check script goes in \`/tmp/crew/<slug>/\`" &&
+  has_phrase "$W" "then the log path, /tmp/crew/<slug>/crew-verify.log" &&
+  [ -z "$(grep -rl '/tmp/crew/' "$PLUGIN" --exclude-dir=agents --exclude=run-tests.sh)" ]; then
+  ok "worker scratch files go to /tmp/crew/<slug>/, spelled only in the worker prompts"
+else
+  no "worker scratch files go to /tmp/crew/<slug>/, spelled only in the worker prompts" "$(grep -rn 'absolute-git-dir\|<gitdir>' "$PLUGIN"/agents; grep -rl '/tmp/crew/' "$PLUGIN" --exclude-dir=agents --exclude=run-tests.sh)"
+fi
+if has_phrase "$W" "deliver your report with \`SubagentHandback\`, send the whole block as its \`message\`; if that call is refused, write the same block as your final plain-text message"; then
+  ok "worker sends its report through SubagentHandback, plain text if refused"
+else
+  no "worker sends its report through SubagentHandback, plain text if refused"
+fi
+for f in orchestrator.md orchestrator-core.md; do
+  P2="$PLUGIN/policy/$f"
+  if has_phrase "$P2" "**No report**" && has_phrase "$P2" "not a ladder step" && has_phrase "$P2" "failed DONE" &&
+    ! grep -q 'git -C <worktree> rev-parse --absolute-git-dir' "$P2"; then
+    ok "$f resumes a worker once for a missing report and does not look for its log in <gitdir>"
+  else
+    no "$f resumes a worker once for a missing report and does not look for its log in <gitdir>"
+  fi
+done
+if has_phrase "$O" "the path its DONE block's \`verified:\` line names" && has_phrase "$PLUGIN/policy/orchestrator-core.md" "verify log: the path in its DONE block"; then
+  ok "fallback review takes the worker's verify log path from its DONE block"
+else
+  no "fallback review takes the worker's verify log path from its DONE block"
+fi
+
 r5="$(sed -n '/^5\. \*\*Verify/,/^6\. /p' "$W")"
 if printf '%s\n' "$r5" >"$TMP/r5.txt" && has_phrase "$TMP/r5.txt" "only the tests affected by your change" &&
   has_phrase "$TMP/r5.txt" "failures-only reporter" && has_phrase "$TMP/r5.txt" "full suite once more, at the end, after the baseline" &&
-  has_phrase "$TMP/r5.txt" "tail -n 40 <gitdir>/crew-verify.log" &&
+  has_phrase "$TMP/r5.txt" "tail -n 40 /tmp/crew/<slug>/crew-verify.log" &&
   [ "$(grep -c 'crew-verify.log' "$TMP/r5.txt")" -le 3 ]; then
   ok "worker keeps check output out of context (quiet checks, tail -n 40)"
 else

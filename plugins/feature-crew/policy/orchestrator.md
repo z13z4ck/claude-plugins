@@ -133,6 +133,12 @@ deep and opus tiers both pass `opus` and differ only by the agent file's
   wrote them, with its `advisor:` line if it has one, and mark the roster item "waiting on you". When the user
   answers, resume that same worker with SendMessage (to: its name or ID) and
   the answer. Do not spawn a new worker for it.
+- **No report** (a completion that carries no DONE or NEEDS-ANSWER block,
+  e.g. "ended without delivering a report", often after a refused
+  `SubagentHandback`): resume that worker once with SendMessage, asking for
+  its final DONE or NEEDS-ANSWER block as plain text. This is not a ladder
+  step. Only if that resume also yields no block, handle it as a failed
+  DONE (below).
 - **A subagent's result arrives here instead of in its worker**: if a
   completion notice for an advisor or other subagent arrives in this session
   while a worker says it is waiting on one, forward the result to that worker
@@ -277,8 +283,8 @@ worker's consultations never count for this session. You still check each DONE, 
   `$(git rev-parse --absolute-git-dir)/crew-review-<slug>.diff`), find the
   branch's worktree in `git worktree list --porcelain`, and dispatch
   `fable-advisor:advisor` with the diff file's absolute path, the worktree
-  path, the worker's verify log (`crew-verify.log` in the directory
-  `git -C <worktree> rev-parse --absolute-git-dir` prints, if it exists),
+  path, the worker's verify log (the path its DONE block's `verified:` line
+  names, if it exists),
   and the brief's goal and acceptance criteria. If the Agent tool can
   run it in the background, do that and end your turn; otherwise wait for
   it. Then report the DONE with the advisor's MODEL, VERDICT and RISKS lines

@@ -147,7 +147,8 @@ for the advisor alone.
   criteria, or says none exist. The worker plans a check per criterion
   before coding, runs the verify commands once as a baseline, writes check
   output with a header per run (baseline or post-change, command, commit)
-  to `<gitdir>/crew-verify.log` (outside the tree), and hands that log to
+  to `crew-verify.log` in a per-feature folder under `/tmp` (outside the
+  repository; the worker prompt names it), and hands that log to
   the advisor with its review diff. Its
   `verified:` line maps each criterion to evidence or to
   `not verified: <why>` — an honest answer when no meaningful check exists.
@@ -294,6 +295,18 @@ earlier leave it behind.
 model check; the worker agents stay available for explicit use.
 
 ## Changelog
+
+- **0.6.2** — Workers wrote `crew-review.diff`, `crew-fix.diff` and
+  `crew-verify.log` into the worktree's git dir, and Claude Code's worktree
+  guard refused some of those commands, so the advisor reviewed without a
+  diff. The worker prompt now puts them, and throwaway check scripts, in a
+  literal per-feature folder under `/tmp`, written with plain `git -C`
+  commands, and its DONE block names the verify-log path; the orchestrator's
+  fallback review takes that path from the DONE block. Workers send their
+  report through `SubagentHandback` when the harness asks for it, and as
+  plain text if that call is refused. A completion with no DONE or
+  NEEDS-ANSWER block gets one SendMessage resume asking for it (not a
+  ladder step); a second miss is a failed DONE.
 
 - **0.6.1** — The SessionStart hook printed the whole 18 KB policy, over
   Claude Code's 10,000-character hook-output cap, so sessions saw only a

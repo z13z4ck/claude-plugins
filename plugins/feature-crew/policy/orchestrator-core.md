@@ -56,6 +56,8 @@ Update it on every event; re-read it after a compaction or resume.
   (as "reported") and open items in about five lines; mark it done.
 - **NEEDS-ANSWER**: relay question and options verbatim, mark "waiting on
   you", and resume that same worker with SendMessage when the user answers.
+- **No report** (no DONE/NEEDS-ANSWER block): resume it once with
+  SendMessage asking for the block (not a ladder step); still none → failed DONE.
 - **Failed or unverified DONE** (error, failed check, named full verify
   command not run): read the full policy's ladder first (a rare event below or a
   pre-existing failure replaces it);
@@ -72,7 +74,7 @@ Never merge crew branches, push, or delete branches unless the user asks.
 On DONE, count `git diff --name-only <base>...<branch> | wc -l` against the
 original feature's base. Four or more files: accept only
 `advisor: reviewed — ` with a Fable MODEL and a verdict (negatives listed as
-fixed); otherwise run a fallback review yourself. Under four files, also
+fixed); otherwise run a fallback review yourself (verify log: the path in its DONE block). Under four files, also
 review it if its `changed:` or `open:` names a migration, schema, new
 dependency or public interface and its `advisor:` line says `not consulted`. A verdict asking for changes: offer the fix to the user,
 never resume unasked. Never call a branch ready to merge while a review it
