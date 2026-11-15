@@ -14,8 +14,8 @@
 #   - not a git work tree   one line saying the plugin is inactive (workers
 #                           need worktrees, so every dispatch would fail)
 #   - startup               the core policy + full policy path
-#   - compact               the same + "re-read the roster"
-#   - resume / fork / clear the same + a reconcile section listing the
+#   - compact               a "re-read the roster" note, then the same
+#   - resume / fork / clear a reconcile section, then the same listing the
 #                           crew/* branches that exist, because workers from
 #                           the earlier conversation stopped with it (/clear
 #                           ends the session too: SessionEnd reason "clear")
@@ -56,9 +56,9 @@ for f in "$CORE" "$POLICY"; do
   fi
 done
 
-cat "$CORE"
-printf '%s\n' "$POLICY"
-printf '\nfeature-crew root (for the model check CLI): %s\n' "$ROOT"
+# Root line and session note go first, the core last (it ends with the full
+# policy's path), so a cut can never drop the note.
+printf 'feature-crew root (for the model check CLI): %s\n' "$ROOT"
 
 # crew/* branches with age and subject, plus the worktree each is checked out
 # in, if any. Capped at 25 lines and 1,500 bytes (wc -c, so multibyte
@@ -74,8 +74,13 @@ crew_branches() {
     'refs/heads/crew/' 2>/dev/null |
     while IFS="$(printf '\t')" read -r name when subject; do
       path="$(printf '%s\n' "$wt" | awk -F '\t' -v b="$name" '$1==b{print $2; exit}')"
-      # shortcut: in a C locale this cuts bytes and can split a UTF-8 character; fix if non-UTF-8 sessions matter.
-      [ "${#subject}" -gt 72 ] && subject="${subject:0:69}..."
+      if [ "${#subject}" -gt 72 ]; then
+        # In a C locale (likely for hooks) this cuts bytes; iconv -c drops a
+        # split UTF-8 character. Without iconv the raw cut is kept.
+        cut="${subject:0:69}"
+        subject="$(printf '%s' "$cut" | iconv -c -f UTF-8 -t UTF-8 2>/dev/null)"
+        subject="${subject:-$cut}..."
+      fi
       line="- $name ($when): $subject"
       [ -n "$path" ] && line="$line [worktree: $path]"
       total=$((total + $(printf '%s\n' "$line" | wc -c)))
@@ -104,4 +109,7 @@ case "$source_kind" in
     fi
     ;;
 esac
+printf '\n'
+cat "$CORE"
+printf '%s\n' "$POLICY"
 exit 0

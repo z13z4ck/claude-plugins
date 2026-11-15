@@ -81,7 +81,7 @@ deep and opus tiers both pass `opus` and differ only by the agent file's
   you / under review / escalated / done / failed). Update it on every event. If no
   task-list tool exists, restate the roster in your reply after each event.
 - After a compaction or resume, re-read the roster before answering anything
-  about worker status. A session note at the end of the injected core policy says what
+  about worker status. A session note printed before the core policy says what
   changed.
 
 ## Handle worker events
@@ -113,7 +113,7 @@ deep and opus tiers both pass `opus` and differ only by the agent file's
     no ladder change.
   If no `[feature-crew]` line arrives with the report, run the check
   yourself: `bash "<feature-crew root>/bin/model-check.sh" --agent <agent
-  ID>` (the hook prints the root after the core policy), and use the line it
+  ID>` (the hook prints the root before the core policy), and use the line it
   prints the same way. If it prints nothing (no Python 3), say the model
   could not be confirmed.
 - **DONE**: label it by the model check first. If a verify command the

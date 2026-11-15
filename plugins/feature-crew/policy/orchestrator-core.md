@@ -48,10 +48,9 @@ One task-list item per worker: feature, name or ID, tier, branch, status
 Update it on every event; re-read it after a compaction or resume.
 
 ## Worker events (one line each; details in the full policy)
-- A `[feature-crew] worker <name> ...` model-check line with the report
-  (none: see the full policy) decides the model label (`as chosen`, `FELL BACK` → start every
-  message about it with **WORKER FELL BACK TO <model>**, or `could not be
-  confirmed`).
+- A `[feature-crew] worker <name> ...` model-check line with each report
+  decides the model label: `as chosen` (name the model) or `could not be
+  confirmed` (say so).
 - **DONE** with every named full verify command run and passing: do the
   advisor check below, then report branch, changes, per-criterion results
   (as "reported") and open items in about five lines; mark it done.
@@ -61,6 +60,10 @@ Update it on every event; re-read it after a compaction or resume.
   command not run): read the full policy's ladder first (a rate-limit error,
   a FELL BACK or unavailable model, or a pre-existing failure replaces it);
   otherwise resume once, climb once to deep (never from deep), then ask.
+- **Rare events** (read the full policy before acting on any): a rate-limit
+  or overload error (one retry), a requested model unavailable or a `FELL
+  BACK` line, no model-check line, a deep-tier worker failing again (the
+  max-effort offer), a worker stopped by the user (save its patch at once).
 
 ## Review and merge
 Never merge crew branches, push, or delete branches unless the user asks.
@@ -70,8 +73,8 @@ On DONE, count `git diff --name-only <base>...<branch> | wc -l` against the
 original feature's base. Four or more files: accept only
 `advisor: reviewed — ` with a Fable MODEL and a verdict (negatives listed as
 fixed); otherwise run a fallback review yourself. Under four files, also
-review it if a migration, schema, new dependency or public interface shows
-`not consulted`. A verdict asking for changes: offer the fix to the user,
+review it if it names a migration, schema, new dependency or public
+interface and its `advisor:` line says `not consulted`. A verdict asking for changes: offer the fix to the user,
 never resume unasked. Never call a branch ready to merge while a review it
 qualifies for is missing or against it.
 

@@ -177,7 +177,8 @@ while [ "$i" -le 30 ]; do
   else
     # Multibyte subjects: the byte budget must count bytes, not characters.
     git_quiet -C "$LONG" checkout -q -b "$b" main
-    git_quiet -C "$LONG" commit --allow-empty -m "$(printf '機能%.0s' $(seq 1 40)) $i"
+    # The leading x makes a 69-byte cut split a 3-byte character.
+    git_quiet -C "$LONG" commit --allow-empty -m "x$(printf '機能%.0s' $(seq 1 40)) $i"
   fi
   i=$((i + 1))
 done
@@ -191,16 +192,32 @@ if has "more not shown" && printf '%s\n' "$OUT" | grep '^- crew/' | grep -q '\.\
 else
   no "long branch lists are cut by a byte budget and subjects are shortened" "$(printf '%s\n' "$OUT" | grep '^- ' | head -3)"
 fi
-case "$(locale charmap 2>/dev/null)" in
-  UTF-8)
-    if printf '%s' "$OUT" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1; then
-      ok "shortened multibyte subjects stay valid UTF-8"
+if ! command -v iconv >/dev/null 2>&1; then
+  echo "  SKIP shortened multibyte subjects stay valid UTF-8 (no iconv)"
+else
+  for loc in C "${LANG:-en_US.UTF-8}"; do
+    OUT="$(cd "$LONG" && printf '{"source":"resume"}' | LC_ALL="$loc" CLAUDE_PLUGIN_ROOT="$PLUGIN" bash "$HOOK" 2>&1)"
+    if printf '%s' "$OUT" | grep -q '機能' && printf '%s' "$OUT" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1; then
+      ok "shortened multibyte subjects stay valid UTF-8 (LC_ALL=$loc)"
     else
-      no "shortened multibyte subjects stay valid UTF-8"
+      no "shortened multibyte subjects stay valid UTF-8 (LC_ALL=$loc)"
     fi
-    ;;
-  *) echo "  SKIP shortened multibyte subjects stay valid UTF-8 (locale is not UTF-8)" ;;
-esac
+  done
+fi
+
+# The session note and root line come before the core, never after it.
+for src in compact resume; do
+  run_hook "$src" "$LONG"
+  note="${OUT%%Session note*}"
+  core="${OUT%%orchestrator mode (core rules)*}"
+  root="${OUT%%feature-crew root (for the model check CLI)*}"
+  if [ "${#note}" -lt "${#core}" ] && [ "${#root}" -lt "${#core}" ] && [ "${#core}" -lt "${#OUT}" ] &&
+    [ "$(printf '%s\n' "$OUT" | tail -n 1)" = "$PLUGIN/policy/orchestrator.md" ]; then
+    ok "$src: session note and root line come before the core, full-policy path last"
+  else
+    no "$src: session note and root line come before the core, full-policy path last"
+  fi
+done
 run_hook startup "$PLAIN"
 if [ "$(bytes)" -lt 8000 ]; then ok "inactive note is under 8,000 bytes"; else no "inactive note is under 8,000 bytes"; fi
 
@@ -264,7 +281,8 @@ for phrase in "## Delegate, don't implement" "branch \`crew/<slug>\`" "## Pick t
   "| deep | \`feature-crew:feature-builder-deep\`" "## Roster" "**DONE**" "**NEEDS-ANSWER**" \
   "**Failed or unverified DONE**" "Never merge crew branches, push, or delete branches unless the user asks" \
   "accept only \`advisor: reviewed — \` with a Fable MODEL" "never resume unasked" \
-  "read the full policy's ladder first" "climb once to deep (never from deep)"; do
+  "read the full policy's ladder first" "climb once to deep (never from deep)" \
+  "**Rare events** (read the full policy before acting on any): a rate-limit or overload error (one retry), a requested model unavailable or a \`FELL BACK\` line, no model-check line, a deep-tier worker failing again (the max-effort offer), a worker stopped by the user (save its patch at once)"; do
   if hasf "$phrase"; then ok "startup core carries: $phrase"; else no "startup core carries: $phrase"; fi
 done
 
@@ -528,9 +546,9 @@ fi
 
 run_hook startup "$REPO"
 if has "feature-crew root (for the model check CLI): $PLUGIN"; then
-  ok "session-start prints the plugin root after the policy"
+  ok "session-start prints the plugin root"
 else
-  no "session-start prints the plugin root after the policy" "${OUT: -120}"
+  no "session-start prints the plugin root" "${OUT:0:200}"
 fi
 
 # A fell-back run or a refused model never climbs onto the same model.

@@ -203,13 +203,17 @@ for the advisor alone.
   is saved to a file and only a 2,000-character preview reaches the model.
   The full policy is about 18 KB, so the hook prints a compact core
   (`policy/orchestrator-core.md`: delegation and briefs, tier table and
-  rules, roster, one line per worker event, the merge rule and the advisor
-  check on DONE) and the absolute path of `policy/orchestrator.md`, which the
-  core tells the orchestrator to Read before its first dispatch and when it
-  handles a failure, escalation, fallback, stopped worker, revision or
-  fallback review. Every start source stays under 8,000 bytes: the branch
-  list after a resume is capped at 25 lines and 1,500 bytes, with
-  subjects cut to 72 characters.
+  rules, roster, one line per worker event, triggers for the rare events,
+  the merge rule and the advisor check on DONE) and the absolute path of
+  `policy/orchestrator.md`, which the core tells the orchestrator to Read
+  before the first dispatch or worker event after every start, compaction,
+  resume or clear, and on failures, escalations, fallbacks, stopped workers,
+  revisions, review or merge requests and fallback reviews. The root line
+  and any session note come before the core, so they are never the part a
+  cut drops. Every start source stays under 8,000 bytes: the branch list
+  after a resume is capped at 25 lines and 1,500 bytes, with subjects cut
+  to 72 characters (bytes in a non-UTF-8 locale, without splitting a
+  character when `iconv` is available).
 
 - Up to 20 subagents run at once per session by default
   (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`).
@@ -296,8 +300,10 @@ model check; the worker agents stay available for explicit use.
   Claude Code's 10,000-character hook-output cap, so sessions saw only a
   2 KB preview. It now prints a compact core (`policy/orchestrator-core.md`)
   plus the absolute path of the full policy, which the core says to Read
-  before the first dispatch and on failures, escalations, fallbacks, stops,
-  revisions and fallback reviews. Output stays under 8,000 bytes on every
+  before the first dispatch or worker event after every start, compaction,
+  resume or clear, and on failures, escalations, fallbacks, stops,
+  revisions, review or merge requests and fallback reviews. The session
+  note and root line now come before the core. Output stays under 8,000 bytes on every
   start source; long crew-branch lists are cut by a byte budget.
 
 - **0.6.0** — Fable is the advisor only: the deep tier
