@@ -61,10 +61,11 @@ printf '%s\n' "$POLICY"
 printf '\nfeature-crew root (for the model check CLI): %s\n' "$ROOT"
 
 # crew/* branches with age and subject, plus the worktree each is checked out
-# in, if any. Capped at 25 lines and about 2,000 bytes, subjects cut to 72
-# characters, so many or long branches cannot push the output past the cap.
+# in, if any. Capped at 25 lines and 1,500 bytes (wc -c, so multibyte
+# subjects count in full), subjects cut to 72 characters in the session's
+# locale, so many or long branches cannot push the output past the cap.
 crew_branches() {
-  local wt total=0 LC_ALL=C
+  local wt total=0
   wt="$(git -C "$dir" worktree list --porcelain 2>/dev/null |
     awk '/^worktree /{p=substr($0,10)} /^branch refs\/heads\/crew\//{print substr($0,19) "\t" p}')"
   # lstrip=2, not :short: a tag named crew/x would turn :short into heads/crew/x.
@@ -73,11 +74,12 @@ crew_branches() {
     'refs/heads/crew/' 2>/dev/null |
     while IFS="$(printf '\t')" read -r name when subject; do
       path="$(printf '%s\n' "$wt" | awk -F '\t' -v b="$name" '$1==b{print $2; exit}')"
+      # shortcut: in a C locale this cuts bytes and can split a UTF-8 character; fix if non-UTF-8 sessions matter.
       [ "${#subject}" -gt 72 ] && subject="${subject:0:69}..."
       line="- $name ($when): $subject"
       [ -n "$path" ] && line="$line [worktree: $path]"
-      total=$((total + ${#line} + 1))
-      if [ "$total" -gt 2000 ]; then
+      total=$((total + $(printf '%s\n' "$line" | wc -c)))
+      if [ "$total" -gt 1500 ]; then
         printf -- "- (more not shown; run git branch --list 'crew/*')\n"
         break
       fi

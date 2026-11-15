@@ -208,7 +208,7 @@ for the advisor alone.
   core tells the orchestrator to Read before its first dispatch and when it
   handles a failure, escalation, fallback, stopped worker, revision or
   fallback review. Every start source stays under 8,000 bytes: the branch
-  list after a resume is capped at 25 lines and about 2,000 bytes, with
+  list after a resume is capped at 25 lines and 1,500 bytes, with
   subjects cut to 72 characters.
 
 - Up to 20 subagents run at once per session by default

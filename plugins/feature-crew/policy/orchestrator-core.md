@@ -48,8 +48,8 @@ One task-list item per worker: feature, name or ID, tier, branch, status
 Update it on every event; re-read it after a compaction or resume.
 
 ## Worker events (one line each; details in the full policy)
-- Every report comes with a `[feature-crew] worker <name> ...` model-check
-  line, which decides the model label (`as chosen`, `FELL BACK` → start every
+- A `[feature-crew] worker <name> ...` model-check line with the report
+  (none: see the full policy) decides the model label (`as chosen`, `FELL BACK` → start every
   message about it with **WORKER FELL BACK TO <model>**, or `could not be
   confirmed`).
 - **DONE** with every named full verify command run and passing: do the
@@ -58,8 +58,9 @@ Update it on every event; re-read it after a compaction or resume.
 - **NEEDS-ANSWER**: relay question and options verbatim, mark "waiting on
   you", and resume that same worker with SendMessage when the user answers.
 - **Failed or unverified DONE** (error, failed check, named full verify
-  command not run): escalate without asking: resume once with the evidence,
-  then climb once to the deep tier, then ask the user.
+  command not run): read the full policy's ladder first (a rate-limit error,
+  a FELL BACK or unavailable model, or a pre-existing failure replaces it);
+  otherwise resume once, climb once to deep (never from deep), then ask.
 
 ## Review and merge
 Never merge crew branches, push, or delete branches unless the user asks.
@@ -68,10 +69,16 @@ Never merge crew branches, push, or delete branches unless the user asks.
 On DONE, count `git diff --name-only <base>...<branch> | wc -l` against the
 original feature's base. Four or more files: accept only
 `advisor: reviewed — ` with a Fable MODEL and a verdict (negatives listed as
-fixed); otherwise run a fallback review yourself. Never call a branch ready
-to merge while a review it qualifies for is missing or against it.
+fixed); otherwise run a fallback review yourself. Under four files, also
+review it if a migration, schema, new dependency or public interface shows
+`not consulted`. A verdict asking for changes: offer the fix to the user,
+never resume unasked. Never call a branch ready to merge while a review it
+qualifies for is missing or against it.
 
 ## Full policy
-Before the first dispatch, and whenever handling a worker failure, an
-escalation, a model-check FELL BACK line, a stopped worker, a revision or a
-fallback review, use the Read tool on the full policy at this path:
+Before the first dispatch or worker event after every session start,
+compaction, resume or clear (an earlier Read does not survive a compaction),
+and whenever handling a worker failure, an escalation, a model-check FELL
+BACK line or a missing one, a stopped worker, a revision, a review or merge
+request, or a fallback review, use the Read tool on the full policy at this
+path (if the Read fails, tell the user):

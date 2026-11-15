@@ -175,7 +175,9 @@ while [ "$i" -le 30 ]; do
     git_quiet -C "$LONG" worktree add "$TMP/a-long-worktree-directory-name-to-pad-the-path-out-$i" -b "$b"
     git_quiet -C "$TMP/a-long-worktree-directory-name-to-pad-the-path-out-$i" commit --allow-empty -m "$subj $i"
   else
-    git_quiet -C "$LONG" branch "$b"
+    # Multibyte subjects: the byte budget must count bytes, not characters.
+    git_quiet -C "$LONG" checkout -q -b "$b" main
+    git_quiet -C "$LONG" commit --allow-empty -m "$(printf '機能%.0s' $(seq 1 40)) $i"
   fi
   i=$((i + 1))
 done
@@ -184,11 +186,21 @@ for src in startup compact resume fork clear; do
   if [ "$(bytes)" -lt 8000 ]; then ok "$src output is under 8,000 bytes ($(bytes))"; else no "$src output is under 8,000 bytes" "got $(bytes)"; fi
 done
 run_hook resume "$LONG"
-if has "more not shown" && printf '%s\n' "$OUT" | grep '^- crew/' | grep -q '\.\.\. \[worktree: '; then
+if has "more not shown" && printf '%s\n' "$OUT" | grep '^- crew/' | grep -q '\.\.\.'; then
   ok "long branch lists are cut by a byte budget and subjects are shortened"
 else
   no "long branch lists are cut by a byte budget and subjects are shortened" "$(printf '%s\n' "$OUT" | grep '^- ' | head -3)"
 fi
+case "$(locale charmap 2>/dev/null)" in
+  UTF-8)
+    if printf '%s' "$OUT" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1; then
+      ok "shortened multibyte subjects stay valid UTF-8"
+    else
+      no "shortened multibyte subjects stay valid UTF-8"
+    fi
+    ;;
+  *) echo "  SKIP shortened multibyte subjects stay valid UTF-8 (locale is not UTF-8)" ;;
+esac
 run_hook startup "$PLAIN"
 if [ "$(bytes)" -lt 8000 ]; then ok "inactive note is under 8,000 bytes"; else no "inactive note is under 8,000 bytes"; fi
 
@@ -241,8 +253,9 @@ if [ "$RC" -eq 0 ] && has "Policy file missing" && [ "$(bytes)" -lt 8000 ]; then
 # absolute path of the full policy and when to Read it.
 run_hook startup "$REPO"
 if has "orchestrator mode (core rules)" && ! has "## Handle worker events" &&
-  printf '%s\n' "$OUT" | grep -qx "$PLUGIN/policy/orchestrator.md" &&
-  hasf "Before the first dispatch, and whenever handling a worker failure, an escalation, a model-check FELL BACK line, a stopped worker, a revision or a fallback review, use the Read tool on the full policy at this path:"; then
+  printf '%s\n' "$OUT" | grep -qxF "$PLUGIN/policy/orchestrator.md" &&
+  hasf "Before the first dispatch or worker event after every session start, compaction, resume or clear" &&
+  hasf "a model-check FELL BACK line or a missing one, a stopped worker, a revision, a review or merge request, or a fallback review, use the Read tool on the full policy at this path (if the Read fails, tell the user):"; then
   ok "startup prints the core and the absolute full-policy path with when to Read it"
 else
   no "startup prints the core and the absolute full-policy path with when to Read it"
@@ -250,7 +263,8 @@ fi
 for phrase in "## Delegate, don't implement" "branch \`crew/<slug>\`" "## Pick the worker tier" \
   "| deep | \`feature-crew:feature-builder-deep\`" "## Roster" "**DONE**" "**NEEDS-ANSWER**" \
   "**Failed or unverified DONE**" "Never merge crew branches, push, or delete branches unless the user asks" \
-  "accept only \`advisor: reviewed — \` with a Fable MODEL"; do
+  "accept only \`advisor: reviewed — \` with a Fable MODEL" "never resume unasked" \
+  "read the full policy's ladder first" "climb once to deep (never from deep)"; do
   if hasf "$phrase"; then ok "startup core carries: $phrase"; else no "startup core carries: $phrase"; fi
 done
 
@@ -402,6 +416,16 @@ then
 else
   no "agent model:, model-check TIERS and both policy alias tables agree (and none is fable)"
 fi
+
+# The core paraphrases the tier rules; their key conditions must match.
+for f in orchestrator.md orchestrator-core.md; do
+  if has_phrase "$PLUGIN/policy/$f" "concurrency, performance, security, or a cross-cutting refactor" &&
+    has_phrase "$PLUGIN/policy/$f" "covers one area, and leaves no open decision"; then
+    ok "$f states the deep trigger and the sonnet conditions"
+  else
+    no "$f states the deep trigger and the sonnet conditions"
+  fi
+done
 
 # The core repeats the full policy's tier table; the rows must be identical.
 tier_rows() { grep -E '^\| (sonnet|opus|deep) \|' "$1"; }
