@@ -227,6 +227,20 @@ If the hook cannot tell (no transcript, a parse error) it says re-arm. In
 auto mode the sleep needs no permission; other permission modes may prompt
 for it, so allowlist `Bash(sleep 2700)` to keep wakes silent.
 
+## Refresher
+
+Each Read of the full policy adds about 4.7k tokens, which brings the next
+compaction (and a full cache rebuild) closer. So the orchestrator Reads it
+once per start, compaction, resume or clear and again only for the rare
+events, and the model-check hook adds a short fixed refresher of the
+most-forgotten core rules (delegate, never merge or push unasked, what a
+DONE needs, relay NEEDS-ANSWER verbatim, when to Read the full policy) to
+every 10th user prompt. Keep-alive wakes, task notifications and worker
+reports neither count nor get it. The block is byte-identical every time
+and appended to the conversation, so the cached prompt prefix is untouched.
+The count is kept in the same `.keepalive` state file; outside a git work
+tree no block is added. `FEATURE_CREW_REFRESH=off` turns it off.
+
 ## Limits (from the Claude Code docs)
 
 - Hook output added to context is capped at 10,000 characters; longer stdout
@@ -236,9 +250,10 @@ for it, so allowlist `Bash(sleep 2700)` to keep wakes silent.
   rules, roster, one line per worker event, triggers for the rare events,
   the merge rule and the advisor check on DONE) and the absolute path of
   `policy/orchestrator.md`, which the core tells the orchestrator to Read
-  before the first dispatch or worker event after every start, compaction,
-  resume or clear, and on failures, escalations, fallbacks, stopped workers,
-  revisions, review or merge requests and fallback reviews. The root line
+  once before the first dispatch or worker event after every start,
+  compaction, resume or clear, and again only on failures, escalations,
+  fallbacks, missing model-check lines, stopped workers and fallback
+  reviews. The root line
   and any session note come before the core, so a cut would drop the core's
   tail before the note. Every start source stays under 8,000 bytes: the branch list
   after a resume is capped at 25 lines and 1,500 bytes, with subjects cut
@@ -325,7 +340,8 @@ earlier leave it behind.
 
 `FEATURE_CREW=off` in the environment silences the policy hook and the
 model check; the worker agents stay available for explicit use.
-`FEATURE_CREW_KEEPALIVE=off` turns off only the keep-alive sleep.
+`FEATURE_CREW_KEEPALIVE=off` turns off only the keep-alive sleep, and
+`FEATURE_CREW_REFRESH=off` only the refresher.
 
 ## Changelog
 
@@ -335,6 +351,11 @@ model check; the worker agents stay available for explicit use.
   each wake while a worker is still working. The model-check hook says re-arm or stop on each
   wake (5-minute-only cache writes, 8 wakes in a row, or
   `FEATURE_CREW_KEEPALIVE=off`). See "Keep the cache warm".
+  Slower context growth: the core now asks for one full-policy Read per
+  start, compaction, resume or clear plus the rare events only (no longer
+  on revisions or review and merge requests), and the model-check hook adds
+  a fixed refresher of core rules to every 10th user prompt
+  (`FEATURE_CREW_REFRESH=off` to disable). See "Refresher".
 
 - **0.6.2** — Workers wrote `crew-review.diff`, `crew-fix.diff` and
   `crew-verify.log` into the worktree's git dir, and Claude Code's worktree

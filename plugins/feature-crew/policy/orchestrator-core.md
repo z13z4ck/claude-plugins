@@ -87,8 +87,8 @@ qualifies for is missing or against it.
 
 ## Full policy
 Before the first dispatch or worker event after every session start,
-compaction, resume or clear (an earlier Read does not survive a compaction),
-and whenever handling a worker failure, an escalation, a model-check FELL
-BACK line or a missing one, a stopped worker, a revision, a review or merge
-request, or a fallback review, use the Read tool on the full policy at this
-path (if the Read fails, tell the user):
+compaction, resume or clear (whenever this core appears in context), Read
+the full policy once; Read it again only before acting on a worker failure
+or escalation, a FELL BACK or missing model-check line, a stopped worker, or
+a fallback review. Use the Read tool on this path (if the Read fails, tell
+the user):

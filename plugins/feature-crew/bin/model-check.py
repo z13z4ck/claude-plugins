@@ -15,7 +15,8 @@ deduplicated by message.id, and
   - appends a ledger row to <config dir>/feature-crew/ledger/<session_id>.jsonl.
 On a keep-alive wake (the orchestrator's background "feature-crew keep-alive"
 sleep finished) it also injects one "[feature-crew] keep-alive: re-arm" or
-"... keep-alive: stop (<reason>)" line; see keepalive().
+"... keep-alive: stop (<reason>)" line; see keepalive(). On every 10th genuine
+user prompt it injects a fixed refresher of core rules; see refresher().
 
 CLI mode, the policy fallback when no [feature-crew] line arrived:
   model-check.py --agent <agent id> [--transcript <parent transcript.jsonl>]
@@ -33,6 +34,7 @@ import glob
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 
@@ -407,15 +409,19 @@ def cache_ttl_5m_only(transcript):
 
 def _ka_load(path):
     """{"wakes": consecutive keep-alive wakes, "last": epoch seconds of the
-    last wake that was not a duplicate, or None}; empty state on any error."""
+    last wake that was not a duplicate, or None, "prompts": genuine user
+    prompts so far (for the refresher)}; empty state on any error, and a
+    missing key (an older file) reads as its empty value."""
+    def num(v, kinds):
+        return v if isinstance(v, kinds) and not isinstance(v, bool) else None
     try:
         with open(path, encoding="utf-8") as f:
             st = json.load(f)
-        wakes, last = st.get("wakes"), st.get("last")
-        return {"wakes": wakes if isinstance(wakes, int) and not isinstance(wakes, bool) else 0,
-                "last": last if isinstance(last, (int, float)) and not isinstance(last, bool) else None}
+        return {"wakes": num(st.get("wakes"), int) or 0,
+                "last": num(st.get("last"), (int, float)),
+                "prompts": num(st.get("prompts"), int) or 0}
     except Exception:
-        return {"wakes": 0, "last": None}
+        return {"wakes": 0, "last": None, "prompts": 0}
 
 
 def _ka_save(path, st):
@@ -451,7 +457,7 @@ def keepalive(text, tp, sid):
     if st["last"] is not None and 0 <= now - st["last"] < KEEPALIVE_DUP_SECONDS:
         return "[feature-crew] keep-alive: stop (duplicate chain)"
     wakes = st["wakes"] + 1
-    _ka_save(path, {"wakes": wakes, "last": now})
+    _ka_save(path, dict(st, wakes=wakes, last=now))
     try:
         if cache_ttl_5m_only(tp):
             return ("[feature-crew] keep-alive: stop (this session's cache writes are 5-minute only, so "
@@ -462,6 +468,54 @@ def keepalive(text, tp, sid):
     if wakes >= KEEPALIVE_MAX_WAKES:
         return "[feature-crew] keep-alive: stop (%d keep-alive wakes in a row, about 6 hours, with no other prompt)" % wakes
     return "[feature-crew] keep-alive: re-arm"
+
+
+# --- refresher ----------------------------------------------------------------------
+# Every REFRESH_EVERY-th genuine user prompt gets a short, fixed reminder of
+# the most-forgotten core rules, instead of a re-Read of the full policy.
+# Hook output is appended to the conversation, so the cached prefix stays.
+
+REFRESH_EVERY = 10
+REFRESHER = (
+    "[feature-crew] refresher (core rules still apply):\n"
+    "- Delegate multi-file or multi-minute code work to a worker; do not implement it.\n"
+    "- Never merge, push or delete branches unless the user asks.\n"
+    "- DONE needs every named full verify command run and passing, plus the advisor check at 4+ files.\n"
+    "- Relay NEEDS-ANSWER question and options verbatim.\n"
+    "- Read the full policy before acting on a worker failure or escalation, a FELL BACK or "
+    "missing model-check line, a stopped worker, or a fallback review: %s"
+)
+
+
+def _plugin_root():
+    return _msys_to_win(os.environ.get("CLAUDE_PLUGIN_ROOT")) or \
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def refresher(text, sid, cwd):
+    """The refresher block on every REFRESH_EVERY-th genuine user prompt, else
+    None. Keep-alive wakes, task notifications and worker hand-backs neither
+    count nor get it."""
+    if os.environ.get("FEATURE_CREW_REFRESH", "on") == "off":
+        return None
+    if "<task-notification>" in text or "<agent-message" in text or not text.strip():
+        return None
+    path = _keepalive_path(sid)
+    st = _ka_load(path)
+    n = st["prompts"] + 1
+    _ka_save(path, dict(st, prompts=n))
+    if n % REFRESH_EVERY:
+        return None
+    policy = os.path.join(_plugin_root(), "policy", "orchestrator.md")
+    # Like session-start.sh: no orchestrator mode outside a git work tree.
+    try:
+        git = subprocess.run(["git", "-C", cwd or ".", "rev-parse", "--is-inside-work-tree"],
+                             capture_output=True, text=True, timeout=5)
+        if git.stdout.strip() != "true" or not os.path.isfile(policy):
+            return None
+    except Exception:
+        return None
+    return REFRESHER % policy
 
 
 def hook():
@@ -481,6 +535,10 @@ def hook():
     refs = completions(text)
     if refs:
         lines += run(tp, sid, refs)
+    cwd = inp.get("cwd") if isinstance(inp.get("cwd"), str) else os.environ.get("CLAUDE_PROJECT_DIR")
+    rf = refresher(text, sid, cwd)
+    if rf:
+        lines.append(rf)
     if lines:
         sys.stdout.write(json.dumps({"hookSpecificOutput": {
             "hookEventName": "UserPromptSubmit",

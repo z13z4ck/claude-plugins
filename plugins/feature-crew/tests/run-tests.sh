@@ -298,8 +298,9 @@ if [ "$RC" -eq 0 ] && has "Policy file missing" && [ "$(bytes)" -lt 8000 ]; then
 run_hook startup "$REPO"
 if has "orchestrator mode (core rules)" && ! has "## Handle worker events" &&
   printf '%s\n' "$OUT" | grep -qxF "$PLUGIN/policy/orchestrator.md" &&
-  hasf "Before the first dispatch or worker event after every session start, compaction, resume or clear" &&
-  hasf "a model-check FELL BACK line or a missing one, a stopped worker, a revision, a review or merge request, or a fallback review, use the Read tool on the full policy at this path (if the Read fails, tell the user):"; then
+  hasf "Before the first dispatch or worker event after every session start, compaction, resume or clear (whenever this core appears in context), Read the full policy once;" &&
+  hasf "Read it again only before acting on a worker failure or escalation, a FELL BACK or missing model-check line, a stopped worker, or a fallback review. Use the Read tool on this path (if the Read fails, tell the user):" &&
+  ! hasf "a revision, a review or merge request"; then
   ok "startup prints the core and the absolute full-policy path with when to Read it"
 else
   no "startup prints the core and the absolute full-policy path with when to Read it"
@@ -1320,6 +1321,94 @@ if has "worker opu ran claude-opus-5-5 as chosen (opus tier)." && ! has "keep-al
   ok "keep-alive: a worker completion still gives only its worker line"
 else
   no "keep-alive: a worker completion still gives only its worker line" "$OUT"
+fi
+
+# 0.7.0: refresher. Every 10th genuine user prompt gets one fixed block of
+# core rules; wakes, task notifications and worker reports neither count nor
+# get it. rfhook <session id> <cwd> <prompt> [transcript]: sets OUT.
+rfhook() {
+  OUT="$(python3 -c 'import json,sys; print(json.dumps({"session_id": sys.argv[1], "cwd": sys.argv[2], "transcript_path": sys.argv[4], "hook_event_name": "UserPromptSubmit", "prompt": sys.argv[3]}))' "$1" "$2" "$3" "${4:-$KA_1H}" |
+    CLAUDE_CONFIG_DIR="$CFG" bash "$MC" 2>&1)"
+}
+# The refresher block from OUT, or nothing.
+rf_block() {
+  printf '%s' "$OUT" | python3 -c 'import json,sys
+t = sys.stdin.read().strip()
+c = json.loads(t)["hookSpecificOutput"]["additionalContext"] if t else ""
+i = c.find("[feature-crew] refresher")
+sys.stdout.write(c[i:] if i >= 0 else "")'
+}
+got="" first="" same=1
+i=1
+while [ "$i" -le 25 ]; do
+  rfhook rf-a "$REPO" "please build thing $i"
+  b="$(rf_block)"
+  if [ -n "$b" ]; then
+    got="$got $i"
+    if [ -z "$first" ]; then first="$b"; elif [ "$b" != "$first" ]; then same=0; fi
+  fi
+  i=$((i + 1))
+done
+fixed="${first%"$PLUGIN/policy/orchestrator.md"}"
+if [ "$got" = " 10 20" ] && [ "$same" -eq 1 ] && [ "$fixed" != "$first" ] &&
+  [ "$(printf '%s' "$fixed" | wc -c)" -lt 520 ] &&
+  case "$first" in *"Never merge, push or delete branches unless the user asks"*"Relay NEEDS-ANSWER question and options verbatim"*) true ;; *) false ;; esac; then
+  ok "refresher: only on the 10th and 20th genuine prompt, byte-identical, ending with the full-policy path"
+else
+  no "refresher: only on the 10th and 20th genuine prompt, byte-identical, ending with the full-policy path" "at:$got same=$same [$first]"
+fi
+
+# Wakes, task notifications and worker reports in between: no count, no
+# block, and their own lines are unchanged.
+i=1
+while [ "$i" -le 9 ]; do rfhook rf-b "$REPO" "prompt $i"; i=$((i + 1)); done
+bad=""
+rfhook rf-b "$REPO" "$KA_WAKE"
+{ [ -z "$(rf_block)" ] && [ "$(ka_line)" = "[feature-crew] keep-alive: re-arm" ]; } || bad="$bad [wake: $OUT]"
+rfhook rf-b "$REPO" "<task-notification><task-id>aO</task-id><tool-use-id>toolu_O</tool-use-id></task-notification>" "$PARENT"
+{ [ -z "$(rf_block)" ] && has "worker opu ran claude-opus-5-5 as chosen (opus tier)."; } || bad="$bad [worker: $OUT]"
+rfhook rf-b "$REPO" '<task-notification><task-id>b77</task-id><status>completed</status><summary>Background command "npm test" completed</summary></task-notification>'
+[ -z "$OUT" ] || bad="$bad [bash task: $OUT]"
+rfhook rf-b "$REPO" '<agent-message from="opu">
+DONE
+branch: crew/x
+</agent-message>' "$PARENT"
+[ -z "$(rf_block)" ] || bad="$bad [hand-back: $OUT]"
+rfhook rf-b "$REPO" "prompt 10"
+[ -n "$(rf_block)" ] || bad="$bad [10th genuine prompt got no block: $OUT]"
+if [ -z "$bad" ]; then
+  ok "refresher: wakes, task notifications and worker reports neither count nor get it; their lines are unchanged"
+else
+  no "refresher: wakes, task notifications and worker reports neither count nor get it; their lines are unchanged" "$bad"
+fi
+
+got=""
+mkdir -p "$TMP/nogit"
+i=1
+while [ "$i" -le 10 ]; do
+  FEATURE_CREW_REFRESH=off rfhook rf-c "$REPO" "prompt $i"; got="$got$OUT"
+  rfhook rf-d "$TMP/nogit" "prompt $i"; got="$got$OUT"
+  i=$((i + 1))
+done
+if [ -z "$got" ]; then
+  ok "refresher: FEATURE_CREW_REFRESH=off disables it, and it stays silent outside a git work tree"
+else
+  no "refresher: FEATURE_CREW_REFRESH=off disables it, and it stays silent outside a git work tree" "$got"
+fi
+
+# An older state file (no prompts key) counts from zero, and a counted
+# prompt keeps the last-wake time (so a wake 1 minute later is a duplicate).
+python3 -c 'import json,sys,time; json.dump({"wakes": 0, "last": time.time() - 60}, open(sys.argv[1], "w"))' \
+  "$CFG/feature-crew/ledger/rf-e.keepalive"
+rfhook rf-e "$REPO" "hello"
+o1="$OUT"
+rfhook rf-e "$REPO" "$KA_WAKE"
+st="$(cat "$CFG/feature-crew/ledger/rf-e.keepalive")"
+if [ -z "$o1" ] && [ "$(ka_line)" = "[feature-crew] keep-alive: stop (duplicate chain)" ] &&
+  case "$st" in *'"prompts": 1'*) true ;; *) false ;; esac; then
+  ok "refresher: an older state file counts from zero and the counter keeps the keep-alive state"
+else
+  no "refresher: an older state file counts from zero and the counter keeps the keep-alive state" "$o1 | $OUT | $st"
 fi
 fi
 

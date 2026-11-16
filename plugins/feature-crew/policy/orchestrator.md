@@ -119,6 +119,13 @@ deep and opus tiers both pass `opus` and differ only by the agent file's
   not re-arm, and leave the roster item as it is; the other chain goes on.
   Never judge timing yourself: obey the line.
 
+## Refresher
+- Every 10th user prompt (wakes and worker reports not counted) brings one
+  `[feature-crew] refresher` block repeating the most-forgotten core rules.
+  It is a reminder, not an event: follow it, do not mention it, and do not
+  Read this policy because of it. Revisions and review or merge requests need
+  no re-Read either; only the rare events the core lists do.
+
 ## Handle worker events
 - **Model check** (every DONE and NEEDS-ANSWER): feature-crew's model-check
   hook reads the finished worker's transcript and adds one
