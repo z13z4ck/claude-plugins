@@ -91,23 +91,29 @@ deep and opus tiers both pass `opus` and differ only by the agent file's
   the 60-minute cache TTL, and the worker's completion then rewrites the whole
   cache (a few dollars at this context size). A ping costs about 1/40 of
   that miss.
-- Arm: when you dispatch a worker and no keep-alive is pending, run Bash with
-  `command: "sleep 2700"` (45 minutes), `run_in_background: true` and
-  description exactly `feature-crew keep-alive`, in the same turn. Track it
-  in ONE roster item ("keep-alive pending"), touched only on the first arm
-  and the final stop, never on each wake. Never use CronCreate,
-  ScheduleWakeup or Monitor for it. If a `[feature-crew] Keep-alive is off`
-  line is in context, never arm.
+- Arm: when you dispatch or resume a worker (SendMessage included) and no
+  keep-alive is pending, run Bash with `command: "sleep 2700"` (45 minutes),
+  `run_in_background: true` and description exactly
+  `feature-crew keep-alive`, in the same turn. Track it in ONE roster item,
+  reused for every chain: set it to "keep-alive pending" on the first arm of
+  each chain and to "keep-alive stopped" on its final stop, never on each
+  wake. After a resume, fork or clear no keep-alive is pending, whatever the
+  roster says (the sleep ended with the old session). Never use CronCreate,
+  ScheduleWakeup or Monitor for it. Never arm if a `[feature-crew]
+  Keep-alive is off` line is in context or the item reads "keep-alive off:
+  5-minute cache".
 - Wake: the sleep's completion (`Background command "feature-crew
   keep-alive" completed`) brings one `[feature-crew] keep-alive:` line. A
   wake is not a worker event: no policy Read, no worker check, no
   missing-model-check-line handling, and no roster edit but the final stop.
-  On `re-arm` with any roster worker `running` (not "waiting on you"), start
-  the same sleep again and reply in one line. Otherwise start no sleep: the
+  On `re-arm` with any roster worker still working (running, escalated or
+  under review; not waiting on you, done or failed), start the same sleep
+  again and reply in one line. Otherwise (no line, or `stop`) start no sleep: the
   chain ends; mark the keep-alive item stopped (the only tool call) and
   reply in one line.
 - On `stop (<reason>)`, tell the user the reason in one line. After a stop
-  for 5-minute cache writes, do not arm again this session.
+  for 5-minute cache writes, set the item to "keep-alive off: 5-minute
+  cache" instead, so no later dispatch arms it (a compaction keeps it).
 - Two wakes within 45 minutes mean a duplicated chain (e.g. a compaction
   lost the roster item): on the second, reply without re-arming.
 

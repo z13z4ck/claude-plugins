@@ -1162,7 +1162,7 @@ kahook() {
   OUT="$(python3 -c 'import json,sys; print(json.dumps({"session_id": sys.argv[1], "transcript_path": sys.argv[2], "hook_event_name": "UserPromptSubmit", "prompt": sys.argv[3]}))' "$1" "$2" "$3" |
     CLAUDE_CONFIG_DIR="$CFG" bash "$MC" 2>&1)"
 }
-ka_line() { printf '%s' "$OUT" | grep -o '\[feature-crew\] keep-alive: [^"]*' | head -1; }
+ka_line() { printf '%s' "$OUT" | grep -o '\[feature-crew\] keep-alive: [^"\]*' | head -1; }
 
 kahook ka-a "$KA_1H" "$KA_WAKE"
 if [ "$(ka_line)" = "[feature-crew] keep-alive: re-arm" ] && ! has "worker"; then
@@ -1214,6 +1214,31 @@ if case "$o1" in *"keep-alive: re-arm"*) true ;; *) false ;; esac && [ "$(ka_lin
   ok "keep-alive: a missing or unparsable transcript defaults to re-arm"
 else
   no "keep-alive: a missing or unparsable transcript defaults to re-arm" "$o1 | $OUT"
+fi
+
+# Only a completed sleep inside a task notification is a wake: a quoted
+# string or a killed sleep gets no line.
+kahook ka-g "$KA_1H" 'the hook matches Background command "feature-crew keep-alive" completed'
+o1="$OUT"
+kahook ka-g "$KA_1H" "$(printf '%s' "$KA_WAKE" | sed 's/completed (exit code 0)/was killed/')"
+if [ -z "$o1" ] && [ -z "$OUT" ]; then
+  ok "keep-alive: a quoted wake string or a killed sleep gives no line"
+else
+  no "keep-alive: a quoted wake string or a killed sleep gives no line" "$o1 | $OUT"
+fi
+
+# A wake batched with a worker completion gives both lines; a sidechain row's
+# 5-minute write does not count for the main session.
+python3 -c 'import json,sys; open(sys.argv[1], "a").write(json.dumps({"type": "assistant", "isSidechain": True, "message": {"usage": {"cache_creation": {"ephemeral_5m_input_tokens": 50, "ephemeral_1h_input_tokens": 0}}}}) + "\n")' "$KA_1H"
+cat "$PARENT" "$KA_1H" >"$TMP/ka-both.jsonl"
+mkdir -p "$TMP/ka-both"
+cp -R "$SUB" "$TMP/ka-both/"
+kahook ka-h "$TMP/ka-both.jsonl" "$KA_WAKE
+<task-notification><task-id>aO</task-id><tool-use-id>toolu_O</tool-use-id></task-notification>"
+if [ "$(ka_line)" = "[feature-crew] keep-alive: re-arm" ] && has "worker opu ran claude-opus-5-5 as chosen"; then
+  ok "keep-alive: a wake batched with a worker completion gives both lines; sidechain writes are ignored"
+else
+  no "keep-alive: a wake batched with a worker completion gives both lines; sidechain writes are ignored" "$OUT"
 fi
 
 # A worker completion is unchanged: its line only, no keep-alive line.

@@ -365,7 +365,7 @@ def run(parent_transcript, session_id, refs, ledger=True):
 # background `sleep 2700` described "feature-crew keep-alive"; its completion
 # wakes the session. This decides whether that wake re-arms the sleep.
 
-KEEPALIVE_WAKE = 'Background command "feature-crew keep-alive"'
+KEEPALIVE_WAKE = 'Background command "feature-crew keep-alive" completed'
 KEEPALIVE_MAX_WAKES = 8  # about 6 hours of 45-minute pings with nothing else happening
 TAIL_BYTES = 1 << 20
 
@@ -407,7 +407,10 @@ def keepalive(text, tp, sid):
     """The [feature-crew] keep-alive line for a keep-alive wake, else None. Any
     other prompt resets the wake counter."""
     path = _keepalive_path(sid)
-    if KEEPALIVE_WAKE not in text:
+    # Only inside a task notification, and only a completed sleep: a quoted
+    # string (a paste, a worker report) or a killed sleep is not a wake.
+    chunks = (c.split("</task-notification>")[0] for c in text.split("<task-notification>")[1:])
+    if not any(KEEPALIVE_WAKE in c for c in chunks):
         try:
             os.remove(path)
         except OSError:
