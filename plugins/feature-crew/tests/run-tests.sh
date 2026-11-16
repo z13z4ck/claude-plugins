@@ -1202,10 +1202,10 @@ for i in 1 2 3 4 5 6 7 8; do
     [ "$(ka_word)" = "stop (duplicate chain)" ] || got="${got}D"
   fi
 done
-if [ "$got" = rrcccccs ]; then
-  ok "keep-alive: wakes 1-2 re-arm, wakes 3-7 re-arm only with a worker working, the 8th says stop"
+if [ "$got" = rccccccs ]; then
+  ok "keep-alive: wake 1 re-arms, wakes 2-7 re-arm only with a worker working, the 8th says stop"
 else
-  no "keep-alive: wakes 1-2 re-arm, wakes 3-7 re-arm only with a worker working, the 8th says stop" "got $got"
+  no "keep-alive: wake 1 re-arms, wakes 2-7 re-arm only with a worker working, the 8th says stop" "got $got"
 fi
 
 for i in 1 2 3 4 5 6 7; do
@@ -1254,7 +1254,7 @@ ka_age ka-j 10
 kahook ka-j "$KA_1H" "$KA_WAKE"; got="$got$(ka_word)|"   # a stray wake at T+55
 ka_age ka-j 35
 kahook ka-j "$KA_1H" "$KA_WAKE"; got="$got$(ka_word)"    # chain A at T+90
-if [ "$got" = "re-arm|stop (duplicate chain)|re-arm|stop (duplicate chain)|re-arm" ]; then
+if [ "$got" = "re-arm|stop (duplicate chain)|re-arm|stop (duplicate chain)|re-arm only if a worker is still working" ]; then
   ok "keep-alive: a wake within 40 minutes stops as a duplicate chain; the surviving chain keeps re-arming"
 else
   no "keep-alive: a wake within 40 minutes stops as a duplicate chain; the surviving chain keeps re-arming" "$got"
@@ -1266,14 +1266,14 @@ ka_age ka-l 39
 kahook ka-l "$KA_1H" "$KA_WAKE"; got="$(ka_word)|"
 ka_age ka-l 2
 kahook ka-l "$KA_1H" "$KA_WAKE"; got="$got$(ka_word)"
-if [ "$got" = "stop (duplicate chain)|re-arm" ]; then
+if [ "$got" = "stop (duplicate chain)|re-arm only if a worker is still working" ]; then
   ok "keep-alive: the duplicate-chain threshold is 40 minutes"
 else
   no "keep-alive: the duplicate-chain threshold is 40 minutes" "$got"
 fi
 
 bad=""
-for st in 'garbage' '7' '{"wakes": 1, "last": "yesterday"}' '{"wakes": 1}' '{"wakes": 1, "last": 99999999999}'; do
+for st in 'garbage' '7' '{"wakes": 0, "last": "yesterday"}' '{"wakes": 0}' '{"wakes": 0, "last": 99999999999}'; do
   printf '%s' "$st" >"$CFG/feature-crew/ledger/ka-k.keepalive"
   kahook ka-k "$KA_1H" "$KA_WAKE"
   [ "$(ka_line)" = "[feature-crew] keep-alive: re-arm" ] || bad="$bad [$st -> $OUT]"
@@ -1336,10 +1336,45 @@ kahook ka-r "$PARENT" "<task-notification><task-id>aO</task-id><tool-use-id>tool
 has "worker opu ran" || got="${got}NOWORKER|"
 ka_age ka-r 46
 kahook ka-r "$PARENT" "$KA_WAKE"; got="$got$(ka_word)"
-if [ "$got" = "re-arm|re-arm|re-arm only if a worker is still working|re-arm" ]; then
+if [ "$got" = "re-arm|re-arm only if a worker is still working|re-arm only if a worker is still working|re-arm" ]; then
   ok "keep-alive: a worker completion resets the wake count, so the next wake re-arms unconditionally"
 else
   no "keep-alive: a worker completion resets the wake count, so the next wake re-arms unconditionally" "$got"
+fi
+
+# A duplicate wake batched with a worker completion still resets the count,
+# and leaves the last-wake time: 36 minutes later (46 after the first) the
+# surviving chain's wake counts from zero.
+got=""
+kahook ka-m "$TMP/ka-both.jsonl" "$KA_WAKE"; got="$(ka_word)|"
+ka_age ka-m 10
+kahook ka-m "$TMP/ka-both.jsonl" "$KA_WAKE
+<task-notification><task-id>aO</task-id><tool-use-id>toolu_O</tool-use-id></task-notification>"
+got="$got$(ka_word)|"
+has "worker opu ran claude-opus-5-5 as chosen" || got="${got}NOWORKER|"
+ka_age ka-m 36
+kahook ka-m "$TMP/ka-both.jsonl" "$KA_WAKE"; got="$got$(ka_word)"
+if [ "$got" = "re-arm|stop (duplicate chain)|re-arm" ]; then
+  ok "keep-alive: a duplicate wake batched with a worker completion resets the count and keeps the last-wake time"
+else
+  no "keep-alive: a duplicate wake batched with a worker completion resets the count and keeps the last-wake time" "$got"
+fi
+
+# A wake batched with a non-worker notification resets too; two wake blocks
+# in one prompt do not, and give one keep-alive line.
+mkdir -p "$CFG/feature-crew/ledger"
+printf '{"wakes": 1}' >"$CFG/feature-crew/ledger/ka-n.keepalive"
+kahook ka-n "$KA_1H" "$KA_WAKE
+<task-notification><task-id>b77</task-id><status>completed</status><summary>Background command \"npm test\" completed</summary></task-notification>"
+o1="$(ka_word)"
+printf '{"wakes": 1}' >"$CFG/feature-crew/ledger/ka-o.keepalive"
+kahook ka-o "$KA_1H" "$KA_WAKE
+$KA_WAKE"
+n="$(printf '%s' "$OUT" | grep -o 'keep-alive: ' | wc -l | tr -d ' ')"
+if [ "$o1" = "re-arm" ] && [ "$(ka_word)" = "re-arm only if a worker is still working" ] && [ "$n" = 1 ]; then
+  ok "keep-alive: a non-worker notification beside a wake resets the count; two wake blocks do not"
+else
+  no "keep-alive: a non-worker notification beside a wake resets the count; two wake blocks do not" "$o1 | $OUT"
 fi
 
 # Unattended (print mode sets CLAUDE_CODE_SESSION_ATTENDED=0): stop. 1 or

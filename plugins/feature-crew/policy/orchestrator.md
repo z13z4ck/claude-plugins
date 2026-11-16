@@ -107,9 +107,9 @@ deep and opus tiers both pass `opus` and differ only by the agent file's
   wake is not a worker event: no policy Read, no worker check, no
   missing-model-check-line handling, and no roster edit but the final stop.
   On plain `keep-alive: re-arm`, always start the same sleep again and reply
-  in one line, even with no worker working: the first two wakes after any
-  other prompt (a worker report included) keep the cache warm while you wait
-  on the user, about 2.5 to 3.25 hours from the last activity. On `keep-alive: re-arm
+  in one line, even with no worker working: the first wake after any other
+  prompt (a worker report included) keeps the cache warm while you wait on
+  the user, about 1.75 to 2.5 hours from the last activity. On `keep-alive: re-arm
   only if a worker is still working`, re-arm only with a roster worker still
   working (running, escalated or under review; not waiting on you, done or
   failed). Otherwise (no line, that line with no worker working, or a `stop`

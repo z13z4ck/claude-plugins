@@ -207,15 +207,15 @@ about $0.1, roughly 1/40 of that. So when the orchestrator dispatches or
 resumes a worker it starts a one-shot background `sleep 2700` (45 minutes)
 described `feature-crew keep-alive`, and it arms one after a worker's DONE
 too if none is pending. When the sleep finishes, the session wakes and
-re-arms it in one line. The first two wakes after any other prompt (yours or
-a worker report) re-arm unconditionally, so the cache stays warm for about
-2.5 to 3.25 hours after the last activity while the orchestrator waits on you
-(the third wake, at about 135 minutes after the arm, ends the chain, then the
+re-arms it in one line. The first wake after any other prompt (yours or a
+worker report) re-arms unconditionally, so the cache stays warm for about
+1.75 to 2.5 hours after the last activity while the orchestrator waits on you
+(the second wake, about 90 minutes after the arm, ends the chain, then the
 60-minute TTL runs out). Later wakes re-arm only while
 a worker is still working (running, escalated or under review), and
 otherwise let the chain end.
-The model-check hook adds `[feature-crew] keep-alive: re-arm` (wakes 1-2),
-`... re-arm only if a worker is still working` (wake 3 on) or
+The model-check hook adds `[feature-crew] keep-alive: re-arm` (wake 1),
+`... re-arm only if a worker is still working` (wake 2 on) or
 `... stop (<reason>)` to each wake, and says stop when:
 
 - the session's last cache write was 5-minute only (every 45-minute ping
@@ -366,8 +366,8 @@ model check; the worker agents stay available for explicit use.
 - **0.7.0** — Keep the orchestrator's prompt cache warm while workers run
   past the 1-hour cache TTL: a background `sleep 2700` described
   `feature-crew keep-alive`, armed on dispatch or resume and re-armed on
-  each wake while a worker is still working, and for the first two wakes
-  (about 2.5 to 3.25 hours of warm cache) after the last activity even with none
+  each wake while a worker is still working, and for the first wake
+  (about 1.75 to 2.5 hours of warm cache) after the last activity even with none
   working; it also arms after a DONE. The model-check hook says re-arm,
   re-arm only if a worker is still working, or stop on each wake
   (5-minute-only cache writes, 8 wakes in a row, an unattended
