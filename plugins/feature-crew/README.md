@@ -203,15 +203,17 @@ for the advisor alone.
 While workers run, the main session sends no requests, so its 1-hour prompt
 cache expires during long runs and the worker's completion pays a full cache
 rewrite (about $3.6-6 at 150-300k tokens of context). A keep-alive ping costs
-about $0.1, roughly 1/40 of that. So when the orchestrator dispatches a
-worker it starts a one-shot background `sleep 2700` (45 minutes) described
-`feature-crew keep-alive`. When it finishes, the session wakes, re-arms it
-in one line if a worker is still running, and otherwise lets the chain end.
+about $0.1, roughly 1/40 of that. So when the orchestrator dispatches or
+resumes a worker it starts a one-shot background `sleep 2700` (45 minutes)
+described `feature-crew keep-alive`. When it finishes, the session wakes,
+re-arms it in one line while a worker is still working (running, escalated
+or under review), and otherwise lets the chain end.
 The model-check hook adds `[feature-crew] keep-alive: re-arm` or
 `... stop (<reason>)` to each wake, and says stop when:
 
 - the session's last cache write was 5-minute only (every 45-minute ping
-  would then be a full miss; the orchestrator tells you once);
+  would then be a full miss; the orchestrator tells you once and marks the
+  roster item off for the rest of the session);
 - 8 keep-alive wakes came in a row (about 6 hours) with no other prompt
   (any other prompt resets the count, kept in
   `<config dir>/feature-crew/ledger/<session_id>.keepalive`);
@@ -326,8 +328,8 @@ model check; the worker agents stay available for explicit use.
 
 - **0.7.0** — Keep the orchestrator's prompt cache warm while workers run
   past the 1-hour cache TTL: a background `sleep 2700` described
-  `feature-crew keep-alive`, armed on dispatch and re-armed on each wake
-  while a worker runs. The model-check hook says re-arm or stop on each
+  `feature-crew keep-alive`, armed on dispatch or resume and re-armed on
+  each wake while a worker is still working. The model-check hook says re-arm or stop on each
   wake (5-minute-only cache writes, 8 wakes in a row, or
   `FEATURE_CREW_KEEPALIVE=off`). See "Keep the cache warm".
 

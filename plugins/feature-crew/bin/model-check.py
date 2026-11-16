@@ -409,7 +409,9 @@ def keepalive(text, tp, sid):
     path = _keepalive_path(sid)
     # Only inside a task notification, and only a completed sleep: a quoted
     # string (a paste, a worker report) or a killed sleep is not a wake.
-    chunks = (c.split("</task-notification>")[0] for c in text.split("<task-notification>")[1:])
+    # A worker's notification carries its report in <result>: look before it.
+    chunks = (c.split("</task-notification>")[0].split("<result>")[0]
+              for c in text.split("<task-notification>")[1:])
     if not any(KEEPALIVE_WAKE in c for c in chunks):
         try:
             os.remove(path)
@@ -432,7 +434,8 @@ def keepalive(text, tp, sid):
     try:
         if cache_ttl_5m_only(tp):
             return ("[feature-crew] keep-alive: stop (this session's cache writes are 5-minute only, so "
-                    "every 45-minute ping would be a full cache miss)")
+                    "every 45-minute ping would be a full cache miss); set the keep-alive item to "
+                    "keep-alive off: 5-minute cache and never arm again this session")
     except Exception:
         pass  # cannot decide: re-arm, worst case is cheap pings
     if wakes >= KEEPALIVE_MAX_WAKES:

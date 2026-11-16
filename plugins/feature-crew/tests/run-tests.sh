@@ -1229,8 +1229,8 @@ fi
 
 # A wake batched with a worker completion gives both lines; a sidechain row's
 # 5-minute write does not count for the main session.
-python3 -c 'import json,sys; open(sys.argv[1], "a").write(json.dumps({"type": "assistant", "isSidechain": True, "message": {"usage": {"cache_creation": {"ephemeral_5m_input_tokens": 50, "ephemeral_1h_input_tokens": 0}}}}) + "\n")' "$KA_1H"
 cat "$PARENT" "$KA_1H" >"$TMP/ka-both.jsonl"
+python3 -c 'import json,sys; open(sys.argv[1], "a").write(json.dumps({"type": "assistant", "isSidechain": True, "message": {"usage": {"cache_creation": {"ephemeral_5m_input_tokens": 50, "ephemeral_1h_input_tokens": 0}}}}) + "\n")' "$TMP/ka-both.jsonl"
 mkdir -p "$TMP/ka-both"
 cp -R "$SUB" "$TMP/ka-both/"
 kahook ka-h "$TMP/ka-both.jsonl" "$KA_WAKE
@@ -1239,6 +1239,19 @@ if [ "$(ka_line)" = "[feature-crew] keep-alive: re-arm" ] && has "worker opu ran
   ok "keep-alive: a wake batched with a worker completion gives both lines; sidechain writes are ignored"
 else
   no "keep-alive: a wake batched with a worker completion gives both lines; sidechain writes are ignored" "$OUT"
+fi
+
+# A worker report that quotes the wake string in its <result> is not a wake.
+kahook ka-i "$PARENT" "<task-notification>
+<task-id>aO</task-id>
+<tool-use-id>toolu_O</tool-use-id>
+<status>completed</status>
+<result>DONE: matches Background command \"feature-crew keep-alive\" completed</result>
+</task-notification>"
+if has "worker opu ran claude-opus-5-5 as chosen" && ! has "keep-alive:"; then
+  ok "keep-alive: a worker report quoting the wake string is not a wake"
+else
+  no "keep-alive: a worker report quoting the wake string is not a wake" "$OUT"
 fi
 
 # A worker completion is unchanged: its line only, no keep-alive line.
@@ -1264,7 +1277,8 @@ for f in orchestrator.md orchestrator-core.md; do
   P2="$PLUGIN/policy/$f"
   if grep -q 'sleep 2700' "$P2" && has_phrase "$P2" "description exactly \`feature-crew keep-alive\`" &&
     has_phrase "$P2" "not a worker event" && grep -q "1/40" "$P2" && grep -qi "exception" "$P2" &&
-    grep -q "keep-alive: re-arm\|\`re-arm\`" "$P2"; then
+    grep -q "keep-alive: re-arm\|\`re-arm\`" "$P2" && grep -q "resum" "$P2" && has_phrase "$P2" "still working" &&
+    { [ "$f" = orchestrator-core.md ] || has_phrase "$P2" "keep-alive off: 5-minute cache"; }; then
     ok "$f: keep-alive arm, wake, never-sleep exception and reason"
   else
     no "$f: keep-alive arm, wake, never-sleep exception and reason"
