@@ -13,6 +13,9 @@ worker's assistant rows ran on (skipping "<synthetic>"), sums usage
 deduplicated by message.id, and
   - injects one "[feature-crew] worker ..." line as additionalContext;
   - appends a ledger row to <config dir>/feature-crew/ledger/<session_id>.jsonl.
+On a keep-alive wake (the orchestrator's background "feature-crew keep-alive"
+sleep finished) it also injects one "[feature-crew] keep-alive: re-arm" or
+"... keep-alive: stop (<reason>)" line; see keepalive().
 
 CLI mode, the policy fallback when no [feature-crew] line arrived:
   model-check.py --agent <agent id> [--transcript <parent transcript.jsonl>]
@@ -357,6 +360,83 @@ def run(parent_transcript, session_id, refs, ledger=True):
 # --- entry points ----------------------------------------------------------------------
 
 
+# --- keep-alive ----------------------------------------------------------------------
+# The orchestrator keeps its 1-hour prompt cache warm while workers run with a
+# background `sleep 2700` described "feature-crew keep-alive"; its completion
+# wakes the session. This decides whether that wake re-arms the sleep.
+
+KEEPALIVE_WAKE = 'Background command "feature-crew keep-alive"'
+KEEPALIVE_MAX_WAKES = 8  # about 6 hours of 45-minute pings with nothing else happening
+TAIL_BYTES = 1 << 20
+
+
+def _keepalive_path(session_id):
+    d = os.path.join(config_dir(), "feature-crew", "ledger")
+    return os.path.join(d, "%s.keepalive" % re.sub(r"[^A-Za-z0-9_.-]", "_", session_id))
+
+
+def cache_ttl_5m_only(transcript):
+    """True when the main session's last cache write was 5-minute only, False
+    when it was 1-hour or no write is in the transcript's tail; raises on an
+    unreadable transcript."""
+    with open(transcript, "rb") as f:
+        f.seek(0, 2)
+        f.seek(max(0, f.tell() - TAIL_BYTES))
+        lines = f.read().decode("utf-8", "replace").splitlines()
+    for line in reversed(lines):
+        if '"cache_creation"' not in line:
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue  # the cut first line, or a torn write
+        if not isinstance(row, dict) or row.get("type") != "assistant" or row.get("isSidechain"):
+            continue
+        msg = row.get("message")
+        usage = msg.get("usage") if isinstance(msg, dict) else None
+        cc = usage.get("cache_creation") if isinstance(usage, dict) else None
+        if not isinstance(cc, dict):
+            continue
+        m5, h1 = cc.get("ephemeral_5m_input_tokens") or 0, cc.get("ephemeral_1h_input_tokens") or 0
+        if m5 or h1:  # a turn that only read the cache says nothing about the TTL
+            return m5 > 0 and h1 == 0
+    return False
+
+
+def keepalive(text, tp, sid):
+    """The [feature-crew] keep-alive line for a keep-alive wake, else None. Any
+    other prompt resets the wake counter."""
+    path = _keepalive_path(sid)
+    if KEEPALIVE_WAKE not in text:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        return None
+    if os.environ.get("FEATURE_CREW_KEEPALIVE", "on") == "off":
+        return "[feature-crew] keep-alive: stop (FEATURE_CREW_KEEPALIVE=off)"
+    try:
+        with open(path, encoding="utf-8") as f:
+            wakes = int(f.read().strip() or 0) + 1
+    except (OSError, ValueError):
+        wakes = 1
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("%d\n" % wakes)
+    except OSError:
+        pass
+    try:
+        if cache_ttl_5m_only(tp):
+            return ("[feature-crew] keep-alive: stop (this session's cache writes are 5-minute only, so "
+                    "every 45-minute ping would be a full cache miss)")
+    except Exception:
+        pass  # cannot decide: re-arm, worst case is cheap pings
+    if wakes >= KEEPALIVE_MAX_WAKES:
+        return "[feature-crew] keep-alive: stop (%d keep-alive wakes in a row, about 6 hours, with no other prompt)" % wakes
+    return "[feature-crew] keep-alive: re-arm"
+
+
 def hook():
     try:
         inp = json.loads(sys.stdin.read() or "null")
@@ -368,11 +448,12 @@ def hook():
     tp = inp.get("transcript_path")
     if not isinstance(text, str) or not isinstance(tp, str) or not tp:
         return
-    refs = completions(text)
-    if not refs:
-        return
     sid = str(inp.get("session_id") or os.path.basename(tp)[:-6])
-    lines = run(tp, sid, refs)
+    ka = keepalive(text, tp, sid)
+    lines = [ka] if ka else []
+    refs = completions(text)
+    if refs:
+        lines += run(tp, sid, refs)
     if lines:
         sys.stdout.write(json.dumps({"hookSpecificOutput": {
             "hookEventName": "UserPromptSubmit",

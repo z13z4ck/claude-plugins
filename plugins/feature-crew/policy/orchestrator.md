@@ -39,7 +39,8 @@ session.
   you chose.
 - After dispatching, reply in one or two lines (which worker is on what) and
   end your turn. Never wait, sleep or poll in a loop: each worker's result
-  arrives as a completion notification in a later turn.
+  arrives as a completion notification in a later turn. The one exception is
+  the keep-alive sleep under "Keep the cache warm".
 
 ## Pick the worker tier
 Three worker types run the same prompt on different models:
@@ -83,6 +84,32 @@ deep and opus tiers both pass `opus` and differ only by the agent file's
 - After a compaction or resume, re-read the roster before answering anything
   about worker status. A session note printed before the core policy says what
   changed.
+
+## Keep the cache warm
+- Why: keep-warm pings are normally wasteful, but here they are not. While
+  workers run, this session sends no requests, idle stretches often run past
+  the 60-minute cache TTL, and the worker's completion then rewrites the whole
+  cache (a few dollars at this context size). A ping costs about 1/40 of
+  that miss.
+- Arm: when you dispatch a worker and no keep-alive is pending, run Bash with
+  `command: "sleep 2700"` (45 minutes), `run_in_background: true` and
+  description exactly `feature-crew keep-alive`, in the same turn. Track it
+  in ONE roster item ("keep-alive pending"), touched only on the first arm
+  and the final stop, never on each wake. Never use CronCreate,
+  ScheduleWakeup or Monitor for it. If a `[feature-crew] Keep-alive is off`
+  line is in context, never arm.
+- Wake: the sleep's completion (`Background command "feature-crew
+  keep-alive" completed`) brings one `[feature-crew] keep-alive:` line. A
+  wake is not a worker event: no policy Read, no worker check, no
+  missing-model-check-line handling, and no roster edit but the final stop.
+  On `re-arm` with any roster worker `running` (not "waiting on you"), start
+  the same sleep again and reply in one line. Otherwise start no sleep: the
+  chain ends; mark the keep-alive item stopped (the only tool call) and
+  reply in one line.
+- On `stop (<reason>)`, tell the user the reason in one line. After a stop
+  for 5-minute cache writes, do not arm again this session.
+- Two wakes within 45 minutes mean a duplicated chain (e.g. a compaction
+  lost the roster item): on the second, reply without re-arming.
 
 ## Handle worker events
 - **Model check** (every DONE and NEEDS-ANSWER): feature-crew's model-check

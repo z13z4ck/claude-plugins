@@ -198,6 +198,30 @@ for the advisor alone.
   1.10.3, which stops nudging workers mid-build and accepts a fix-diff
   review in its worker hold.
 
+## Keep the cache warm
+
+While workers run, the main session sends no requests, so its 1-hour prompt
+cache expires during long runs and the worker's completion pays a full cache
+rewrite (about $3.6-6 at 150-300k tokens of context). A keep-alive ping costs
+about $0.1, roughly 1/40 of that. So when the orchestrator dispatches a
+worker it starts a one-shot background `sleep 2700` (45 minutes) described
+`feature-crew keep-alive`. When it finishes, the session wakes, re-arms it
+in one line if a worker is still running, and otherwise lets the chain end.
+The model-check hook adds `[feature-crew] keep-alive: re-arm` or
+`... stop (<reason>)` to each wake, and says stop when:
+
+- the session's last cache write was 5-minute only (every 45-minute ping
+  would then be a full miss; the orchestrator tells you once);
+- 8 keep-alive wakes came in a row (about 6 hours) with no other prompt
+  (any other prompt resets the count, kept in
+  `<config dir>/feature-crew/ledger/<session_id>.keepalive`);
+- `FEATURE_CREW_KEEPALIVE=off` is set. The SessionStart hook then also says
+  keep-alive is off, so the orchestrator never arms it.
+
+If the hook cannot tell (no transcript, a parse error) it says re-arm. In
+auto mode the sleep needs no permission; other permission modes may prompt
+for it, so allowlist `Bash(sleep 2700)` to keep wakes silent.
+
 ## Limits (from the Claude Code docs)
 
 - Hook output added to context is capped at 10,000 characters; longer stdout
@@ -296,8 +320,16 @@ earlier leave it behind.
 
 `FEATURE_CREW=off` in the environment silences the policy hook and the
 model check; the worker agents stay available for explicit use.
+`FEATURE_CREW_KEEPALIVE=off` turns off only the keep-alive sleep.
 
 ## Changelog
+
+- **0.7.0** — Keep the orchestrator's prompt cache warm while workers run
+  past the 1-hour cache TTL: a background `sleep 2700` described
+  `feature-crew keep-alive`, armed on dispatch and re-armed on each wake
+  while a worker runs. The model-check hook says re-arm or stop on each
+  wake (5-minute-only cache writes, 8 wakes in a row, or
+  `FEATURE_CREW_KEEPALIVE=off`). See "Keep the cache warm".
 
 - **0.6.2** — Workers wrote `crew-review.diff`, `crew-fix.diff` and
   `crew-verify.log` into the worktree's git dir, and Claude Code's worktree

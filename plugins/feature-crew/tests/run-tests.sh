@@ -344,12 +344,12 @@ else
   no "hooks.json registers the UserPromptSubmit model check through bash, no SubagentStop"
 fi
 
-if grep -q '"version": "0.6.2"' "$PLUGIN/.claude-plugin/plugin.json" &&
+if grep -q '"version": "0.7.0"' "$PLUGIN/.claude-plugin/plugin.json" &&
   ! grep -qi 'on Fable' "$PLUGIN/.claude-plugin/plugin.json" &&
   ! grep -qi 'Fable worker' "$PLUGIN/.claude-plugin/plugin.json"; then
-  ok "plugin.json is 0.6.2 and no longer says workers run on Fable"
+  ok "plugin.json is 0.7.0 and no longer says workers run on Fable"
 else
-  no "plugin.json is 0.6.2 and no longer says workers run on Fable"
+  no "plugin.json is 0.7.0 and no longer says workers run on Fable"
 fi
 
 # 0.6.0: Fable is the advisor only. No worker agent pins it, no dispatch
@@ -1130,7 +1130,121 @@ if [ "$(ledger_rows)" = $((n + 1)) ] && [ "$(lj 'r["ended_at"]')" = 2026-11-10T1
 else
   no "a resumed worker's next completion adds a row with cumulative usage" "$(ledger_last)"
 fi
+
+# 0.7.0: keep-alive. The orchestrator's background `sleep 2700` described
+# "feature-crew keep-alive" wakes it; the hook says re-arm or stop (<reason>).
+# kat <file> <5m tokens> <1h tokens>...: a main transcript whose assistant rows
+# wrote those cache tokens (pairs, in order).
+kat() {
+  python3 - "$@" <<'PY'
+import json, sys
+path, nums = sys.argv[1], [int(x) for x in sys.argv[2:]]
+with open(path, "w") as f:
+    for i in range(0, len(nums), 2):
+        f.write(json.dumps({"type": "assistant", "message": {"id": "m%d" % i, "model": "claude-fable-5-2",
+            "usage": {"cache_read_input_tokens": 9, "cache_creation_input_tokens": nums[i] + nums[i + 1],
+                      "cache_creation": {"ephemeral_5m_input_tokens": nums[i],
+                                         "ephemeral_1h_input_tokens": nums[i + 1]}}}}) + "\n")
+PY
+}
+KA_1H="$TMP/ka-1h.jsonl"
+KA_5M="$TMP/ka-5m.jsonl"
+kat "$KA_1H" 0 4000 0 0          # a 1h write, then a read-only turn
+kat "$KA_5M" 0 4000 3000 0 0 0   # a 1h write, then 5m-only, then read-only
+KA_WAKE='<task-notification>
+<task-id>bka1</task-id>
+<tool-use-id>toolu_bash_ka</tool-use-id>
+<status>completed</status>
+<summary>Background command "feature-crew keep-alive" completed (exit code 0)</summary>
+</task-notification>'
+# kahook <session id> <transcript> <prompt>: run the hook; sets OUT.
+kahook() {
+  OUT="$(python3 -c 'import json,sys; print(json.dumps({"session_id": sys.argv[1], "transcript_path": sys.argv[2], "hook_event_name": "UserPromptSubmit", "prompt": sys.argv[3]}))' "$1" "$2" "$3" |
+    CLAUDE_CONFIG_DIR="$CFG" bash "$MC" 2>&1)"
+}
+ka_line() { printf '%s' "$OUT" | grep -o '\[feature-crew\] keep-alive: [^"]*' | head -1; }
+
+kahook ka-a "$KA_1H" "$KA_WAKE"
+if [ "$(ka_line)" = "[feature-crew] keep-alive: re-arm" ] && ! has "worker"; then
+  ok "keep-alive: a wake on a 1-hour-cache transcript says re-arm, and the Bash task gives no worker line"
+else
+  no "keep-alive: a wake on a 1-hour-cache transcript says re-arm, and the Bash task gives no worker line" "$OUT"
 fi
+
+kahook ka-b "$KA_5M" "$KA_WAKE"
+case "$(ka_line)" in
+  "[feature-crew] keep-alive: stop ("*"5-minute only"*) ok "keep-alive: 5-minute-only cache writes say stop" ;;
+  *) no "keep-alive: 5-minute-only cache writes say stop" "$OUT" ;;
+esac
+
+got=""
+for i in 1 2 3 4 5 6 7 8; do
+  kahook ka-c "$KA_1H" "$KA_WAKE"
+  case "$(ka_line)" in *re-arm) got="${got}r" ;; *"stop (8 keep-alive wakes in a row"*) got="${got}s" ;; *) got="${got}?" ;; esac
+done
+if [ "$got" = rrrrrrrs ]; then
+  ok "keep-alive: the 8th wake in a row says stop"
+else
+  no "keep-alive: the 8th wake in a row says stop" "got $got"
+fi
+
+for i in 1 2 3 4 5 6 7; do kahook ka-d "$KA_1H" "$KA_WAKE"; done
+kahook ka-d "$KA_1H" "how are the workers doing?"
+o1="$OUT"
+kahook ka-d "$KA_1H" "$KA_WAKE"
+if [ -z "$o1" ] && [ "$(ka_line)" = "[feature-crew] keep-alive: re-arm" ]; then
+  ok "keep-alive: an ordinary prompt prints nothing and resets the wake counter"
+else
+  no "keep-alive: an ordinary prompt prints nothing and resets the wake counter" "$o1 | $OUT"
+fi
+
+OUT="$(python3 -c 'import json,sys; print(json.dumps({"session_id": "ka-e", "transcript_path": sys.argv[1], "prompt": sys.argv[2]}))' "$KA_1H" "$KA_WAKE" |
+  FEATURE_CREW_KEEPALIVE=off CLAUDE_CONFIG_DIR="$CFG" bash "$MC" 2>&1)"
+if [ "$(ka_line)" = "[feature-crew] keep-alive: stop (FEATURE_CREW_KEEPALIVE=off)" ]; then
+  ok "keep-alive: FEATURE_CREW_KEEPALIVE=off makes the hook say stop"
+else
+  no "keep-alive: FEATURE_CREW_KEEPALIVE=off makes the hook say stop" "$OUT"
+fi
+
+kahook ka-f "$TMP/no-such-transcript.jsonl" "$KA_WAKE"
+o1="$OUT"
+printf 'not json\n{"type":"assistant","message":"x"}\n' >"$TMP/ka-bad.jsonl"
+kahook ka-f "$TMP/ka-bad.jsonl" "$KA_WAKE"
+if case "$o1" in *"keep-alive: re-arm"*) true ;; *) false ;; esac && [ "$(ka_line)" = "[feature-crew] keep-alive: re-arm" ]; then
+  ok "keep-alive: a missing or unparsable transcript defaults to re-arm"
+else
+  no "keep-alive: a missing or unparsable transcript defaults to re-arm" "$o1 | $OUT"
+fi
+
+# A worker completion is unchanged: its line only, no keep-alive line.
+notify aO toolu_O
+if has "worker opu ran claude-opus-5-5 as chosen (opus tier)." && ! has "keep-alive"; then
+  ok "keep-alive: a worker completion still gives only its worker line"
+else
+  no "keep-alive: a worker completion still gives only its worker line" "$OUT"
+fi
+fi
+
+run_hook startup "$REPO"
+o1="$OUT"
+FEATURE_CREW_KEEPALIVE=off run_hook resume "$LONG"
+if ! case "$o1" in *"Keep-alive is off"*) true ;; *) false ;; esac &&
+  has "[feature-crew] Keep-alive is off (FEATURE_CREW_KEEPALIVE=off)" && [ "$(bytes)" -lt 8000 ]; then
+  ok "session-start: FEATURE_CREW_KEEPALIVE=off prints the off line, still under 8,000 bytes ($(bytes))"
+else
+  no "session-start: FEATURE_CREW_KEEPALIVE=off prints the off line, still under 8,000 bytes" "bytes $(bytes)"
+fi
+
+for f in orchestrator.md orchestrator-core.md; do
+  P2="$PLUGIN/policy/$f"
+  if grep -q 'sleep 2700' "$P2" && has_phrase "$P2" "description exactly \`feature-crew keep-alive\`" &&
+    has_phrase "$P2" "not a worker event" && grep -q "1/40" "$P2" && grep -qi "exception" "$P2" &&
+    grep -q "keep-alive: re-arm\|\`re-arm\`" "$P2"; then
+    ok "$f: keep-alive arm, wake, never-sleep exception and reason"
+  else
+    no "$f: keep-alive arm, wake, never-sleep exception and reason"
+  fi
+done
 
 if has_phrase "$O" "A DONE whose checks pass is otherwise reported as normal" &&
   has_phrase "$O" "needs the user to set \`effort: max\` in \`<feature-crew root>/agents/feature-builder-deep.md\` first" &&

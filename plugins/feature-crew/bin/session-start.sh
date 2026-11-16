@@ -11,6 +11,7 @@
 # this script only prints text. What it prints depends on where and how the
 # session started:
 #   - FEATURE_CREW=off      nothing
+#   - FEATURE_CREW_KEEPALIVE=off  adds one "keep-alive is off" line
 #   - not a git work tree   one line saying the plugin is inactive (workers
 #                           need worktrees, so every dispatch would fail)
 #   - startup               the core policy + full policy path
@@ -60,6 +61,8 @@ done
 # Root line and session note go first, the core last (it ends with the full
 # policy's path), so a cut would drop the core's tail before the note.
 printf 'feature-crew root (for the model check CLI): %s\n' "$ROOT"
+[ "${FEATURE_CREW_KEEPALIVE:-on}" = off ] &&
+  printf '[feature-crew] Keep-alive is off (FEATURE_CREW_KEEPALIVE=off): never arm it.\n'
 
 # utf8_cut <text> <bytes>: the first <bytes> bytes of <text>, minus a UTF-8
 # character the cut would split. Runs in a subshell ($(...)) so LC_ALL=C
