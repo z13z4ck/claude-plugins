@@ -205,10 +205,16 @@ cache expires during long runs and the worker's completion pays a full cache
 rewrite (about $3.6-6 at 150-300k tokens of context). A keep-alive ping costs
 about $0.1, roughly 1/40 of that. So when the orchestrator dispatches or
 resumes a worker it starts a one-shot background `sleep 2700` (45 minutes)
-described `feature-crew keep-alive`. When it finishes, the session wakes,
-re-arms it in one line while a worker is still working (running, escalated
-or under review), and otherwise lets the chain end.
-The model-check hook adds `[feature-crew] keep-alive: re-arm` or
+described `feature-crew keep-alive`, and it arms one after a worker's DONE
+too if none is pending. When the sleep finishes, the session wakes and
+re-arms it in one line. The first two wakes after any other prompt (yours or
+a worker report) re-arm unconditionally, so the cache stays warm for about
+2.5 hours after the last activity while the orchestrator waits on you (wakes
+at 45 and 90 minutes, then the 60-minute TTL). Later wakes re-arm only while
+a worker is still working (running, escalated or under review), and
+otherwise let the chain end.
+The model-check hook adds `[feature-crew] keep-alive: re-arm` (wakes 1-2),
+`... re-arm only if a worker is still working` (wake 3 on) or
 `... stop (<reason>)` to each wake, and says stop when:
 
 - the session's last cache write was 5-minute only (every 45-minute ping
@@ -221,11 +227,21 @@ The model-check hook adds `[feature-crew] keep-alive: re-arm` or
   running: only that wake says `stop (duplicate chain)`, and the first chain
   goes on;
 - `FEATURE_CREW_KEEPALIVE=off` is set. The SessionStart hook then also says
-  keep-alive is off, so the orchestrator never arms it.
+  keep-alive is off, so the orchestrator never arms it;
+- the session is unattended (`CLAUDE_CODE_SESSION_ATTENDED=0`, as print
+  mode `claude -p` sets it): print mode stays open until a background sleep
+  exits, so each wake would hold a headless run open for 45 minutes. The
+  SessionStart hook says keep-alive is off there too. An unset or other
+  value counts as attended.
 
 If the hook cannot tell (no transcript, a parse error) it says re-arm. In
 auto mode the sleep needs no permission; other permission modes may prompt
 for it, so allowlist `Bash(sleep 2700)` to keep wakes silent.
+
+Leaving for longer: if you will be away more than about 2 hours, run
+`/compact` yourself while the cache is still warm (within an hour of your
+last message), so your next prompt rewrites a small summary instead of the
+whole cold context. The plugin cannot trigger compaction itself.
 
 ## Refresher
 
@@ -349,9 +365,13 @@ model check; the worker agents stay available for explicit use.
 - **0.7.0** — Keep the orchestrator's prompt cache warm while workers run
   past the 1-hour cache TTL: a background `sleep 2700` described
   `feature-crew keep-alive`, armed on dispatch or resume and re-armed on
-  each wake while a worker is still working. The model-check hook says re-arm or stop on each
-  wake (5-minute-only cache writes, 8 wakes in a row, or
-  `FEATURE_CREW_KEEPALIVE=off`). See "Keep the cache warm".
+  each wake while a worker is still working, and for the first two wakes
+  (about 2.5 hours of warm cache) after the last activity even with none
+  working; it also arms after a DONE. The model-check hook says re-arm,
+  re-arm only if a worker is still working, or stop on each wake
+  (5-minute-only cache writes, 8 wakes in a row, an unattended
+  `claude -p` session, or `FEATURE_CREW_KEEPALIVE=off`). See "Keep the
+  cache warm".
   Slower context growth: the core now asks for one full-policy Read per
   start, compaction, resume or clear plus the rare events only (no longer
   on revisions or review and merge requests), and the model-check hook adds
