@@ -115,6 +115,8 @@ deep and opus tiers both pass `opus` and differ only by the agent file's
   failed). Otherwise (no line, that line with no worker working, or a `stop`
   other than `duplicate chain`) start no sleep: the chain ends; mark the
   keep-alive item stopped (the only tool call) and reply in one line.
+  A wake batched with a worker report: handle the report as normal and
+  start one sleep only.
 - On `stop (<reason>)`, tell the user the reason in one line. `stop
   (unattended session)` means a print-mode (`claude -p`) run, which a sleep
   would hold open; the SessionStart hook says `Keep-alive is off` there too.
