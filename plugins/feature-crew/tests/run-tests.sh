@@ -1189,6 +1189,10 @@ for i in 1 2 3 4 5 6 7 8; do
   [ "$i" -gt 1 ] && ka_age ka-c 46
   kahook ka-c "$KA_1H" "$KA_WAKE"
   case "$(ka_line)" in *re-arm) got="${got}r" ;; *"stop (8 keep-alive wakes in a row"*) got="${got}s" ;; *) got="${got}?" ;; esac
+  if [ "$i" -eq 4 ]; then  # a duplicate mid-run must not count toward the 8
+    kahook ka-c "$KA_1H" "$KA_WAKE"
+    [ "$(ka_word)" = "stop (duplicate chain)" ] || got="${got}D"
+  fi
 done
 if [ "$got" = rrrrrrrs ]; then
   ok "keep-alive: the 8th wake in a row says stop"
@@ -1248,8 +1252,20 @@ else
   no "keep-alive: a wake within 40 minutes stops as a duplicate chain; the surviving chain keeps re-arming" "$got"
 fi
 
+# The threshold is 40 minutes: 39 stops, 41 re-arms (a duplicate leaves the time).
+kahook ka-l "$KA_1H" "$KA_WAKE"
+ka_age ka-l 39
+kahook ka-l "$KA_1H" "$KA_WAKE"; got="$(ka_word)|"
+ka_age ka-l 2
+kahook ka-l "$KA_1H" "$KA_WAKE"; got="$got$(ka_word)"
+if [ "$got" = "stop (duplicate chain)|re-arm" ]; then
+  ok "keep-alive: the duplicate-chain threshold is 40 minutes"
+else
+  no "keep-alive: the duplicate-chain threshold is 40 minutes" "$got"
+fi
+
 bad=""
-for st in 'garbage' '7' '{"wakes": 2, "last": "yesterday"}' '{"wakes": 2}'; do
+for st in 'garbage' '7' '{"wakes": 2, "last": "yesterday"}' '{"wakes": 2}' '{"wakes": 1, "last": 99999999999}'; do
   printf '%s' "$st" >"$CFG/feature-crew/ledger/ka-k.keepalive"
   kahook ka-k "$KA_1H" "$KA_WAKE"
   [ "$(ka_line)" = "[feature-crew] keep-alive: re-arm" ] || bad="$bad [$st -> $OUT]"
@@ -1321,7 +1337,7 @@ for f in orchestrator.md orchestrator-core.md; do
   P2="$PLUGIN/policy/$f"
   if grep -q 'sleep 2700' "$P2" && has_phrase "$P2" "description exactly \`feature-crew keep-alive\`" &&
     has_phrase "$P2" "not a worker event" && grep -q "1/40" "$P2" && grep -qi "exception" "$P2" &&
-    grep -q "keep-alive: re-arm\|\`re-arm\`" "$P2" && grep -q "resum" "$P2" && has_phrase "$P2" "still working" &&
+    grep -q "keep-alive: re-arm\|\`re-arm\`" "$P2" && grep -q "resum" "$P2" && grep -q "duplicate chain" "$P2" && has_phrase "$P2" "still working" &&
     { [ "$f" = orchestrator-core.md ] || has_phrase "$P2" "keep-alive off: 5-minute cache"; }; then
     ok "$f: keep-alive arm, wake, never-sleep exception and reason"
   else

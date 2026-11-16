@@ -108,7 +108,7 @@ deep and opus tiers both pass `opus` and differ only by the agent file's
   missing-model-check-line handling, and no roster edit but the final stop.
   On `re-arm` with any roster worker still working (running, escalated or
   under review; not waiting on you, done or failed), start the same sleep
-  again and reply in one line. Otherwise (no line, or `stop`) start no sleep: the
+  again and reply in one line. Otherwise (no line, or a `stop` other than `duplicate chain`) start no sleep: the
   chain ends; mark the keep-alive item stopped (the only tool call) and
   reply in one line.
 - On `stop (<reason>)`, tell the user the reason in one line. After a stop

@@ -368,7 +368,7 @@ def run(parent_transcript, session_id, refs, ledger=True):
 
 KEEPALIVE_WAKE = 'Background command "feature-crew keep-alive" completed'
 KEEPALIVE_MAX_WAKES = 8  # about 6 hours of 45-minute pings with nothing else happening
-KEEPALIVE_DUP_SECONDS = 40 * 60  # under the 45-minute sleep, with slack for slow turns
+KEEPALIVE_DUP_SECONDS = 40 * 60  # under the 45-minute sleep, with slack for clock steps (slow turns only lengthen the gap)
 TAIL_BYTES = 1 << 20
 
 
