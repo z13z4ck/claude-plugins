@@ -16,8 +16,8 @@ No commands to learn. Install, enable in a project, and talk normally.
 | `agents/feature-builder-sonnet.md` | The sonnet tier: the same prompt at `model: sonnet`, `effort: medium`, for well-scoped briefs (see [Model routing](#model-routing)). |
 | `agents/feature-builder-deep.md` | The deep tier: the same prompt at `model: opus`, `effort: xhigh`. Dispatched first for briefs with a deep trigger, and as the one climb when a sonnet- or opus-tier worker still fails its checks after one resume. Plugin agent files cannot share text, so the three are copies: keep them identical apart from `name`, `description`, `model` and `effort` — `tests/run-tests.sh` fails if they drift. |
 | `hooks/hooks.json` | A `SessionStart` hook, on every start source, that runs `bin/session-start.sh`, and a `UserPromptSubmit` hook that runs `bin/model-check.sh`. |
-| `bin/model-check.py` (+ `model-check.sh`) | The model check. On a worker's completion notice it reads the worker's transcript, compares the models it ran on with the tier it was dispatched as, adds one `[feature-crew]` line for the main session, and appends a ledger row with the worker's token use. Also a CLI (`--agent <id>`) the policy falls back to. Python 3, no dependencies, fail-open. |
-| `bin/session-start.sh` | Injects `policy/orchestrator-core.md` and the absolute path of `policy/orchestrator.md` so the main session delegates instead of implementing, keeps a roster, and resumes workers with your answers. Adds a session note after `compact` (re-read the roster), and after `resume`, `fork` or `clear` (earlier workers are gone or out of reach; here are the `crew/*` branches that exist, with their worktrees). Outside a git work tree it prints a one-line "inactive" note instead, since workers need worktrees. Bash and git only, no jq or Python. |
+| `bin/model-check.py` (+ `model-check.sh`) | The model check. On a worker's completion notice it reads the worker's transcript, compares the models it ran on with the tier it was dispatched as, adds one `[feature-crew]` line for the main session, and appends a ledger row with the worker's token use. On a keep-alive wake it adds the re-arm or stop line (see [Keep the cache warm](#keep-the-cache-warm)), and on every 10th user prompt the [Refresher](#refresher) block. Also a CLI (`--agent <id>`) the policy falls back to. Python 3, no dependencies, fail-open. |
+| `bin/session-start.sh` | Injects `policy/orchestrator-core.md` and the absolute path of `policy/orchestrator.md` so the main session delegates instead of implementing, keeps a roster, and resumes workers with your answers. Adds a session note after `compact` (re-read the roster), and after `resume`, `fork` or `clear` (earlier workers are gone or out of reach; here are the `crew/*` branches that exist, with their worktrees). Outside a git work tree it prints a one-line "inactive" note instead, since workers need worktrees. With `FEATURE_CREW_KEEPALIVE=off` or in an unattended session (`CLAUDE_CODE_SESSION_ATTENDED=0`) it adds a line saying keep-alive is off. Bash and git only, no jq or Python. |
 | `policy/orchestrator.md` | The full orchestrator rules. Edit this file to change how the main session behaves. |
 | `policy/orchestrator-core.md` | The compact core the hook injects on every start. Keep it in step with `orchestrator.md` (the tests compare their tier tables). |
 | `tests/run-tests.sh` | `bash tests/run-tests.sh` — exercises the hook against throwaway repos and checks the plugin files agree. |
@@ -198,6 +198,67 @@ for the advisor alone.
   1.10.3, which stops nudging workers mid-build and accepts a fix-diff
   review in its worker hold.
 
+## Keep the cache warm
+
+While workers run, the main session sends no requests, so its 1-hour prompt
+cache expires during long runs and the worker's completion pays a full cache
+rewrite (about $3.6-6 at 150-300k tokens of context). A keep-alive ping costs
+about $0.1, roughly 1/40 of that. So when the orchestrator dispatches or
+resumes a worker it starts a one-shot background `sleep 2700` (45 minutes)
+described `feature-crew keep-alive`, and it arms one after a worker's DONE
+too if none is pending. When the sleep finishes, the session wakes and
+re-arms it in one line. The first wake after any other prompt (yours or a
+worker report) re-arms unconditionally, so the cache stays warm for about
+1.75 to 2.5 hours after the last activity while the orchestrator waits on you
+(the second wake, about 90 minutes after the arm, ends the chain, then the
+60-minute TTL runs out). Later wakes re-arm only while
+a worker is still working (running, escalated or under review), and
+otherwise let the chain end.
+The model-check hook adds `[feature-crew] keep-alive: re-arm` (wake 1),
+`... re-arm only if a worker is still working` (wake 2 on) or
+`... stop (<reason>)` to each wake, and says stop when:
+
+- the session's last cache write was 5-minute only (every 45-minute ping
+  would then be a full miss; the orchestrator tells you once and marks the
+  roster item off for the rest of the session);
+- 8 keep-alive wakes came in a row (about 6 hours) with no other prompt
+  (any other prompt resets the count, kept in
+  `<config dir>/feature-crew/ledger/<session_id>.keepalive`);
+- a wake comes under 40 minutes after the last one, so a second chain is
+  running: only that wake says `stop (duplicate chain)`, and the first chain
+  goes on;
+- `FEATURE_CREW_KEEPALIVE=off` is set. The SessionStart hook then also says
+  keep-alive is off, so the orchestrator never arms it;
+- the session is unattended (`CLAUDE_CODE_SESSION_ATTENDED=0`, as print
+  mode `claude -p` sets it): print mode stays open until a background sleep
+  exits, so each wake would hold a headless run open for 45 minutes. The
+  SessionStart hook says keep-alive is off there too. An unset or other
+  value counts as attended.
+
+If the hook cannot tell (no transcript, a parse error) it says re-arm. In
+auto mode the sleep needs no permission; other permission modes may prompt
+for it, so allowlist `Bash(sleep 2700)` to keep wakes silent.
+
+Leaving for longer: if you will be away more than about 2 hours, run
+`/compact` yourself while the cache is still warm (within an hour of your
+last message), so your next prompt rewrites a small summary instead of the
+whole cold context. The plugin cannot trigger compaction itself.
+
+## Refresher
+
+Each Read of the full policy adds about 4.7k tokens, which brings the next
+compaction (and a full cache rebuild) closer. So the orchestrator Reads it
+once per start, compaction, resume or clear and again only for the rare
+events, and the model-check hook adds a short fixed refresher of the
+most-forgotten core rules (delegate, never merge or push unasked, what a
+DONE needs, relay NEEDS-ANSWER verbatim, when to Read the full policy) to
+every 10th user prompt. Keep-alive wakes, task notifications and worker
+reports neither count nor get it. The block is byte-identical every time
+and appended to the conversation, so the cached prompt prefix is untouched.
+The count is kept in the same `.keepalive` state file, so every session
+with the plugin on now writes one (a few bytes; nothing prunes the ledger
+folder); outside a git work tree no block is added. `FEATURE_CREW_REFRESH=off` turns it off.
+
 ## Limits (from the Claude Code docs)
 
 - Hook output added to context is capped at 10,000 characters; longer stdout
@@ -207,9 +268,10 @@ for the advisor alone.
   rules, roster, one line per worker event, triggers for the rare events,
   the merge rule and the advisor check on DONE) and the absolute path of
   `policy/orchestrator.md`, which the core tells the orchestrator to Read
-  before the first dispatch or worker event after every start, compaction,
-  resume or clear, and on failures, escalations, fallbacks, stopped workers,
-  revisions, review or merge requests and fallback reviews. The root line
+  once before the first dispatch, worker event, revision, review or merge
+  request after every start, compaction, resume or clear, and again only on failures, escalations,
+  fallbacks, missing model-check lines, stopped workers and fallback
+  reviews. The root line
   and any session note come before the core, so a cut would drop the core's
   tail before the note. Every start source stays under 8,000 bytes: the branch list
   after a resume is capped at 25 lines and 1,500 bytes, with subjects cut
@@ -296,8 +358,26 @@ earlier leave it behind.
 
 `FEATURE_CREW=off` in the environment silences the policy hook and the
 model check; the worker agents stay available for explicit use.
+`FEATURE_CREW_KEEPALIVE=off` turns off only the keep-alive sleep, and
+`FEATURE_CREW_REFRESH=off` only the refresher.
 
 ## Changelog
+
+- **0.7.0** — Keep the orchestrator's prompt cache warm while workers run
+  past the 1-hour cache TTL: a background `sleep 2700` described
+  `feature-crew keep-alive`, armed on dispatch or resume and re-armed on
+  each wake while a worker is still working, and for the first wake
+  (about 1.75 to 2.5 hours of warm cache) after the last activity even with none
+  working; it also arms after a DONE. The model-check hook says re-arm,
+  re-arm only if a worker is still working, or stop on each wake
+  (5-minute-only cache writes, 8 wakes in a row, an unattended
+  `claude -p` session, or `FEATURE_CREW_KEEPALIVE=off`). See "Keep the
+  cache warm".
+  Slower context growth: the core now asks for one full-policy Read per
+  start, compaction, resume or clear plus the rare events only (no longer
+  on revisions or review and merge requests), and the model-check hook adds
+  a fixed refresher of core rules to every 10th user prompt
+  (`FEATURE_CREW_REFRESH=off` to disable). See "Refresher".
 
 - **0.6.2** — Workers wrote `crew-review.diff`, `crew-fix.diff` and
   `crew-verify.log` into the worktree's git dir, and Claude Code's worktree

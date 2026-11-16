@@ -7,6 +7,8 @@
 set -u
 
 PLUGIN="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# The hooks read it; print mode (claude -p) sets 0. Tests set it per case.
+unset CLAUDE_CODE_SESSION_ATTENDED
 HOOK="$PLUGIN/bin/session-start.sh"
 PASS=0
 FAIL=0
@@ -298,8 +300,9 @@ if [ "$RC" -eq 0 ] && has "Policy file missing" && [ "$(bytes)" -lt 8000 ]; then
 run_hook startup "$REPO"
 if has "orchestrator mode (core rules)" && ! has "## Handle worker events" &&
   printf '%s\n' "$OUT" | grep -qxF "$PLUGIN/policy/orchestrator.md" &&
-  hasf "Before the first dispatch or worker event after every session start, compaction, resume or clear" &&
-  hasf "a model-check FELL BACK line or a missing one, a stopped worker, a revision, a review or merge request, or a fallback review, use the Read tool on the full policy at this path (if the Read fails, tell the user):"; then
+  hasf "Before the first dispatch, worker event, or revision, review or merge request after every session start, compaction, resume or clear, Read the full policy once;" &&
+  hasf "Read it again only before acting on a worker failure or escalation, a FELL BACK or missing model-check line, a stopped worker, or a fallback review. Use the Read tool on this path (if the Read fails, tell the user):" &&
+  ! hasf "a stopped worker, a revision"; then
   ok "startup prints the core and the absolute full-policy path with when to Read it"
 else
   no "startup prints the core and the absolute full-policy path with when to Read it"
@@ -344,12 +347,12 @@ else
   no "hooks.json registers the UserPromptSubmit model check through bash, no SubagentStop"
 fi
 
-if grep -q '"version": "0.6.2"' "$PLUGIN/.claude-plugin/plugin.json" &&
+if grep -q '"version": "0.7.0"' "$PLUGIN/.claude-plugin/plugin.json" &&
   ! grep -qi 'on Fable' "$PLUGIN/.claude-plugin/plugin.json" &&
   ! grep -qi 'Fable worker' "$PLUGIN/.claude-plugin/plugin.json"; then
-  ok "plugin.json is 0.6.2 and no longer says workers run on Fable"
+  ok "plugin.json is 0.7.0 and no longer says workers run on Fable"
 else
-  no "plugin.json is 0.6.2 and no longer says workers run on Fable"
+  no "plugin.json is 0.7.0 and no longer says workers run on Fable"
 fi
 
 # 0.6.0: Fable is the advisor only. No worker agent pins it, no dispatch
@@ -1130,7 +1133,410 @@ if [ "$(ledger_rows)" = $((n + 1)) ] && [ "$(lj 'r["ended_at"]')" = 2026-11-10T1
 else
   no "a resumed worker's next completion adds a row with cumulative usage" "$(ledger_last)"
 fi
+
+# 0.7.0: keep-alive. The orchestrator's background `sleep 2700` described
+# "feature-crew keep-alive" wakes it; the hook says re-arm or stop (<reason>).
+# kat <file> <5m tokens> <1h tokens>...: a main transcript whose assistant rows
+# wrote those cache tokens (pairs, in order).
+kat() {
+  python3 - "$@" <<'PY'
+import json, sys
+path, nums = sys.argv[1], [int(x) for x in sys.argv[2:]]
+with open(path, "w") as f:
+    for i in range(0, len(nums), 2):
+        f.write(json.dumps({"type": "assistant", "message": {"id": "m%d" % i, "model": "claude-fable-5-2",
+            "usage": {"cache_read_input_tokens": 9, "cache_creation_input_tokens": nums[i] + nums[i + 1],
+                      "cache_creation": {"ephemeral_5m_input_tokens": nums[i],
+                                         "ephemeral_1h_input_tokens": nums[i + 1]}}}}) + "\n")
+PY
+}
+KA_1H="$TMP/ka-1h.jsonl"
+KA_5M="$TMP/ka-5m.jsonl"
+kat "$KA_1H" 0 4000 0 0          # a 1h write, then a read-only turn
+kat "$KA_5M" 0 4000 3000 0 0 0   # a 1h write, then 5m-only, then read-only
+KA_WAKE='<task-notification>
+<task-id>bka1</task-id>
+<tool-use-id>toolu_bash_ka</tool-use-id>
+<status>completed</status>
+<summary>Background command "feature-crew keep-alive" completed (exit code 0)</summary>
+</task-notification>'
+# kahook <session id> <transcript> <prompt>: run the hook; sets OUT.
+kahook() {
+  OUT="$(python3 -c 'import json,sys; print(json.dumps({"session_id": sys.argv[1], "transcript_path": sys.argv[2], "hook_event_name": "UserPromptSubmit", "prompt": sys.argv[3]}))' "$1" "$2" "$3" |
+    CLAUDE_CONFIG_DIR="$CFG" bash "$MC" 2>&1)"
+}
+ka_line() { printf '%s' "$OUT" | grep -o '\[feature-crew\] keep-alive: [^"\]*' | head -1; }
+# ka_age <session id> <minutes>: move the session's last recorded wake that far
+# into the past, as if that much time had passed.
+ka_age() {
+  python3 -c 'import json,sys; p=sys.argv[1]; st=json.load(open(p)); st["last"] -= float(sys.argv[2]) * 60; json.dump(st, open(p, "w"))' \
+    "$CFG/feature-crew/ledger/$1.keepalive" "$2"
+}
+ka_word() { ka_line | sed 's/.*keep-alive: //'; }
+
+kahook ka-a "$KA_1H" "$KA_WAKE"
+if [ "$(ka_line)" = "[feature-crew] keep-alive: re-arm" ] && ! has "worker"; then
+  ok "keep-alive: a wake on a 1-hour-cache transcript says re-arm, and the Bash task gives no worker line"
+else
+  no "keep-alive: a wake on a 1-hour-cache transcript says re-arm, and the Bash task gives no worker line" "$OUT"
 fi
+
+kahook ka-b "$KA_5M" "$KA_WAKE"
+case "$(ka_line)" in
+  "[feature-crew] keep-alive: stop ("*"5-minute only"*) ok "keep-alive: 5-minute-only cache writes say stop" ;;
+  *) no "keep-alive: 5-minute-only cache writes say stop" "$OUT" ;;
+esac
+
+got=""
+for i in 1 2 3 4 5 6 7 8; do
+  [ "$i" -gt 1 ] && ka_age ka-c 46
+  kahook ka-c "$KA_1H" "$KA_WAKE"
+  case "$(ka_line)" in
+    *": re-arm") got="${got}r" ;;
+    *": re-arm only if a worker is still working") got="${got}c" ;;
+    *"stop (8 keep-alive wakes in a row"*) got="${got}s" ;;
+    *) got="${got}?" ;;
+  esac
+  if [ "$i" -eq 4 ]; then  # a duplicate mid-run must not count toward the 8
+    kahook ka-c "$KA_1H" "$KA_WAKE"
+    [ "$(ka_word)" = "stop (duplicate chain)" ] || got="${got}D"
+  fi
+done
+if [ "$got" = rccccccs ]; then
+  ok "keep-alive: wake 1 re-arms, wakes 2-7 re-arm only with a worker working, the 8th says stop"
+else
+  no "keep-alive: wake 1 re-arms, wakes 2-7 re-arm only with a worker working, the 8th says stop" "got $got"
+fi
+
+for i in 1 2 3 4 5 6 7; do
+  [ "$i" -gt 1 ] && ka_age ka-d 46
+  kahook ka-d "$KA_1H" "$KA_WAKE"
+done
+kahook ka-d "$KA_1H" "how are the workers doing?"
+o1="$OUT"
+ka_age ka-d 46
+kahook ka-d "$KA_1H" "$KA_WAKE"
+if [ -z "$o1" ] && [ "$(ka_line)" = "[feature-crew] keep-alive: re-arm" ]; then
+  ok "keep-alive: an ordinary prompt prints nothing and resets the wake counter"
+else
+  no "keep-alive: an ordinary prompt prints nothing and resets the wake counter" "$o1 | $OUT"
+fi
+
+OUT="$(python3 -c 'import json,sys; print(json.dumps({"session_id": "ka-e", "transcript_path": sys.argv[1], "prompt": sys.argv[2]}))' "$KA_1H" "$KA_WAKE" |
+  FEATURE_CREW_KEEPALIVE=off CLAUDE_CONFIG_DIR="$CFG" bash "$MC" 2>&1)"
+if [ "$(ka_line)" = "[feature-crew] keep-alive: stop (FEATURE_CREW_KEEPALIVE=off)" ]; then
+  ok "keep-alive: FEATURE_CREW_KEEPALIVE=off makes the hook say stop"
+else
+  no "keep-alive: FEATURE_CREW_KEEPALIVE=off makes the hook say stop" "$OUT"
+fi
+
+kahook ka-f "$TMP/no-such-transcript.jsonl" "$KA_WAKE"
+o1="$OUT"
+printf 'not json\n{"type":"assistant","message":"x"}\n' >"$TMP/ka-bad.jsonl"
+kahook ka-f2 "$TMP/ka-bad.jsonl" "$KA_WAKE"
+if case "$o1" in *"keep-alive: re-arm"*) true ;; *) false ;; esac && [ "$(ka_line)" = "[feature-crew] keep-alive: re-arm" ]; then
+  ok "keep-alive: a missing or unparsable transcript defaults to re-arm"
+else
+  no "keep-alive: a missing or unparsable transcript defaults to re-arm" "$o1 | $OUT"
+fi
+
+# Duplicate chains: a wake under 40 minutes after the last recorded one stops
+# that wake only and does not move the time, so the surviving chain re-arms
+# 45 minutes after its own last wake. An ordinary prompt keeps the time.
+got=""
+kahook ka-j "$KA_1H" "$KA_WAKE"; got="$got$(ka_word)|"   # chain A at T
+ka_age ka-j 5
+kahook ka-j "$KA_1H" "status?"                          # an ordinary prompt
+kahook ka-j "$KA_1H" "$KA_WAKE"; got="$got$(ka_word)|"   # chain B at T+5
+ka_age ka-j 40
+kahook ka-j "$KA_1H" "$KA_WAKE"; got="$got$(ka_word)|"   # chain A at T+45
+ka_age ka-j 10
+kahook ka-j "$KA_1H" "$KA_WAKE"; got="$got$(ka_word)|"   # a stray wake at T+55
+ka_age ka-j 35
+kahook ka-j "$KA_1H" "$KA_WAKE"; got="$got$(ka_word)"    # chain A at T+90
+if [ "$got" = "re-arm|stop (duplicate chain)|re-arm|stop (duplicate chain)|re-arm only if a worker is still working" ]; then
+  ok "keep-alive: a wake within 40 minutes stops as a duplicate chain; the surviving chain keeps re-arming"
+else
+  no "keep-alive: a wake within 40 minutes stops as a duplicate chain; the surviving chain keeps re-arming" "$got"
+fi
+
+# The threshold is 40 minutes: 39 stops, 41 re-arms (a duplicate leaves the time).
+kahook ka-l "$KA_1H" "$KA_WAKE"
+ka_age ka-l 39
+kahook ka-l "$KA_1H" "$KA_WAKE"; got="$(ka_word)|"
+ka_age ka-l 2
+kahook ka-l "$KA_1H" "$KA_WAKE"; got="$got$(ka_word)"
+if [ "$got" = "stop (duplicate chain)|re-arm only if a worker is still working" ]; then
+  ok "keep-alive: the duplicate-chain threshold is 40 minutes"
+else
+  no "keep-alive: the duplicate-chain threshold is 40 minutes" "$got"
+fi
+
+bad=""
+for st in 'garbage' '7' '{"wakes": 0, "last": "yesterday"}' '{"wakes": 0}' '{"wakes": 0, "last": 99999999999}'; do
+  printf '%s' "$st" >"$CFG/feature-crew/ledger/ka-k.keepalive"
+  kahook ka-k "$KA_1H" "$KA_WAKE"
+  [ "$(ka_line)" = "[feature-crew] keep-alive: re-arm" ] || bad="$bad [$st -> $OUT]"
+done
+if [ -z "$bad" ]; then
+  ok "keep-alive: a missing or unparsable last-wake time re-arms"
+else
+  no "keep-alive: a missing or unparsable last-wake time re-arms" "$bad"
+fi
+
+# Only a completed sleep inside a task notification is a wake: a quoted
+# string or a killed sleep gets no line.
+kahook ka-g "$KA_1H" 'the hook matches Background command "feature-crew keep-alive" completed'
+o1="$OUT"
+kahook ka-g "$KA_1H" "$(printf '%s' "$KA_WAKE" | sed 's/completed (exit code 0)/was killed/')"
+if [ -z "$o1" ] && [ -z "$OUT" ]; then
+  ok "keep-alive: a quoted wake string or a killed sleep gives no line"
+else
+  no "keep-alive: a quoted wake string or a killed sleep gives no line" "$o1 | $OUT"
+fi
+
+# A wake batched with a worker completion gives both lines; a sidechain row's
+# 5-minute write does not count for the main session.
+cat "$PARENT" "$KA_1H" >"$TMP/ka-both.jsonl"
+python3 -c 'import json,sys; open(sys.argv[1], "a").write(json.dumps({"type": "assistant", "isSidechain": True, "message": {"usage": {"cache_creation": {"ephemeral_5m_input_tokens": 50, "ephemeral_1h_input_tokens": 0}}}}) + "\n")' "$TMP/ka-both.jsonl"
+mkdir -p "$TMP/ka-both"
+cp -R "$SUB" "$TMP/ka-both/"
+# Seeded at 2 wakes: the batched worker completion resets the count, so plain re-arm.
+mkdir -p "$CFG/feature-crew/ledger"
+printf '{"wakes": 2}' >"$CFG/feature-crew/ledger/ka-h.keepalive"
+kahook ka-h "$TMP/ka-both.jsonl" "$KA_WAKE
+<task-notification><task-id>aO</task-id><tool-use-id>toolu_O</tool-use-id></task-notification>"
+if [ "$(ka_line)" = "[feature-crew] keep-alive: re-arm" ] && has "worker opu ran claude-opus-5-5 as chosen"; then
+  ok "keep-alive: a wake batched with a worker completion gives both lines; sidechain writes are ignored"
+else
+  no "keep-alive: a wake batched with a worker completion gives both lines; sidechain writes are ignored" "$OUT"
+fi
+
+# A worker report that quotes the wake string in its <result> is not a wake.
+kahook ka-i "$PARENT" "<task-notification>
+<task-id>aO</task-id>
+<tool-use-id>toolu_O</tool-use-id>
+<status>completed</status>
+<result>DONE: matches Background command \"feature-crew keep-alive\" completed</result>
+</task-notification>"
+if has "worker opu ran claude-opus-5-5 as chosen" && ! has "keep-alive:"; then
+  ok "keep-alive: a worker report quoting the wake string is not a wake"
+else
+  no "keep-alive: a worker report quoting the wake string is not a wake" "$OUT"
+fi
+
+# A worker completion resets the wake count like a user prompt: the idle
+# window starts again from the last worker report.
+got=""
+for i in 1 2 3; do
+  [ "$i" -gt 1 ] && ka_age ka-r 46
+  kahook ka-r "$PARENT" "$KA_WAKE"; got="$got$(ka_word)|"
+done
+kahook ka-r "$PARENT" "<task-notification><task-id>aO</task-id><tool-use-id>toolu_O</tool-use-id></task-notification>"
+has "worker opu ran" || got="${got}NOWORKER|"
+ka_age ka-r 46
+kahook ka-r "$PARENT" "$KA_WAKE"; got="$got$(ka_word)"
+if [ "$got" = "re-arm|re-arm only if a worker is still working|re-arm only if a worker is still working|re-arm" ]; then
+  ok "keep-alive: a worker completion resets the wake count, so the next wake re-arms unconditionally"
+else
+  no "keep-alive: a worker completion resets the wake count, so the next wake re-arms unconditionally" "$got"
+fi
+
+# A duplicate wake batched with a worker completion still resets the count,
+# and leaves the last-wake time: 36 minutes later (46 after the first) the
+# surviving chain's wake counts from zero.
+got=""
+kahook ka-m "$TMP/ka-both.jsonl" "$KA_WAKE"; got="$(ka_word)|"
+ka_age ka-m 10
+kahook ka-m "$TMP/ka-both.jsonl" "$KA_WAKE
+<task-notification><task-id>aO</task-id><tool-use-id>toolu_O</tool-use-id></task-notification>"
+got="$got$(ka_word)|"
+has "worker opu ran claude-opus-5-5 as chosen" || got="${got}NOWORKER|"
+ka_age ka-m 36
+kahook ka-m "$TMP/ka-both.jsonl" "$KA_WAKE"; got="$got$(ka_word)"
+if [ "$got" = "re-arm|stop (duplicate chain)|re-arm" ]; then
+  ok "keep-alive: a duplicate wake batched with a worker completion resets the count and keeps the last-wake time"
+else
+  no "keep-alive: a duplicate wake batched with a worker completion resets the count and keeps the last-wake time" "$got"
+fi
+
+# A wake batched with a non-worker notification resets too; two wake blocks
+# in one prompt do not, and give one keep-alive line.
+mkdir -p "$CFG/feature-crew/ledger"
+printf '{"wakes": 1}' >"$CFG/feature-crew/ledger/ka-n.keepalive"
+kahook ka-n "$KA_1H" "$KA_WAKE
+<task-notification><task-id>b77</task-id><status>completed</status><summary>Background command \"npm test\" completed</summary></task-notification>"
+o1="$(ka_word)"
+printf '{"wakes": 1}' >"$CFG/feature-crew/ledger/ka-o.keepalive"
+kahook ka-o "$KA_1H" "$KA_WAKE
+$KA_WAKE"
+n="$(printf '%s' "$OUT" | grep -o 'keep-alive: ' | wc -l | tr -d ' ')"
+if [ "$o1" = "re-arm" ] && [ "$(ka_word)" = "re-arm only if a worker is still working" ] && [ "$n" = 1 ]; then
+  ok "keep-alive: a non-worker notification beside a wake resets the count; two wake blocks do not"
+else
+  no "keep-alive: a non-worker notification beside a wake resets the count; two wake blocks do not" "$o1 | $OUT"
+fi
+
+# Unattended (print mode sets CLAUDE_CODE_SESSION_ATTENDED=0): stop. 1 or
+# empty (and unset, every other case here) is attended.
+kawake_att() {
+  OUT="$(python3 -c 'import json,sys; print(json.dumps({"session_id": sys.argv[1], "transcript_path": sys.argv[2], "prompt": sys.argv[3]}))' "$1" "$KA_1H" "$KA_WAKE" |
+    CLAUDE_CODE_SESSION_ATTENDED="$2" CLAUDE_CONFIG_DIR="$CFG" bash "$MC" 2>&1)"
+}
+kawake_att ka-u0 0; o1="$(ka_line)"
+kawake_att ka-u1 1; o2="$(ka_line)"
+kawake_att ka-u2 ""; o3="$(ka_line)"
+if [ "$o1" = "[feature-crew] keep-alive: stop (unattended session)" ] &&
+  [ "$o2" = "[feature-crew] keep-alive: re-arm" ] && [ "$o3" = "[feature-crew] keep-alive: re-arm" ]; then
+  ok "keep-alive: CLAUDE_CODE_SESSION_ATTENDED=0 says stop (unattended session); 1 or empty re-arms"
+else
+  no "keep-alive: CLAUDE_CODE_SESSION_ATTENDED=0 says stop (unattended session); 1 or empty re-arms" "$o1 | $o2 | $o3"
+fi
+
+# A worker completion is unchanged: its line only, no keep-alive line.
+notify aO toolu_O
+if has "worker opu ran claude-opus-5-5 as chosen (opus tier)." && ! has "keep-alive"; then
+  ok "keep-alive: a worker completion still gives only its worker line"
+else
+  no "keep-alive: a worker completion still gives only its worker line" "$OUT"
+fi
+
+# 0.7.0: refresher. Every 10th genuine user prompt gets one fixed block of
+# core rules; wakes, task notifications and worker reports neither count nor
+# get it. rfhook <session id> <cwd> <prompt> [transcript]: sets OUT.
+rfhook() {
+  OUT="$(python3 -c 'import json,sys; print(json.dumps({"session_id": sys.argv[1], "cwd": sys.argv[2], "transcript_path": sys.argv[4], "hook_event_name": "UserPromptSubmit", "prompt": sys.argv[3]}))' "$1" "$2" "$3" "${4:-$KA_1H}" |
+    CLAUDE_CONFIG_DIR="$CFG" CLAUDE_PLUGIN_ROOT="$PLUGIN" bash "$MC" 2>&1)"
+}
+# Note: kahook and hook_in send no cwd, so a 10th ordinary prompt on one of
+# their session ids would get a refresher (the runner's folder is a repo).
+# The refresher block from OUT, or nothing.
+rf_block() {
+  printf '%s' "$OUT" | python3 -c 'import json,sys
+t = sys.stdin.read().strip()
+c = json.loads(t)["hookSpecificOutput"]["additionalContext"] if t else ""
+i = c.find("[feature-crew] refresher")
+sys.stdout.write(c[i:] if i >= 0 else "")'
+}
+got="" first="" same=1
+i=1
+while [ "$i" -le 25 ]; do
+  rfhook rf-a "$REPO" "please build thing $i"
+  b="$(rf_block)"
+  if [ -n "$b" ]; then
+    got="$got $i"
+    if [ -z "$first" ]; then first="$b"; elif [ "$b" != "$first" ]; then same=0; fi
+  fi
+  i=$((i + 1))
+done
+fixed="${first%"$PLUGIN/policy/orchestrator.md"}"
+if [ "$got" = " 10 20" ] && [ "$same" -eq 1 ] && [ "$fixed" != "$first" ] &&
+  [ "$(printf '%s' "$fixed" | wc -c)" -lt 520 ] &&
+  case "$first" in *"Never merge, push or delete branches unless the user asks"*"Relay NEEDS-ANSWER question and options verbatim"*) true ;; *) false ;; esac; then
+  ok "refresher: only on the 10th and 20th genuine prompt, byte-identical, ending with the full-policy path"
+else
+  no "refresher: only on the 10th and 20th genuine prompt, byte-identical, ending with the full-policy path" "at:$got same=$same [$first]"
+fi
+
+# Wakes, task notifications and worker reports in between: no count, no
+# block, and their own lines are unchanged.
+i=1
+while [ "$i" -le 9 ]; do rfhook rf-b "$REPO" "prompt $i"; i=$((i + 1)); done
+bad=""
+rfhook rf-b "$REPO" "$KA_WAKE"
+{ [ -z "$(rf_block)" ] && [ "$(ka_line)" = "[feature-crew] keep-alive: re-arm" ]; } || bad="$bad [wake: $OUT]"
+rfhook rf-b "$REPO" "<task-notification><task-id>aO</task-id><tool-use-id>toolu_O</tool-use-id></task-notification>" "$PARENT"
+{ [ -z "$(rf_block)" ] && has "worker opu ran claude-opus-5-5 as chosen (opus tier)."; } || bad="$bad [worker: $OUT]"
+rfhook rf-b "$REPO" '<task-notification><task-id>b77</task-id><status>completed</status><summary>Background command "npm test" completed</summary></task-notification>'
+[ -z "$OUT" ] || bad="$bad [bash task: $OUT]"
+rfhook rf-b "$REPO" '<agent-message from="opu">
+DONE
+branch: crew/x
+</agent-message>' "$PARENT"
+[ -z "$(rf_block)" ] || bad="$bad [hand-back: $OUT]"
+rfhook rf-b "$REPO" "user text batched with <task-notification><task-id>b78</task-id></task-notification>"
+[ -z "$OUT" ] || bad="$bad [batched prompt: $OUT]"
+rfhook rf-b "$REPO" "prompt 10"
+[ -n "$(rf_block)" ] || bad="$bad [10th genuine prompt got no block: $OUT]"
+if [ -z "$bad" ]; then
+  ok "refresher: wakes, task notifications and worker reports neither count nor get it; their lines are unchanged"
+else
+  no "refresher: wakes, task notifications and worker reports neither count nor get it; their lines are unchanged" "$bad"
+fi
+
+got=""
+mkdir -p "$TMP/nogit"
+i=1
+while [ "$i" -le 10 ]; do
+  FEATURE_CREW_REFRESH=off rfhook rf-c "$REPO" "prompt $i"; got="$got$OUT"
+  rfhook rf-d "$TMP/nogit" "prompt $i"; got="$got$OUT"
+  i=$((i + 1))
+done
+if [ -z "$got" ]; then
+  ok "refresher: FEATURE_CREW_REFRESH=off disables it, and it stays silent outside a git work tree"
+else
+  no "refresher: FEATURE_CREW_REFRESH=off disables it, and it stays silent outside a git work tree" "$got"
+fi
+
+# An older state file (no prompts key) counts from zero, and a counted
+# prompt keeps the last-wake time (so a wake 1 minute later is a duplicate).
+python3 -c 'import json,sys,time; json.dump({"wakes": 0, "last": time.time() - 60}, open(sys.argv[1], "w"))' \
+  "$CFG/feature-crew/ledger/rf-e.keepalive"
+rfhook rf-e "$REPO" "hello"
+o1="$OUT"
+rfhook rf-e "$REPO" "$KA_WAKE"
+st="$(cat "$CFG/feature-crew/ledger/rf-e.keepalive")"
+if [ -z "$o1" ] && [ "$(ka_line)" = "[feature-crew] keep-alive: stop (duplicate chain)" ] &&
+  case "$st" in *'"prompts": 1'*) true ;; *) false ;; esac; then
+  ok "refresher: an older state file counts from zero and the counter keeps the keep-alive state"
+else
+  no "refresher: an older state file counts from zero and the counter keeps the keep-alive state" "$o1 | $OUT | $st"
+fi
+fi
+
+run_hook startup "$REPO"
+o1="$OUT"
+FEATURE_CREW_KEEPALIVE=off run_hook resume "$LONG"
+if ! case "$o1" in *"Keep-alive is off"*) true ;; *) false ;; esac &&
+  has "[feature-crew] Keep-alive is off (FEATURE_CREW_KEEPALIVE=off)" && [ "$(bytes)" -lt 8000 ]; then
+  ok "session-start: FEATURE_CREW_KEEPALIVE=off prints the off line, still under 8,000 bytes ($(bytes))"
+else
+  no "session-start: FEATURE_CREW_KEEPALIVE=off prints the off line, still under 8,000 bytes" "bytes $(bytes)"
+fi
+
+CLAUDE_CODE_SESSION_ATTENDED=0 run_hook resume "$LONG"
+o2="$OUT"; b2="$(bytes)"
+CLAUDE_CODE_SESSION_ATTENDED=1 run_hook startup "$REPO"
+if case "$o2" in *"[feature-crew] Keep-alive is off (unattended session): never arm it."*) true ;; *) false ;; esac &&
+  [ "$b2" -lt 8000 ] && ! has "Keep-alive is off"; then
+  ok "session-start: CLAUDE_CODE_SESSION_ATTENDED=0 prints the off line, under 8,000 bytes ($b2); 1 does not"
+else
+  no "session-start: CLAUDE_CODE_SESSION_ATTENDED=0 prints the off line, under 8,000 bytes; 1 does not" "bytes $b2"
+fi
+
+for f in orchestrator.md orchestrator-core.md; do
+  P2="$PLUGIN/policy/$f"
+  if has_phrase "$P2" "re-arm only if a worker is still working" &&
+    { [ "$f" = orchestrator.md ] || { has_phrase "$P2" "resume or DONE with no keep-alive pending" && has_phrase "$P2" "on plain \`re-arm\` always re-arm"; }; } &&
+    { [ "$f" = orchestrator-core.md ] || { has_phrase "$P2" "take a worker's DONE" && has_phrase "$P2" "unattended session" &&
+      has_phrase "$P2" "always start the same sleep again" && has_phrase "$P2" "latest session start printed"; }; }; then
+    ok "$f: plain re-arm is unconditional, the conditional line, arming after a DONE, unattended stop"
+  else
+    no "$f: plain re-arm is unconditional, the conditional line, arming after a DONE, unattended stop"
+  fi
+done
+
+for f in orchestrator.md orchestrator-core.md; do
+  P2="$PLUGIN/policy/$f"
+  if grep -q 'sleep 2700' "$P2" && has_phrase "$P2" "description exactly \`feature-crew keep-alive\`" &&
+    has_phrase "$P2" "not a worker event" && grep -q "1/40" "$P2" && grep -qi "exception" "$P2" &&
+    grep -q "keep-alive: re-arm\|\`re-arm\`" "$P2" && grep -q "resum" "$P2" && grep -q "duplicate chain" "$P2" && has_phrase "$P2" "still working" &&
+    { [ "$f" = orchestrator-core.md ] || has_phrase "$P2" "keep-alive off: 5-minute cache"; }; then
+    ok "$f: keep-alive arm, wake, never-sleep exception and reason"
+  else
+    no "$f: keep-alive arm, wake, never-sleep exception and reason"
+  fi
+done
 
 if has_phrase "$O" "A DONE whose checks pass is otherwise reported as normal" &&
   has_phrase "$O" "needs the user to set \`effort: max\` in \`<feature-crew root>/agents/feature-builder-deep.md\` first" &&

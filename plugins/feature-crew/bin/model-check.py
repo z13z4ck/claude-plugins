@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """feature-crew model check: did a finished worker run on the tier chosen for it?
 
-Hook mode (UserPromptSubmit, JSON on stdin): acts only when the prompt carries
-a worker completion, in either form seen in practice:
+Hook mode (UserPromptSubmit, JSON on stdin): the model check acts only when
+the prompt carries a worker completion, in either form seen in practice:
   - <task-notification> with <task-id> (the agent id) and <tool-use-id>
   - a subagent hand-back, <agent-message from="<agent id or name>">
 For each feature-crew worker it finds, it reads the worker's transcript
@@ -13,6 +13,11 @@ worker's assistant rows ran on (skipping "<synthetic>"), sums usage
 deduplicated by message.id, and
   - injects one "[feature-crew] worker ..." line as additionalContext;
   - appends a ledger row to <config dir>/feature-crew/ledger/<session_id>.jsonl.
+On a keep-alive wake (the orchestrator's background "feature-crew keep-alive"
+sleep finished) it also injects one "[feature-crew] keep-alive: re-arm",
+"... re-arm only if a worker is still working" or "... keep-alive: stop
+(<reason>)" line; see keepalive(). On every 10th genuine
+user prompt it injects a fixed refresher of core rules; see refresher().
 
 CLI mode, the policy fallback when no [feature-crew] line arrived:
   model-check.py --agent <agent id> [--transcript <parent transcript.jsonl>]
@@ -30,7 +35,9 @@ import glob
 import json
 import os
 import re
+import subprocess
 import sys
+import time
 
 PLUGIN = "feature-crew"
 # agent type -> (tier label, model family the tier must run on). The deep
@@ -357,6 +364,174 @@ def run(parent_transcript, session_id, refs, ledger=True):
 # --- entry points ----------------------------------------------------------------------
 
 
+# --- keep-alive ----------------------------------------------------------------------
+# The orchestrator keeps its 1-hour prompt cache warm while workers run with a
+# background `sleep 2700` described "feature-crew keep-alive"; its completion
+# wakes the session. This decides whether that wake re-arms the sleep.
+
+KEEPALIVE_WAKE = 'Background command "feature-crew keep-alive" completed'
+KEEPALIVE_MAX_WAKES = 8  # about 6 hours of 45-minute pings with nothing else happening
+KEEPALIVE_IDLE_WAKES = 1  # wakes that re-arm with no worker working: cache warm ~1.75-2.5 h after the last activity
+KEEPALIVE_DUP_SECONDS = 40 * 60  # under the 45-minute sleep, with slack for clock steps (slow turns only lengthen the gap)
+TAIL_BYTES = 1 << 20
+
+
+def _keepalive_path(session_id):
+    d = os.path.join(config_dir(), "feature-crew", "ledger")
+    return os.path.join(d, "%s.keepalive" % re.sub(r"[^A-Za-z0-9_.-]", "_", session_id))
+
+
+def cache_ttl_5m_only(transcript):
+    """True when the main session's last cache write was 5-minute only, False
+    when it was 1-hour or no write is in the transcript's tail; raises on an
+    unreadable transcript."""
+    with open(transcript, "rb") as f:
+        f.seek(0, 2)
+        f.seek(max(0, f.tell() - TAIL_BYTES))
+        lines = f.read().decode("utf-8", "replace").splitlines()
+    for line in reversed(lines):
+        if '"cache_creation"' not in line:
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue  # the cut first line, or a torn write
+        if not isinstance(row, dict) or row.get("type") != "assistant" or row.get("isSidechain"):
+            continue
+        msg = row.get("message")
+        usage = msg.get("usage") if isinstance(msg, dict) else None
+        cc = usage.get("cache_creation") if isinstance(usage, dict) else None
+        if not isinstance(cc, dict):
+            continue
+        m5, h1 = cc.get("ephemeral_5m_input_tokens") or 0, cc.get("ephemeral_1h_input_tokens") or 0
+        if m5 or h1:  # a turn that only read the cache says nothing about the TTL
+            return m5 > 0 and h1 == 0
+    return False
+
+
+def _ka_load(path):
+    """{"wakes": consecutive keep-alive wakes, "last": epoch seconds of the
+    last wake that was not a duplicate, or None, "prompts": genuine user
+    prompts so far (for the refresher)}; empty state on any error, and a
+    missing key (an older file) reads as its empty value."""
+    def num(v, kinds):
+        return v if isinstance(v, kinds) and not isinstance(v, bool) else None
+    try:
+        with open(path, encoding="utf-8") as f:
+            st = json.load(f)
+        return {"wakes": num(st.get("wakes"), int) or 0,
+                "last": num(st.get("last"), (int, float)),
+                "prompts": num(st.get("prompts"), int) or 0}
+    except Exception:
+        return {"wakes": 0, "last": None, "prompts": 0}
+
+
+def _ka_save(path, st):
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(st, f)
+    except OSError:
+        pass
+
+
+def keepalive(text, tp, sid):
+    """The [feature-crew] keep-alive line for a keep-alive wake, else None. Any
+    other prompt resets the wake counter (not the last-wake time); so does a
+    wake batched with another task notification or an <agent-message>. Typed
+    text beside a wake does not: harness wrapper text would reset every wake."""
+    path = _keepalive_path(sid)
+    # Only inside a task notification, and only a completed sleep: a quoted
+    # string (a paste, a worker report) or a killed sleep is not a wake.
+    # A worker's notification carries its report in <result>: look before it.
+    chunks = [c.split("</task-notification>")[0].split("<result>")[0]
+              for c in text.split("<task-notification>")[1:]]
+    if not any(KEEPALIVE_WAKE in c for c in chunks):
+        if os.path.exists(path):
+            st = _ka_load(path)
+            if st["wakes"]:
+                _ka_save(path, dict(st, wakes=0))
+        return None
+    if os.environ.get("FEATURE_CREW_KEEPALIVE", "on") == "off":
+        return "[feature-crew] keep-alive: stop (FEATURE_CREW_KEEPALIVE=off)"
+    # Print mode (claude -p) sets 0 and stays open until a background sleep
+    # exits, so a keep-alive would hold a headless run open.
+    if os.environ.get("CLAUDE_CODE_SESSION_ATTENDED") == "0":
+        return "[feature-crew] keep-alive: stop (unattended session)"
+    st, now = _ka_load(path), time.time()
+    if any(KEEPALIVE_WAKE not in c for c in chunks) or "<agent-message" in text:
+        st = dict(st, wakes=0)  # batched with other activity; keeps "last"
+        _ka_save(path, st)
+    # A surviving chain wakes at least 45 minutes after its last wake, so a
+    # wake sooner than that is a second chain. It stops without updating the
+    # state, so the surviving chain's next wake still counts from its own.
+    if st["last"] is not None and 0 <= now - st["last"] < KEEPALIVE_DUP_SECONDS:
+        return "[feature-crew] keep-alive: stop (duplicate chain)"
+    wakes = st["wakes"] + 1
+    _ka_save(path, dict(st, wakes=wakes, last=now))
+    try:
+        if cache_ttl_5m_only(tp):
+            return ("[feature-crew] keep-alive: stop (this session's cache writes are 5-minute only, so "
+                    "every 45-minute ping would be a full cache miss); set the keep-alive item to "
+                    "keep-alive off: 5-minute cache and never arm again this session")
+    except Exception:
+        pass  # cannot decide: re-arm, worst case is cheap pings
+    if wakes >= KEEPALIVE_MAX_WAKES:
+        return "[feature-crew] keep-alive: stop (%d keep-alive wakes in a row, about 6 hours, with no other prompt)" % wakes
+    if wakes <= KEEPALIVE_IDLE_WAKES:
+        return "[feature-crew] keep-alive: re-arm"
+    return "[feature-crew] keep-alive: re-arm only if a worker is still working"
+
+
+# --- refresher ----------------------------------------------------------------------
+# Every REFRESH_EVERY-th genuine user prompt gets a short, fixed reminder of
+# the most-forgotten core rules, instead of a re-Read of the full policy.
+# Hook output is appended to the conversation, so the cached prefix stays.
+
+REFRESH_EVERY = 10
+REFRESHER = (
+    "[feature-crew] refresher (core rules still apply):\n"
+    "- Delegate multi-file or multi-minute code work to a worker; do not implement it.\n"
+    "- Never merge, push or delete branches unless the user asks.\n"
+    "- DONE needs every named full verify command run and passing, plus the advisor check.\n"
+    "- Relay NEEDS-ANSWER question and options verbatim.\n"
+    "- Read the full policy before acting on a worker failure or escalation, a FELL BACK or "
+    "missing model-check line, a stopped worker, or a fallback review: %s"
+)
+
+
+def _plugin_root():
+    return _msys_to_win(os.environ.get("CLAUDE_PLUGIN_ROOT")) or \
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def refresher(text, sid, cwd):
+    """The refresher block on every REFRESH_EVERY-th genuine user prompt, else
+    None. Keep-alive wakes, task notifications and worker hand-backs neither
+    count nor get it."""
+    if os.environ.get("FEATURE_CREW_REFRESH", "on") == "off":
+        return None
+    if "<task-notification>" in text or "<agent-message" in text or not text.strip():
+        return None
+    path = _keepalive_path(sid)
+    st = _ka_load(path)
+    n = st["prompts"] + 1
+    _ka_save(path, dict(st, prompts=n))
+    if n % REFRESH_EVERY:
+        return None
+    policy = os.path.join(_plugin_root(), "policy", "orchestrator.md")
+    # Like session-start.sh: no orchestrator mode outside a git work tree
+    # (judged by the prompt-time cwd, not the SessionStart verdict).
+    try:
+        git = subprocess.run(["git", "-C", cwd or ".", "rev-parse", "--is-inside-work-tree"],
+                             capture_output=True, text=True, timeout=5)
+        if git.stdout.strip() != "true" or not os.path.isfile(policy):
+            return None
+    except Exception:
+        return None
+    return REFRESHER % policy
+
+
 def hook():
     try:
         inp = json.loads(sys.stdin.read() or "null")
@@ -368,11 +543,15 @@ def hook():
     tp = inp.get("transcript_path")
     if not isinstance(text, str) or not isinstance(tp, str) or not tp:
         return
-    refs = completions(text)
-    if not refs:
-        return
     sid = str(inp.get("session_id") or os.path.basename(tp)[:-6])
-    lines = run(tp, sid, refs)
+    refs = completions(text)
+    workers = run(tp, sid, refs) if refs else []
+    ka = keepalive(text, tp, sid)
+    lines = ([ka] if ka else []) + workers
+    cwd = inp.get("cwd") if isinstance(inp.get("cwd"), str) else os.environ.get("CLAUDE_PROJECT_DIR")
+    rf = refresher(text, sid, cwd)
+    if rf:
+        lines.append(rf)
     if lines:
         sys.stdout.write(json.dumps({"hookSpecificOutput": {
             "hookEventName": "UserPromptSubmit",

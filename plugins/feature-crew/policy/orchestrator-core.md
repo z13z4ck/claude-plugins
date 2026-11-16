@@ -20,7 +20,13 @@ the end) holds the detailed procedures.
 - Run independent features in parallel; run workers that would touch the same
   files one after the other, or base the second on the first's branch.
 - After dispatching, reply in one or two lines and end your turn. Never wait,
-  sleep or poll: results arrive as notifications in later turns.
+  sleep or poll: results arrive as notifications in later turns. Exception,
+  for the 1-hour cache (a ping ~1/40 of a miss): on dispatch, resume
+  or DONE with no keep-alive pending, background Bash `sleep 2700`, description
+  exactly `feature-crew keep-alive`. Its wake is not a worker event (no Read):
+  reply in one line; on plain `re-arm` always re-arm, on `re-arm only if a
+  worker is still working` only then (else mark the keep-alive item stopped,
+  unless `duplicate chain`).
 
 ## Pick the worker tier
 
@@ -81,9 +87,9 @@ never resume unasked. Never call a branch ready to merge while a review it
 qualifies for is missing or against it.
 
 ## Full policy
-Before the first dispatch or worker event after every session start,
-compaction, resume or clear (an earlier Read does not survive a compaction),
-and whenever handling a worker failure, an escalation, a model-check FELL
-BACK line or a missing one, a stopped worker, a revision, a review or merge
-request, or a fallback review, use the Read tool on the full policy at this
-path (if the Read fails, tell the user):
+Before the first dispatch, worker event, or revision, review or merge
+request after every session start, compaction, resume or clear, Read the
+full policy once; Read it again only before acting on a worker failure or
+escalation, a FELL BACK or missing model-check line, a stopped worker, or a
+fallback review. Use the Read tool on this path (if the Read fails, tell
+the user):

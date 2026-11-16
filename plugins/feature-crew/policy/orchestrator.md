@@ -39,7 +39,8 @@ session.
   you chose.
 - After dispatching, reply in one or two lines (which worker is on what) and
   end your turn. Never wait, sleep or poll in a loop: each worker's result
-  arrives as a completion notification in a later turn.
+  arrives as a completion notification in a later turn. The one exception is
+  the keep-alive sleep under "Keep the cache warm".
 
 ## Pick the worker tier
 Three worker types run the same prompt on different models:
@@ -83,6 +84,56 @@ deep and opus tiers both pass `opus` and differ only by the agent file's
 - After a compaction or resume, re-read the roster before answering anything
   about worker status. A session note printed before the core policy says what
   changed.
+
+## Keep the cache warm
+- Why: keep-warm pings are normally wasteful, but here they are not. While
+  workers run, this session sends no requests, idle stretches often run past
+  the 60-minute cache TTL, and the worker's completion then rewrites the whole
+  cache (a few dollars at this context size). A ping costs about 1/40 of
+  that miss.
+- Arm: when you dispatch or resume a worker (SendMessage included), or take
+  a worker's DONE, and no keep-alive is pending, run Bash with
+  `command: "sleep 2700"` (45 minutes), `run_in_background: true` and
+  description exactly `feature-crew keep-alive`, in the same turn. Track it in ONE roster item,
+  reused for every chain: set it to "keep-alive pending" on the first arm of
+  each chain and to "keep-alive stopped" on its final stop, never on each
+  wake. After a resume, fork or clear no keep-alive is pending, whatever the
+  roster says (the sleep ended with the old session). Never use CronCreate,
+  ScheduleWakeup or Monitor for it. Never arm if the latest session start
+  printed a `[feature-crew] Keep-alive is off` line or the item reads "keep-alive off:
+  5-minute cache".
+- Wake: the sleep's completion (`Background command "feature-crew
+  keep-alive" completed`) brings one `[feature-crew] keep-alive:` line. A
+  wake is not a worker event: no policy Read, no worker check, no
+  missing-model-check-line handling, and no roster edit but the final stop.
+  On plain `keep-alive: re-arm`, always start the same sleep again and reply
+  in one line, even with no worker working: the first wake after any other
+  prompt (a worker report included) keeps the cache warm while you wait on
+  the user, about 1.75 to 2.5 hours from the last activity. On `keep-alive: re-arm
+  only if a worker is still working`, re-arm only with a roster worker still
+  working (running, escalated or under review; not waiting on you, done or
+  failed). Otherwise (no line, that line with no worker working, or a `stop`
+  other than `duplicate chain`) start no sleep: the chain ends; mark the
+  keep-alive item stopped (the only tool call) and reply in one line.
+  A wake batched with a worker report: handle the report as normal and
+  start at most one sleep (none on a `stop` line).
+- On `stop (<reason>)`, tell the user the reason in one line. `stop
+  (unattended session)` means a print-mode (`claude -p`) run, which a sleep
+  would hold open; the SessionStart hook says `Keep-alive is off` there too.
+  After a stop for 5-minute cache writes, set the item to "keep-alive off: 5-minute
+  cache" instead, so no later dispatch arms it (a compaction keeps it).
+- `stop (duplicate chain)` means a second sleep was armed while one was
+  pending (e.g. a compaction lost the roster item): reply in one line, do
+  not re-arm, and leave the roster item as it is; the other chain goes on.
+  Never judge timing yourself: obey the line.
+
+## Refresher
+- Every 10th user prompt (wakes and worker reports not counted) brings one
+  `[feature-crew] refresher` block repeating the most-forgotten core rules.
+  It is a reminder, not an event: follow it, do not mention it, and do not
+  Read this policy because of it. After the first Read in a context window,
+  revisions and review or merge requests need no re-Read; only the rare
+  events the core lists do.
 
 ## Handle worker events
 - **Model check** (every DONE and NEEDS-ANSWER): feature-crew's model-check
