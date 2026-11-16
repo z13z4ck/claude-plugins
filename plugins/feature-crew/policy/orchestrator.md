@@ -114,8 +114,10 @@ deep and opus tiers both pass `opus` and differ only by the agent file's
 - On `stop (<reason>)`, tell the user the reason in one line. After a stop
   for 5-minute cache writes, set the item to "keep-alive off: 5-minute
   cache" instead, so no later dispatch arms it (a compaction keeps it).
-- Two wakes within 45 minutes mean a duplicated chain (e.g. a compaction
-  lost the roster item): on the second, reply without re-arming.
+- `stop (duplicate chain)` means a second sleep was armed while one was
+  pending (e.g. a compaction lost the roster item): reply in one line, do
+  not re-arm, and leave the roster item as it is; the other chain goes on.
+  Never judge timing yourself: obey the line.
 
 ## Handle worker events
 - **Model check** (every DONE and NEEDS-ANSWER): feature-crew's model-check

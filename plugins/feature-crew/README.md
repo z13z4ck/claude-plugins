@@ -217,6 +217,9 @@ The model-check hook adds `[feature-crew] keep-alive: re-arm` or
 - 8 keep-alive wakes came in a row (about 6 hours) with no other prompt
   (any other prompt resets the count, kept in
   `<config dir>/feature-crew/ledger/<session_id>.keepalive`);
+- a wake comes under 40 minutes after the last one, so a second chain is
+  running: only that wake says `stop (duplicate chain)`, and the first chain
+  goes on;
 - `FEATURE_CREW_KEEPALIVE=off` is set. The SessionStart hook then also says
   keep-alive is off, so the orchestrator never arms it.
 

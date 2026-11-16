@@ -1163,6 +1163,13 @@ kahook() {
     CLAUDE_CONFIG_DIR="$CFG" bash "$MC" 2>&1)"
 }
 ka_line() { printf '%s' "$OUT" | grep -o '\[feature-crew\] keep-alive: [^"\]*' | head -1; }
+# ka_age <session id> <minutes>: move the session's last recorded wake that far
+# into the past, as if that much time had passed.
+ka_age() {
+  python3 -c 'import json,sys; p=sys.argv[1]; st=json.load(open(p)); st["last"] -= float(sys.argv[2]) * 60; json.dump(st, open(p, "w"))' \
+    "$CFG/feature-crew/ledger/$1.keepalive" "$2"
+}
+ka_word() { ka_line | sed 's/.*keep-alive: //'; }
 
 kahook ka-a "$KA_1H" "$KA_WAKE"
 if [ "$(ka_line)" = "[feature-crew] keep-alive: re-arm" ] && ! has "worker"; then
@@ -1179,6 +1186,7 @@ esac
 
 got=""
 for i in 1 2 3 4 5 6 7 8; do
+  [ "$i" -gt 1 ] && ka_age ka-c 46
   kahook ka-c "$KA_1H" "$KA_WAKE"
   case "$(ka_line)" in *re-arm) got="${got}r" ;; *"stop (8 keep-alive wakes in a row"*) got="${got}s" ;; *) got="${got}?" ;; esac
 done
@@ -1188,9 +1196,13 @@ else
   no "keep-alive: the 8th wake in a row says stop" "got $got"
 fi
 
-for i in 1 2 3 4 5 6 7; do kahook ka-d "$KA_1H" "$KA_WAKE"; done
+for i in 1 2 3 4 5 6 7; do
+  [ "$i" -gt 1 ] && ka_age ka-d 46
+  kahook ka-d "$KA_1H" "$KA_WAKE"
+done
 kahook ka-d "$KA_1H" "how are the workers doing?"
 o1="$OUT"
+ka_age ka-d 46
 kahook ka-d "$KA_1H" "$KA_WAKE"
 if [ -z "$o1" ] && [ "$(ka_line)" = "[feature-crew] keep-alive: re-arm" ]; then
   ok "keep-alive: an ordinary prompt prints nothing and resets the wake counter"
@@ -1209,11 +1221,43 @@ fi
 kahook ka-f "$TMP/no-such-transcript.jsonl" "$KA_WAKE"
 o1="$OUT"
 printf 'not json\n{"type":"assistant","message":"x"}\n' >"$TMP/ka-bad.jsonl"
-kahook ka-f "$TMP/ka-bad.jsonl" "$KA_WAKE"
+kahook ka-f2 "$TMP/ka-bad.jsonl" "$KA_WAKE"
 if case "$o1" in *"keep-alive: re-arm"*) true ;; *) false ;; esac && [ "$(ka_line)" = "[feature-crew] keep-alive: re-arm" ]; then
   ok "keep-alive: a missing or unparsable transcript defaults to re-arm"
 else
   no "keep-alive: a missing or unparsable transcript defaults to re-arm" "$o1 | $OUT"
+fi
+
+# Duplicate chains: a wake under 40 minutes after the last recorded one stops
+# that wake only and does not move the time, so the surviving chain re-arms
+# 45 minutes after its own last wake. An ordinary prompt keeps the time.
+got=""
+kahook ka-j "$KA_1H" "$KA_WAKE"; got="$got$(ka_word)|"   # chain A at T
+ka_age ka-j 5
+kahook ka-j "$KA_1H" "status?"                          # an ordinary prompt
+kahook ka-j "$KA_1H" "$KA_WAKE"; got="$got$(ka_word)|"   # chain B at T+5
+ka_age ka-j 40
+kahook ka-j "$KA_1H" "$KA_WAKE"; got="$got$(ka_word)|"   # chain A at T+45
+ka_age ka-j 10
+kahook ka-j "$KA_1H" "$KA_WAKE"; got="$got$(ka_word)|"   # a stray wake at T+55
+ka_age ka-j 35
+kahook ka-j "$KA_1H" "$KA_WAKE"; got="$got$(ka_word)"    # chain A at T+90
+if [ "$got" = "re-arm|stop (duplicate chain)|re-arm|stop (duplicate chain)|re-arm" ]; then
+  ok "keep-alive: a wake within 40 minutes stops as a duplicate chain; the surviving chain keeps re-arming"
+else
+  no "keep-alive: a wake within 40 minutes stops as a duplicate chain; the surviving chain keeps re-arming" "$got"
+fi
+
+bad=""
+for st in 'garbage' '7' '{"wakes": 2, "last": "yesterday"}' '{"wakes": 2}'; do
+  printf '%s' "$st" >"$CFG/feature-crew/ledger/ka-k.keepalive"
+  kahook ka-k "$KA_1H" "$KA_WAKE"
+  [ "$(ka_line)" = "[feature-crew] keep-alive: re-arm" ] || bad="$bad [$st -> $OUT]"
+done
+if [ -z "$bad" ]; then
+  ok "keep-alive: a missing or unparsable last-wake time re-arms"
+else
+  no "keep-alive: a missing or unparsable last-wake time re-arms" "$bad"
 fi
 
 # Only a completed sleep inside a task notification is a wake: a quoted

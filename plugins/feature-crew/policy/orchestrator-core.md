@@ -25,7 +25,7 @@ the end) holds the detailed procedures.
   with no keep-alive pending, background Bash `sleep 2700`, description exactly
   `feature-crew keep-alive`. Its wake is not a worker event (no Read): reply
   in one line, re-arming only on `keep-alive: re-arm` with a worker still
-  working (else mark the keep-alive item stopped).
+  working (else mark the keep-alive item stopped, unless `duplicate chain`).
 
 ## Pick the worker tier
 

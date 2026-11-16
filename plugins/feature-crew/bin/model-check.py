@@ -34,6 +34,7 @@ import json
 import os
 import re
 import sys
+import time
 
 PLUGIN = "feature-crew"
 # agent type -> (tier label, model family the tier must run on). The deep
@@ -367,6 +368,7 @@ def run(parent_transcript, session_id, refs, ledger=True):
 
 KEEPALIVE_WAKE = 'Background command "feature-crew keep-alive" completed'
 KEEPALIVE_MAX_WAKES = 8  # about 6 hours of 45-minute pings with nothing else happening
+KEEPALIVE_DUP_SECONDS = 40 * 60  # under the 45-minute sleep, with slack for slow turns
 TAIL_BYTES = 1 << 20
 
 
@@ -403,9 +405,31 @@ def cache_ttl_5m_only(transcript):
     return False
 
 
+def _ka_load(path):
+    """{"wakes": consecutive keep-alive wakes, "last": epoch seconds of the
+    last wake that was not a duplicate, or None}; empty state on any error."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            st = json.load(f)
+        wakes, last = st.get("wakes"), st.get("last")
+        return {"wakes": wakes if isinstance(wakes, int) and not isinstance(wakes, bool) else 0,
+                "last": last if isinstance(last, (int, float)) and not isinstance(last, bool) else None}
+    except Exception:
+        return {"wakes": 0, "last": None}
+
+
+def _ka_save(path, st):
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(st, f)
+    except OSError:
+        pass
+
+
 def keepalive(text, tp, sid):
     """The [feature-crew] keep-alive line for a keep-alive wake, else None. Any
-    other prompt resets the wake counter."""
+    other prompt resets the wake counter (not the last-wake time)."""
     path = _keepalive_path(sid)
     # Only inside a task notification, and only a completed sleep: a quoted
     # string (a paste, a worker report) or a killed sleep is not a wake.
@@ -413,24 +437,21 @@ def keepalive(text, tp, sid):
     chunks = (c.split("</task-notification>")[0].split("<result>")[0]
               for c in text.split("<task-notification>")[1:])
     if not any(KEEPALIVE_WAKE in c for c in chunks):
-        try:
-            os.remove(path)
-        except OSError:
-            pass
+        if os.path.exists(path):
+            st = _ka_load(path)
+            if st["wakes"]:
+                _ka_save(path, dict(st, wakes=0))
         return None
     if os.environ.get("FEATURE_CREW_KEEPALIVE", "on") == "off":
         return "[feature-crew] keep-alive: stop (FEATURE_CREW_KEEPALIVE=off)"
-    try:
-        with open(path, encoding="utf-8") as f:
-            wakes = int(f.read().strip() or 0) + 1
-    except (OSError, ValueError):
-        wakes = 1
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            f.write("%d\n" % wakes)
-    except OSError:
-        pass
+    st, now = _ka_load(path), time.time()
+    # A surviving chain wakes at least 45 minutes after its last wake, so a
+    # wake sooner than that is a second chain. It stops without updating the
+    # state, so the surviving chain's next wake still counts from its own.
+    if st["last"] is not None and 0 <= now - st["last"] < KEEPALIVE_DUP_SECONDS:
+        return "[feature-crew] keep-alive: stop (duplicate chain)"
+    wakes = st["wakes"] + 1
+    _ka_save(path, {"wakes": wakes, "last": now})
     try:
         if cache_ttl_5m_only(tp):
             return ("[feature-crew] keep-alive: stop (this session's cache writes are 5-minute only, so "
