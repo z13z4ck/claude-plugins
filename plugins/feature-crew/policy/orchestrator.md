@@ -99,8 +99,8 @@ deep and opus tiers both pass `opus` and differ only by the agent file's
   each chain and to "keep-alive stopped" on its final stop, never on each
   wake. After a resume, fork or clear no keep-alive is pending, whatever the
   roster says (the sleep ended with the old session). Never use CronCreate,
-  ScheduleWakeup or Monitor for it. Never arm if a `[feature-crew]
-  Keep-alive is off` line is in context or the item reads "keep-alive off:
+  ScheduleWakeup or Monitor for it. Never arm if the latest session start
+  printed a `[feature-crew] Keep-alive is off` line or the item reads "keep-alive off:
   5-minute cache".
 - Wake: the sleep's completion (`Background command "feature-crew
   keep-alive" completed`) brings one `[feature-crew] keep-alive:` line. A
@@ -109,7 +109,7 @@ deep and opus tiers both pass `opus` and differ only by the agent file's
   On plain `keep-alive: re-arm`, always start the same sleep again and reply
   in one line, even with no worker working: the first two wakes after any
   other prompt (a worker report included) keep the cache warm while you wait
-  on the user, about 2.5 hours from the last activity. On `keep-alive: re-arm
+  on the user, about 2.5 to 3.25 hours from the last activity. On `keep-alive: re-arm
   only if a worker is still working`, re-arm only with a roster worker still
   working (running, escalated or under review; not waiting on you, done or
   failed). Otherwise (no line, that line with no worker working, or a `stop`

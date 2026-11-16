@@ -1301,6 +1301,9 @@ cat "$PARENT" "$KA_1H" >"$TMP/ka-both.jsonl"
 python3 -c 'import json,sys; open(sys.argv[1], "a").write(json.dumps({"type": "assistant", "isSidechain": True, "message": {"usage": {"cache_creation": {"ephemeral_5m_input_tokens": 50, "ephemeral_1h_input_tokens": 0}}}}) + "\n")' "$TMP/ka-both.jsonl"
 mkdir -p "$TMP/ka-both"
 cp -R "$SUB" "$TMP/ka-both/"
+# Seeded at 2 wakes: the batched worker completion resets the count, so plain re-arm.
+mkdir -p "$CFG/feature-crew/ledger"
+printf '{"wakes": 2}' >"$CFG/feature-crew/ledger/ka-h.keepalive"
 kahook ka-h "$TMP/ka-both.jsonl" "$KA_WAKE
 <task-notification><task-id>aO</task-id><tool-use-id>toolu_O</tool-use-id></task-notification>"
 if [ "$(ka_line)" = "[feature-crew] keep-alive: re-arm" ] && has "worker opu ran claude-opus-5-5 as chosen"; then
@@ -1478,8 +1481,10 @@ fi
 
 for f in orchestrator.md orchestrator-core.md; do
   P2="$PLUGIN/policy/$f"
-  if has_phrase "$P2" "re-arm only if a worker is still working" && grep -q "DONE" "$P2" &&
-    { [ "$f" = orchestrator-core.md ] || { has_phrase "$P2" "unattended session" && has_phrase "$P2" "always start the same sleep again"; }; }; then
+  if has_phrase "$P2" "re-arm only if a worker is still working" &&
+    { [ "$f" = orchestrator.md ] || { has_phrase "$P2" "resume or DONE with no keep-alive pending" && has_phrase "$P2" "on plain \`re-arm\` always re-arm"; }; } &&
+    { [ "$f" = orchestrator-core.md ] || { has_phrase "$P2" "take a worker's DONE" && has_phrase "$P2" "unattended session" &&
+      has_phrase "$P2" "always start the same sleep again" && has_phrase "$P2" "latest session start printed"; }; }; then
     ok "$f: plain re-arm is unconditional, the conditional line, arming after a DONE, unattended stop"
   else
     no "$f: plain re-arm is unconditional, the conditional line, arming after a DONE, unattended stop"

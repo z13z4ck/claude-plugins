@@ -24,8 +24,9 @@ the end) holds the detailed procedures.
   for the 1-hour cache (a ping ~1/40 of a miss): on dispatch, resume
   or DONE with no keep-alive pending, background Bash `sleep 2700`, description
   exactly `feature-crew keep-alive`. Its wake is not a worker event (no Read):
-  reply in one line; re-arm on `re-arm`, on `re-arm only if a worker is still
-  working` only then (else mark the item stopped, unless `duplicate chain`).
+  reply in one line; on plain `re-arm` always re-arm, on `re-arm only if a
+  worker is still working` only then (else mark the keep-alive item stopped,
+  unless `duplicate chain`).
 
 ## Pick the worker tier
 

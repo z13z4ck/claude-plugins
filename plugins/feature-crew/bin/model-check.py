@@ -14,8 +14,9 @@ deduplicated by message.id, and
   - injects one "[feature-crew] worker ..." line as additionalContext;
   - appends a ledger row to <config dir>/feature-crew/ledger/<session_id>.jsonl.
 On a keep-alive wake (the orchestrator's background "feature-crew keep-alive"
-sleep finished) it also injects one "[feature-crew] keep-alive: re-arm" or
-"... keep-alive: stop (<reason>)" line; see keepalive(). On every 10th genuine
+sleep finished) it also injects one "[feature-crew] keep-alive: re-arm",
+"... re-arm only if a worker is still working" or "... keep-alive: stop
+(<reason>)" line; see keepalive(). On every 10th genuine
 user prompt it injects a fixed refresher of core rules; see refresher().
 
 CLI mode, the policy fallback when no [feature-crew] line arrived:
@@ -370,7 +371,7 @@ def run(parent_transcript, session_id, refs, ledger=True):
 
 KEEPALIVE_WAKE = 'Background command "feature-crew keep-alive" completed'
 KEEPALIVE_MAX_WAKES = 8  # about 6 hours of 45-minute pings with nothing else happening
-KEEPALIVE_IDLE_WAKES = 2  # wakes that re-arm with no worker working: cache warm ~2.5 h after the last activity
+KEEPALIVE_IDLE_WAKES = 2  # wakes that re-arm with no worker working: cache warm ~2.5-3.25 h after the last activity
 KEEPALIVE_DUP_SECONDS = 40 * 60  # under the 45-minute sleep, with slack for clock steps (slow turns only lengthen the gap)
 TAIL_BYTES = 1 << 20
 
@@ -434,9 +435,10 @@ def _ka_save(path, st):
         pass
 
 
-def keepalive(text, tp, sid):
+def keepalive(text, tp, sid, reset=False):
     """The [feature-crew] keep-alive line for a keep-alive wake, else None. Any
-    other prompt resets the wake counter (not the last-wake time)."""
+    other prompt resets the wake counter (not the last-wake time); so does a
+    wake batched with a worker completion (reset=True)."""
     path = _keepalive_path(sid)
     # Only inside a task notification, and only a completed sleep: a quoted
     # string (a paste, a worker report) or a killed sleep is not a wake.
@@ -461,7 +463,7 @@ def keepalive(text, tp, sid):
     # state, so the surviving chain's next wake still counts from its own.
     if st["last"] is not None and 0 <= now - st["last"] < KEEPALIVE_DUP_SECONDS:
         return "[feature-crew] keep-alive: stop (duplicate chain)"
-    wakes = st["wakes"] + 1
+    wakes = (0 if reset else st["wakes"]) + 1
     _ka_save(path, dict(st, wakes=wakes, last=now))
     try:
         if cache_ttl_5m_only(tp):
@@ -538,11 +540,10 @@ def hook():
     if not isinstance(text, str) or not isinstance(tp, str) or not tp:
         return
     sid = str(inp.get("session_id") or os.path.basename(tp)[:-6])
-    ka = keepalive(text, tp, sid)
-    lines = [ka] if ka else []
     refs = completions(text)
-    if refs:
-        lines += run(tp, sid, refs)
+    workers = run(tp, sid, refs) if refs else []
+    ka = keepalive(text, tp, sid, reset=bool(workers))
+    lines = ([ka] if ka else []) + workers
     cwd = inp.get("cwd") if isinstance(inp.get("cwd"), str) else os.environ.get("CLAUDE_PROJECT_DIR")
     rf = refresher(text, sid, cwd)
     if rf:

@@ -209,8 +209,9 @@ described `feature-crew keep-alive`, and it arms one after a worker's DONE
 too if none is pending. When the sleep finishes, the session wakes and
 re-arms it in one line. The first two wakes after any other prompt (yours or
 a worker report) re-arm unconditionally, so the cache stays warm for about
-2.5 hours after the last activity while the orchestrator waits on you (wakes
-at 45 and 90 minutes, then the 60-minute TTL). Later wakes re-arm only while
+2.5 to 3.25 hours after the last activity while the orchestrator waits on you
+(the third wake, at about 135 minutes after the arm, ends the chain, then the
+60-minute TTL runs out). Later wakes re-arm only while
 a worker is still working (running, escalated or under review), and
 otherwise let the chain end.
 The model-check hook adds `[feature-crew] keep-alive: re-arm` (wakes 1-2),
@@ -366,7 +367,7 @@ model check; the worker agents stay available for explicit use.
   past the 1-hour cache TTL: a background `sleep 2700` described
   `feature-crew keep-alive`, armed on dispatch or resume and re-armed on
   each wake while a worker is still working, and for the first two wakes
-  (about 2.5 hours of warm cache) after the last activity even with none
+  (about 2.5 to 3.25 hours of warm cache) after the last activity even with none
   working; it also arms after a DONE. The model-check hook says re-arm,
   re-arm only if a worker is still working, or stop on each wake
   (5-minute-only cache writes, 8 wakes in a row, an unattended
