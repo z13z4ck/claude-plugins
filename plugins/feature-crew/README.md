@@ -238,8 +238,9 @@ DONE needs, relay NEEDS-ANSWER verbatim, when to Read the full policy) to
 every 10th user prompt. Keep-alive wakes, task notifications and worker
 reports neither count nor get it. The block is byte-identical every time
 and appended to the conversation, so the cached prompt prefix is untouched.
-The count is kept in the same `.keepalive` state file; outside a git work
-tree no block is added. `FEATURE_CREW_REFRESH=off` turns it off.
+The count is kept in the same `.keepalive` state file, so every session
+with the plugin on now writes one (a few bytes; nothing prunes the ledger
+folder); outside a git work tree no block is added. `FEATURE_CREW_REFRESH=off` turns it off.
 
 ## Limits (from the Claude Code docs)
 
@@ -250,8 +251,8 @@ tree no block is added. `FEATURE_CREW_REFRESH=off` turns it off.
   rules, roster, one line per worker event, triggers for the rare events,
   the merge rule and the advisor check on DONE) and the absolute path of
   `policy/orchestrator.md`, which the core tells the orchestrator to Read
-  once before the first dispatch or worker event after every start,
-  compaction, resume or clear, and again only on failures, escalations,
+  once before the first dispatch, worker event, revision, review or merge
+  request after every start, compaction, resume or clear, and again only on failures, escalations,
   fallbacks, missing model-check lines, stopped workers and fallback
   reviews. The root line
   and any session note come before the core, so a cut would drop the core's

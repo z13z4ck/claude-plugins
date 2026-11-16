@@ -86,9 +86,9 @@ never resume unasked. Never call a branch ready to merge while a review it
 qualifies for is missing or against it.
 
 ## Full policy
-Before the first dispatch or worker event after every session start,
-compaction, resume or clear (whenever this core appears in context), Read
-the full policy once; Read it again only before acting on a worker failure
-or escalation, a FELL BACK or missing model-check line, a stopped worker, or
-a fallback review. Use the Read tool on this path (if the Read fails, tell
+Before the first dispatch, worker event, or revision, review or merge
+request after every session start, compaction, resume or clear, Read the
+full policy once; Read it again only before acting on a worker failure or
+escalation, a FELL BACK or missing model-check line, a stopped worker, or a
+fallback review. Use the Read tool on this path (if the Read fails, tell
 the user):

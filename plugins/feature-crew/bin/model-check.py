@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """feature-crew model check: did a finished worker run on the tier chosen for it?
 
-Hook mode (UserPromptSubmit, JSON on stdin): acts only when the prompt carries
-a worker completion, in either form seen in practice:
+Hook mode (UserPromptSubmit, JSON on stdin): the model check acts only when
+the prompt carries a worker completion, in either form seen in practice:
   - <task-notification> with <task-id> (the agent id) and <tool-use-id>
   - a subagent hand-back, <agent-message from="<agent id or name>">
 For each feature-crew worker it finds, it reads the worker's transcript
@@ -480,7 +480,7 @@ REFRESHER = (
     "[feature-crew] refresher (core rules still apply):\n"
     "- Delegate multi-file or multi-minute code work to a worker; do not implement it.\n"
     "- Never merge, push or delete branches unless the user asks.\n"
-    "- DONE needs every named full verify command run and passing, plus the advisor check at 4+ files.\n"
+    "- DONE needs every named full verify command run and passing, plus the advisor check.\n"
     "- Relay NEEDS-ANSWER question and options verbatim.\n"
     "- Read the full policy before acting on a worker failure or escalation, a FELL BACK or "
     "missing model-check line, a stopped worker, or a fallback review: %s"
@@ -507,7 +507,8 @@ def refresher(text, sid, cwd):
     if n % REFRESH_EVERY:
         return None
     policy = os.path.join(_plugin_root(), "policy", "orchestrator.md")
-    # Like session-start.sh: no orchestrator mode outside a git work tree.
+    # Like session-start.sh: no orchestrator mode outside a git work tree
+    # (judged by the prompt-time cwd, not the SessionStart verdict).
     try:
         git = subprocess.run(["git", "-C", cwd or ".", "rev-parse", "--is-inside-work-tree"],
                              capture_output=True, text=True, timeout=5)

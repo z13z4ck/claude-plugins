@@ -298,9 +298,9 @@ if [ "$RC" -eq 0 ] && has "Policy file missing" && [ "$(bytes)" -lt 8000 ]; then
 run_hook startup "$REPO"
 if has "orchestrator mode (core rules)" && ! has "## Handle worker events" &&
   printf '%s\n' "$OUT" | grep -qxF "$PLUGIN/policy/orchestrator.md" &&
-  hasf "Before the first dispatch or worker event after every session start, compaction, resume or clear (whenever this core appears in context), Read the full policy once;" &&
+  hasf "Before the first dispatch, worker event, or revision, review or merge request after every session start, compaction, resume or clear, Read the full policy once;" &&
   hasf "Read it again only before acting on a worker failure or escalation, a FELL BACK or missing model-check line, a stopped worker, or a fallback review. Use the Read tool on this path (if the Read fails, tell the user):" &&
-  ! hasf "a revision, a review or merge request"; then
+  ! hasf "a stopped worker, a revision"; then
   ok "startup prints the core and the absolute full-policy path with when to Read it"
 else
   no "startup prints the core and the absolute full-policy path with when to Read it"
@@ -1328,8 +1328,10 @@ fi
 # get it. rfhook <session id> <cwd> <prompt> [transcript]: sets OUT.
 rfhook() {
   OUT="$(python3 -c 'import json,sys; print(json.dumps({"session_id": sys.argv[1], "cwd": sys.argv[2], "transcript_path": sys.argv[4], "hook_event_name": "UserPromptSubmit", "prompt": sys.argv[3]}))' "$1" "$2" "$3" "${4:-$KA_1H}" |
-    CLAUDE_CONFIG_DIR="$CFG" bash "$MC" 2>&1)"
+    CLAUDE_CONFIG_DIR="$CFG" CLAUDE_PLUGIN_ROOT="$PLUGIN" bash "$MC" 2>&1)"
 }
+# Note: kahook and hook_in send no cwd, so a 10th ordinary prompt on one of
+# their session ids would get a refresher (the runner's folder is a repo).
 # The refresher block from OUT, or nothing.
 rf_block() {
   printf '%s' "$OUT" | python3 -c 'import json,sys
@@ -1374,6 +1376,8 @@ DONE
 branch: crew/x
 </agent-message>' "$PARENT"
 [ -z "$(rf_block)" ] || bad="$bad [hand-back: $OUT]"
+rfhook rf-b "$REPO" "user text batched with <task-notification><task-id>b78</task-id></task-notification>"
+[ -z "$OUT" ] || bad="$bad [batched prompt: $OUT]"
 rfhook rf-b "$REPO" "prompt 10"
 [ -n "$(rf_block)" ] || bad="$bad [10th genuine prompt got no block: $OUT]"
 if [ -z "$bad" ]; then

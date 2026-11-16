@@ -123,8 +123,9 @@ deep and opus tiers both pass `opus` and differ only by the agent file's
 - Every 10th user prompt (wakes and worker reports not counted) brings one
   `[feature-crew] refresher` block repeating the most-forgotten core rules.
   It is a reminder, not an event: follow it, do not mention it, and do not
-  Read this policy because of it. Revisions and review or merge requests need
-  no re-Read either; only the rare events the core lists do.
+  Read this policy because of it. After the first Read in a context window,
+  revisions and review or merge requests need no re-Read; only the rare
+  events the core lists do.
 
 ## Handle worker events
 - **Model check** (every DONE and NEEDS-ANSWER): feature-crew's model-check
