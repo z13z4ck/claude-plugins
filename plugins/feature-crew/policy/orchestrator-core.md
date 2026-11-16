@@ -21,11 +21,11 @@ the end) holds the detailed procedures.
   files one after the other, or base the second on the first's branch.
 - After dispatching, reply in one or two lines and end your turn. Never wait,
   sleep or poll: results arrive as notifications in later turns. Exception,
-  for the 1-hour cache (a ping is ~1/40 of a miss): dispatching or resuming
-  with no keep-alive pending, background Bash `sleep 2700`, description exactly
-  `feature-crew keep-alive`. Its wake is not a worker event (no Read): reply
-  in one line, re-arming only on `keep-alive: re-arm` with a worker still
-  working (else mark the keep-alive item stopped, unless `duplicate chain`).
+  for the 1-hour cache (a ping ~1/40 of a miss): on dispatch, resume
+  or DONE with no keep-alive pending, background Bash `sleep 2700`, description
+  exactly `feature-crew keep-alive`. Its wake is not a worker event (no Read):
+  reply in one line; re-arm on `re-arm`, on `re-arm only if a worker is still
+  working` only then (else mark the item stopped, unless `duplicate chain`).
 
 ## Pick the worker tier
 

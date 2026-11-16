@@ -7,6 +7,8 @@
 set -u
 
 PLUGIN="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# The hooks read it; print mode (claude -p) sets 0. Tests set it per case.
+unset CLAUDE_CODE_SESSION_ATTENDED
 HOOK="$PLUGIN/bin/session-start.sh"
 PASS=0
 FAIL=0
@@ -1189,16 +1191,21 @@ got=""
 for i in 1 2 3 4 5 6 7 8; do
   [ "$i" -gt 1 ] && ka_age ka-c 46
   kahook ka-c "$KA_1H" "$KA_WAKE"
-  case "$(ka_line)" in *re-arm) got="${got}r" ;; *"stop (8 keep-alive wakes in a row"*) got="${got}s" ;; *) got="${got}?" ;; esac
+  case "$(ka_line)" in
+    *": re-arm") got="${got}r" ;;
+    *": re-arm only if a worker is still working") got="${got}c" ;;
+    *"stop (8 keep-alive wakes in a row"*) got="${got}s" ;;
+    *) got="${got}?" ;;
+  esac
   if [ "$i" -eq 4 ]; then  # a duplicate mid-run must not count toward the 8
     kahook ka-c "$KA_1H" "$KA_WAKE"
     [ "$(ka_word)" = "stop (duplicate chain)" ] || got="${got}D"
   fi
 done
-if [ "$got" = rrrrrrrs ]; then
-  ok "keep-alive: the 8th wake in a row says stop"
+if [ "$got" = rrcccccs ]; then
+  ok "keep-alive: wakes 1-2 re-arm, wakes 3-7 re-arm only with a worker working, the 8th says stop"
 else
-  no "keep-alive: the 8th wake in a row says stop" "got $got"
+  no "keep-alive: wakes 1-2 re-arm, wakes 3-7 re-arm only with a worker working, the 8th says stop" "got $got"
 fi
 
 for i in 1 2 3 4 5 6 7; do
@@ -1266,7 +1273,7 @@ else
 fi
 
 bad=""
-for st in 'garbage' '7' '{"wakes": 2, "last": "yesterday"}' '{"wakes": 2}' '{"wakes": 1, "last": 99999999999}'; do
+for st in 'garbage' '7' '{"wakes": 1, "last": "yesterday"}' '{"wakes": 1}' '{"wakes": 1, "last": 99999999999}'; do
   printf '%s' "$st" >"$CFG/feature-crew/ledger/ka-k.keepalive"
   kahook ka-k "$KA_1H" "$KA_WAKE"
   [ "$(ka_line)" = "[feature-crew] keep-alive: re-arm" ] || bad="$bad [$st -> $OUT]"
@@ -1313,6 +1320,39 @@ if has "worker opu ran claude-opus-5-5 as chosen" && ! has "keep-alive:"; then
   ok "keep-alive: a worker report quoting the wake string is not a wake"
 else
   no "keep-alive: a worker report quoting the wake string is not a wake" "$OUT"
+fi
+
+# A worker completion resets the wake count like a user prompt: the idle
+# window starts again from the last worker report.
+got=""
+for i in 1 2 3; do
+  [ "$i" -gt 1 ] && ka_age ka-r 46
+  kahook ka-r "$PARENT" "$KA_WAKE"; got="$got$(ka_word)|"
+done
+kahook ka-r "$PARENT" "<task-notification><task-id>aO</task-id><tool-use-id>toolu_O</tool-use-id></task-notification>"
+has "worker opu ran" || got="${got}NOWORKER|"
+ka_age ka-r 46
+kahook ka-r "$PARENT" "$KA_WAKE"; got="$got$(ka_word)"
+if [ "$got" = "re-arm|re-arm|re-arm only if a worker is still working|re-arm" ]; then
+  ok "keep-alive: a worker completion resets the wake count, so the next wake re-arms unconditionally"
+else
+  no "keep-alive: a worker completion resets the wake count, so the next wake re-arms unconditionally" "$got"
+fi
+
+# Unattended (print mode sets CLAUDE_CODE_SESSION_ATTENDED=0): stop. 1 or
+# empty (and unset, every other case here) is attended.
+kawake_att() {
+  OUT="$(python3 -c 'import json,sys; print(json.dumps({"session_id": sys.argv[1], "transcript_path": sys.argv[2], "prompt": sys.argv[3]}))' "$1" "$KA_1H" "$KA_WAKE" |
+    CLAUDE_CODE_SESSION_ATTENDED="$2" CLAUDE_CONFIG_DIR="$CFG" bash "$MC" 2>&1)"
+}
+kawake_att ka-u0 0; o1="$(ka_line)"
+kawake_att ka-u1 1; o2="$(ka_line)"
+kawake_att ka-u2 ""; o3="$(ka_line)"
+if [ "$o1" = "[feature-crew] keep-alive: stop (unattended session)" ] &&
+  [ "$o2" = "[feature-crew] keep-alive: re-arm" ] && [ "$o3" = "[feature-crew] keep-alive: re-arm" ]; then
+  ok "keep-alive: CLAUDE_CODE_SESSION_ATTENDED=0 says stop (unattended session); 1 or empty re-arms"
+else
+  no "keep-alive: CLAUDE_CODE_SESSION_ATTENDED=0 says stop (unattended session); 1 or empty re-arms" "$o1 | $o2 | $o3"
 fi
 
 # A worker completion is unchanged: its line only, no keep-alive line.
@@ -1425,6 +1465,26 @@ if ! case "$o1" in *"Keep-alive is off"*) true ;; *) false ;; esac &&
 else
   no "session-start: FEATURE_CREW_KEEPALIVE=off prints the off line, still under 8,000 bytes" "bytes $(bytes)"
 fi
+
+CLAUDE_CODE_SESSION_ATTENDED=0 run_hook resume "$LONG"
+o2="$OUT"; b2="$(bytes)"
+CLAUDE_CODE_SESSION_ATTENDED=1 run_hook startup "$REPO"
+if case "$o2" in *"[feature-crew] Keep-alive is off (unattended session): never arm it."*) true ;; *) false ;; esac &&
+  [ "$b2" -lt 8000 ] && ! has "Keep-alive is off"; then
+  ok "session-start: CLAUDE_CODE_SESSION_ATTENDED=0 prints the off line, under 8,000 bytes ($b2); 1 does not"
+else
+  no "session-start: CLAUDE_CODE_SESSION_ATTENDED=0 prints the off line, under 8,000 bytes; 1 does not" "bytes $b2"
+fi
+
+for f in orchestrator.md orchestrator-core.md; do
+  P2="$PLUGIN/policy/$f"
+  if has_phrase "$P2" "re-arm only if a worker is still working" && grep -q "DONE" "$P2" &&
+    { [ "$f" = orchestrator-core.md ] || { has_phrase "$P2" "unattended session" && has_phrase "$P2" "always start the same sleep again"; }; }; then
+    ok "$f: plain re-arm is unconditional, the conditional line, arming after a DONE, unattended stop"
+  else
+    no "$f: plain re-arm is unconditional, the conditional line, arming after a DONE, unattended stop"
+  fi
+done
 
 for f in orchestrator.md orchestrator-core.md; do
   P2="$PLUGIN/policy/$f"

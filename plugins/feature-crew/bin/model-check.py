@@ -370,6 +370,7 @@ def run(parent_transcript, session_id, refs, ledger=True):
 
 KEEPALIVE_WAKE = 'Background command "feature-crew keep-alive" completed'
 KEEPALIVE_MAX_WAKES = 8  # about 6 hours of 45-minute pings with nothing else happening
+KEEPALIVE_IDLE_WAKES = 2  # wakes that re-arm with no worker working: cache warm ~2.5 h after the last activity
 KEEPALIVE_DUP_SECONDS = 40 * 60  # under the 45-minute sleep, with slack for clock steps (slow turns only lengthen the gap)
 TAIL_BYTES = 1 << 20
 
@@ -450,6 +451,10 @@ def keepalive(text, tp, sid):
         return None
     if os.environ.get("FEATURE_CREW_KEEPALIVE", "on") == "off":
         return "[feature-crew] keep-alive: stop (FEATURE_CREW_KEEPALIVE=off)"
+    # Print mode (claude -p) sets 0 and stays open until a background sleep
+    # exits, so a keep-alive would hold a headless run open.
+    if os.environ.get("CLAUDE_CODE_SESSION_ATTENDED") == "0":
+        return "[feature-crew] keep-alive: stop (unattended session)"
     st, now = _ka_load(path), time.time()
     # A surviving chain wakes at least 45 minutes after its last wake, so a
     # wake sooner than that is a second chain. It stops without updating the
@@ -467,7 +472,9 @@ def keepalive(text, tp, sid):
         pass  # cannot decide: re-arm, worst case is cheap pings
     if wakes >= KEEPALIVE_MAX_WAKES:
         return "[feature-crew] keep-alive: stop (%d keep-alive wakes in a row, about 6 hours, with no other prompt)" % wakes
-    return "[feature-crew] keep-alive: re-arm"
+    if wakes <= KEEPALIVE_IDLE_WAKES:
+        return "[feature-crew] keep-alive: re-arm"
+    return "[feature-crew] keep-alive: re-arm only if a worker is still working"
 
 
 # --- refresher ----------------------------------------------------------------------
