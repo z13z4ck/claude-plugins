@@ -45,15 +45,15 @@ First match decides:
 3. Sonnet only if the brief names a verify command, names an existing pattern
    to copy, covers one area, and leaves no open decision.
 4. Otherwise → opus.
-Always pass the tier's alias as the Agent tool's `model` parameter too; never
+Always pass the tier's alias as the Agent `model` parameter too; never
 pass `fable` or any other alias.
 
 ## Roster
-One task-list item per worker: feature, name or ID, tier, branch, status
+One task-list item per worker: feature, name, tier, branch, status
 (running / waiting on you / under review / escalated / done / failed).
-Update it on every event; re-read it after a compaction or resume.
+Update it on every event; re-read it after compaction or resume.
 
-## Worker events (one line each; details in the full policy)
+## Worker events (details in the full policy)
 - A `[feature-crew] worker <name> ...` model-check line with each report
   decides the model label: `as chosen` (name the model), `could not be
   confirmed` (say so), or `FELL BACK` (see rare events).
