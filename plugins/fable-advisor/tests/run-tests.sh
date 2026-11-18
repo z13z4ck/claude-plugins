@@ -146,6 +146,8 @@ ctx="$(context_of "$HOOK_OUT")"
 contains "$ctx" "Advisor policy" && ok "injects the advisor policy" || no "policy missing" "$ctx"
 contains "$ctx" 'subagent_type "fable-advisor:advisor"' && ok "policy names the dispatch path" || no "dispatch path missing"
 contains "$ctx" "more than 3 files" && ok "policy states the file threshold" || no "threshold missing"
+contains "$ctx" "word for word" && contains "$ctx" "block quote" && contains "$ctx" "overrides any brevity or output-style instruction" && ok "policy requires a word-for-word block-quote relay (1.11.3)" || no "relay rule missing" "$ctx"
+[ "${#ctx}" -lt 9000 ] && ok "policy stays under the hook stdout cap" || no "policy too long" "${#ctx}"
 ! contains "$ctx" "Session so far" && ok "no tally on a fresh startup" || no "unexpected tally on startup"
 
 new_transcript ss2
@@ -513,6 +515,7 @@ new_transcript p1
 run_hook prompt "\"prompt\":$(json_str "should we use redis or postgres for the queue?")"
 [ "$(jget "$HOOK_OUT" hookSpecificOutput.hookEventName)" = "UserPromptSubmit" ] && ok "emits UserPromptSubmit output" || no "wrong event" "$HOOK_OUT"
 contains "$(context_of "$HOOK_OUT")" "decision between options" && ok "decision prompt is recognised" || no "decision not recognised"
+contains "$(context_of "$HOOK_OUT")" "word for word" && ok "decision nudge asks for a word-for-word quote" || no "decision nudge lacks relay rule"
 
 run_hook prompt "\"prompt\":$(json_str "the build still fails with the same error after that change")"
 contains "$(context_of "$HOOK_OUT")" "stalled fix" && ok "stalled-fix prompt is recognised" || no "stalled not recognised" "$HOOK_OUT"
@@ -520,12 +523,15 @@ contains "$(context_of "$HOOK_OUT")" "stalled fix" && ok "stalled-fix prompt is 
 t_prompt "the build still fails with the same error after that change"
 run_hook prompt "\"prompt\":$(json_str "nope, still broken, same error")"
 contains "$(context_of "$HOOK_OUT")" "Second consecutive" && ok "two stalled prompts in a row escalate" || no "no escalation" "$HOOK_OUT"
+contains "$(context_of "$HOOK_OUT")" "word for word" && ok "second-stall nudge asks for a word-for-word quote" || no "second-stall nudge lacks relay rule"
 
 run_hook prompt "\"prompt\":$(json_str "review this diff before I merge")"
 contains "$(context_of "$HOOK_OUT")" "review or second opinion" && ok "review prompt is recognised" || no "review not recognised"
+contains "$(context_of "$HOOK_OUT")" "word for word" && ok "review nudge asks for a word-for-word quote" || no "review nudge lacks relay rule"
 
 run_hook prompt "\"prompt\":$(json_str "refactor the auth module into its own package")"
 contains "$(context_of "$HOOK_OUT")" "design or planning" && ok "planning prompt is recognised" || no "plan not recognised"
+contains "$(context_of "$HOOK_OUT")" "word for word" && ok "plan nudge asks for a word-for-word quote" || no "plan nudge lacks relay rule"
 
 run_hook prompt "\"prompt\":$(json_str "plan how we should restructure the auth module")"
 contains "$(context_of "$HOOK_OUT")" "design or planning" && ok "'plan how we should restructure' is a planning prompt" || no "plan control missed" "$HOOK_OUT"
@@ -614,6 +620,8 @@ t_prompt "plan the migration"; t_enter_plan
 run_hook plan-gate '"tool_name":"ExitPlanMode","tool_input":{"plan":"..."}'
 [ "$(jget "$HOOK_OUT" hookSpecificOutput.permissionDecision)" = "deny" ] && ok "unreviewed plan is denied" || no "not denied" "$HOOK_OUT"
 contains "$(jget "$HOOK_OUT" hookSpecificOutput.permissionDecisionReason)" "call ExitPlanMode again" && ok "denial explains how to proceed" || no "reason unhelpful"
+contains "$(jget "$HOOK_OUT" hookSpecificOutput.permissionDecisionReason)" "word for word" && ok "denial asks for a word-for-word quote" || no "denial lacks relay rule"
+contains "$(jget "$HOOK_OUT" hookSpecificOutput.permissionDecisionReason)" "the advisor's MODEL" && ok "denial says whose lines to quote" || no "denial relay antecedent unclear"
 
 t_consult
 run_hook plan-gate '"tool_name":"ExitPlanMode"'
@@ -687,6 +695,7 @@ run_hook edit-watch '"tool_name":"Edit","tool_input":{"file_path":"c.py"}'
 t_edit d.py
 run_hook edit-watch '"tool_name":"Edit","tool_input":{"file_path":"d.py"}'
 [ "$(jget "$HOOK_OUT" hookSpecificOutput.hookEventName)" = "PostToolUse" ] && contains "$(context_of "$HOOK_OUT")" "4 distinct files" && ok "4th distinct file triggers the nudge" || no "no nudge at 4" "$HOOK_OUT"
+contains "$(context_of "$HOOK_OUT")" "word for word" && ok "edit-watch nudge asks for a word-for-word quote" || no "edit-watch nudge lacks relay rule"
 run_hook edit-watch '"tool_name":"Edit","tool_input":{"file_path":"d.py"}'
 [ -z "$HOOK_OUT" ] && ok "same threshold does not nudge twice" || no "duplicate nudge" "$HOOK_OUT"
 t_edit e.py
@@ -896,6 +905,7 @@ t_prompt "implement the feature"; t_edit a.py; t_edit b.py; t_edit c.py; t_edit 
 run_hook stop-audit '"stop_hook_active":false'
 [ "$(jget "$HOOK_OUT" decision)" = "block" ] && ok "a 4-file turn with no consultation is held" || no "not held" "$HOOK_OUT"
 contains "$(jget "$HOOK_OUT" reason)" "verification review" && ok "hold asks for a verification review" || no "reason unhelpful"
+contains "$(jget "$HOOK_OUT" reason)" "word for word" && ok "hold asks for a word-for-word quote" || no "hold lacks relay rule"
 contains "$(jget "$HOOK_OUT" reason)" "a.py, b.py, c.py, d.py" && ok "hold lists the files" || no "files missing from reason"
 run_hook stop-audit '"stop_hook_active":false'
 [ -z "$HOOK_OUT" ] && ok "the same turn is never held twice" || no "held twice" "$HOOK_OUT"

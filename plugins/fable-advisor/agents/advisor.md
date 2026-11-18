@@ -53,6 +53,8 @@ Operating rules:
    - RECOMMENDED PATH: concrete next steps the caller can execute
    - RISKS: what breaks if your recommendation is wrong, and the cheapest
      early signal that it is
+   Start the MODEL, VERDICT and RISKS items with their labels exactly as
+   written (`MODEL:`, `VERDICT:`, `RISKS:`) so the caller can quote them.
 5. No throat-clearing, no restating the question, no flattery of the plan.
 6. When the brief asks you to verify an implemented change set rather than
    judge a plan, read the diff file it gives you first, then the check log if

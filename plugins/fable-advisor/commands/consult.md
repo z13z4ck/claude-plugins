@@ -33,8 +33,9 @@ Do the following:
    transcript shows a fallback notice), when a configured `fallbackModel`
    chain takes over after an overload, or when a dismissed Fable
    usage-credits prompt continues the turn on the default model — the
-   warning is required in every one of those cases. Then present its
-   VERDICT and RISKS sections intact, state whether you agree, and if you
+   warning is required in every one of those cases. Then quote its
+   MODEL, VERDICT and RISKS lines word for word in a block quote before your
+   own view, state whether you agree, and if you
    disagree, say why in one or two sentences before asking the user which
    direction to take.
 5. Do not begin implementing the advisor's recommendation until the user
