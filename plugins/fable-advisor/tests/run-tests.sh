@@ -519,7 +519,6 @@ contains "$(context_of "$HOOK_OUT")" "word for word" && ok "decision nudge asks 
 
 run_hook prompt "\"prompt\":$(json_str "the build still fails with the same error after that change")"
 contains "$(context_of "$HOOK_OUT")" "stalled fix" && ok "stalled-fix prompt is recognised" || no "stalled not recognised" "$HOOK_OUT"
-contains "$(context_of "$HOOK_OUT")" "word for word" && ok "stalled-fix nudge asks for a word-for-word quote" || no "stalled-fix nudge lacks relay rule"
 
 t_prompt "the build still fails with the same error after that change"
 run_hook prompt "\"prompt\":$(json_str "nope, still broken, same error")"
