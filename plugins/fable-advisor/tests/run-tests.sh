@@ -618,6 +618,7 @@ run_hook plan-gate '"tool_name":"ExitPlanMode","tool_input":{"plan":"..."}'
 [ "$(jget "$HOOK_OUT" hookSpecificOutput.permissionDecision)" = "deny" ] && ok "unreviewed plan is denied" || no "not denied" "$HOOK_OUT"
 contains "$(jget "$HOOK_OUT" hookSpecificOutput.permissionDecisionReason)" "call ExitPlanMode again" && ok "denial explains how to proceed" || no "reason unhelpful"
 contains "$(jget "$HOOK_OUT" hookSpecificOutput.permissionDecisionReason)" "word for word" && ok "denial asks for a word-for-word quote" || no "denial lacks relay rule"
+contains "$(jget "$HOOK_OUT" hookSpecificOutput.permissionDecisionReason)" "the advisor's MODEL" && ok "denial says whose lines to quote" || no "denial relay antecedent unclear"
 
 t_consult
 run_hook plan-gate '"tool_name":"ExitPlanMode"'

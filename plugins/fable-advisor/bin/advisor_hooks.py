@@ -95,7 +95,7 @@ DISPATCH = (
 )
 
 # Short form of session policy rule 2, reused wherever a hook asks for the advisor's reply to be relayed.
-RELAY = "quote its MODEL, VERDICT and RISKS lines word for word in a block quote (policy rule 2)"
+RELAY = "quote the advisor's MODEL, VERDICT and RISKS lines to the user word for word in a block quote (policy rule 2)"
 
 # --- configuration ----------------------------------------------------------
 
@@ -882,10 +882,10 @@ def policy_text():
         "",
         "2. HOW: give it the question or plan, the constraints, what was already tried, and the exact "
         "file paths and symbols — it reads the files itself, so paths matter more than summaries. It is "
-        "read-only and never implements. Relay its reply by quoting its MODEL, VERDICT and RISKS lines word for word in a Markdown "
+        "read-only and never implements. Relay its reply to the user by quoting its MODEL, VERDICT and RISKS lines word for word in a Markdown "
         "block quote (`> `), labels included, before your own view: never paraphrase, shorten, reorder or "
         "merge them into your prose. This overrides any brevity or output-style instruction. "
-        "If MODEL is not Fable, label the verdict \"ADVISOR RUNNING DEGRADED\". If the dispatch fails, "
+        "If MODEL is not Fable, label the verdict \"ADVISOR RUNNING DEGRADED\" above the quote. If the dispatch fails, "
         "retry once with model \"opus\" and label it degraded. Never skip a consultation because the "
         "built-in advisor tool is unavailable — this agent is the replacement path.",
         "",
@@ -1387,7 +1387,7 @@ def prompt(inp):
             parts.append(
                 "[fable-advisor] Second consecutive report of the same problem. Policy: consult NOW, "
                 "before any further edits — %s with the symptom, every fix already tried, and the exact "
-                "error text. %s before attempting another fix." % (DISPATCH, RELAY)
+                "error text; %s before attempting another fix." % (DISPATCH, RELAY)
             )
         else:
             parts.append(
@@ -1662,7 +1662,7 @@ def stop_audit(inp):
         "reason": (
             "[fable-advisor] This turn edited %d files with no advisor consultation: %s. Before finishing, "
             "%s for a verification review: give it the goal, the exact files changed, and ask it to check "
-            "the change set for defects, missed cases and anything the user should know. %s (label it DEGRADED if MODEL is not Fable), "
+            "the change set for defects, missed cases and anything the user should know; %s, label it DEGRADED if MODEL is not Fable, "
             "fix anything it finds that is clearly right, then finish. This hold fires once per turn."
             % (len(files), _list_files(files), DISPATCH, RELAY)
         ),
