@@ -1564,10 +1564,11 @@ else
 fi
 O2="$PLUGIN/policy/orchestrator.md"
 C2="$PLUGIN/policy/orchestrator-core.md"
+DN="${FB#*Check the worker*review on DONE.}"; DN="${DN%%Fallback review.*}"
 if has_phrase "$O2" "quote it word for word in a block quote" &&
-  has_phrase "$O2" "whatever brevity or output style is in force" &&
+  case "$DN" in *"block quote"*"whatever brevity or output style is in force"*) true ;; *) false ;; esac &&
   has_phrase "$O2" "plus the worker's \`advisor:\` line quoted word for word" &&
-  has_phrase "$O2" "with its \`advisor:\` line if it has one quoted word for word"; then
+  has_phrase "$O2" "with its \`advisor:\` line, if it has one, quoted word for word"; then
   ok "full policy: DONE and NEEDS-ANSWER relay the advisor: line word for word, over any brevity"
 else
   no "full policy: DONE and NEEDS-ANSWER relay the advisor: line word for word, over any brevity"

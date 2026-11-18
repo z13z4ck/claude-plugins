@@ -182,7 +182,7 @@ deep and opus tiers both pass `opus` and differ only by the agent file's
   for a criterion with no possible check is an honest answer: report it, do
   not escalate it.
 - **NEEDS-ANSWER**: relay the question and options to the user as the worker
-  wrote them, with its `advisor:` line if it has one quoted word for word, and mark the roster item "waiting on you". When the user
+  wrote them, with its `advisor:` line, if it has one, quoted word for word, and mark the roster item "waiting on you". When the user
   answers, resume that same worker with SendMessage (to: its name or ID) and
   the answer. Do not spawn a new worker for it.
 - **No report** (a worker that finished without an error and was not
@@ -344,7 +344,7 @@ worker's consultations never count for this session. You still check each DONE, 
   names, if it exists),
   and the brief's goal and acceptance criteria. If the Agent tool can
   run it in the background, do that and end your turn; otherwise wait for
-  it. Then report the DONE with the advisor's MODEL, VERDICT and RISKS lines
+  it. Then report the DONE with the advisor's MODEL and VERDICT lines and all of its RISKS
   quoted word for word in a block quote (`> `), labels included, before your
   own view; never paraphrase, shorten or merge them into your prose, whatever
   brevity or output style is in force.
