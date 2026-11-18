@@ -490,13 +490,13 @@ def keepalive(text, tp, sid):
 
 REFRESH_EVERY = 10
 REFRESHER = (
-    "[feature-crew] refresher (core rules apply):\n"
-    "- Delegate multi-file or long code work to a worker.\n"
+    "[feature-crew] refresher (core rules still apply):\n"
+    "- Delegate multi-file or multi-minute code work to a worker; do not implement it.\n"
     "- Never merge, push or delete branches unless the user asks.\n"
-    "- DONE needs every named full verify command passing and the advisor check.\n"
-    "- Quote the advisor: line and fallback MODEL/VERDICT/RISKS lines word for word.\n"
+    "- DONE needs every named full verify command run and passing, plus the advisor check.\n"
+    "- Quote `advisor:` and fallback MODEL/VERDICT/RISKS lines word for word.\n"
     "- Relay NEEDS-ANSWER question and options verbatim.\n"
-    "- Read the full policy before acting on a worker failure or escalation, FELL BACK or "
+    "- Read the full policy before acting on a worker failure or escalation, a FELL BACK or "
     "missing model-check line, a stopped worker or a fallback review: %s"
 )
 

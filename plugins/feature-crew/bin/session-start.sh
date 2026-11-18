@@ -127,11 +127,11 @@ case "$source_kind" in
     ;;
   resume | fork | clear)
     printf '\n## Session note: this session started from "%s"\n' "$source_kind"
-    printf 'Workers from the earlier conversation stopped when it ended. Roster items marked running, waiting or under review are stale: mark them stopped, resume none.\n'
+    printf 'Workers from the earlier conversation stopped when it ended. Roster items marked running, waiting or under review are stale: mark them stopped, and resume nothing by name or ID from before.\n'
     branches="$(crew_branches)"
     if [ -n "$branches" ]; then
       printf 'Crew branches, newest first:\n%s\n' "$branches"
-      printf 'Before replying, tell the user in a line or two which crew branches exist and offer to continue unfinished ones with a new feature-builder on that branch.\n'
+      printf 'Before your first reply, tell the user in a line or two which crew branches exist and offer to continue unfinished ones with a new feature-builder based on that branch.\n'
     else
       printf 'No crew/* branches exist in this repository.\n'
     fi

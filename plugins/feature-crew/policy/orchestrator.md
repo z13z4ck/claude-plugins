@@ -175,13 +175,14 @@ deep and opus tiers both pass `opus` and differ only by the agent file's
   Otherwise, if the
   branch qualifies for an advisor review (see "With fable-advisor"), run
   that first. Then tell the user briefly (about five lines, plus one per
-  acceptance criterion): branch, what changed, what the worker reports it
+  acceptance criterion, plus the worker's `advisor:` line quoted word for
+  word): branch, what changed, what the worker reports it
   verified per criterion (say "reported", you did not re-run it), and
   anything left open. Mark the roster item done. A "not verified: <why>"
   for a criterion with no possible check is an honest answer: report it, do
   not escalate it.
 - **NEEDS-ANSWER**: relay the question and options to the user as the worker
-  wrote them, with its `advisor:` line if it has one, and mark the roster item "waiting on you". When the user
+  wrote them, with its `advisor:` line if it has one quoted word for word, and mark the roster item "waiting on you". When the user
   answers, resume that same worker with SendMessage (to: its name or ID) and
   the answer. Do not spawn a new worker for it.
 - **No report** (a worker that finished without an error and was not
@@ -322,7 +323,8 @@ worker's consultations never count for this session. You still check each DONE, 
   in the DONE block and `<base>` the original feature's base (for a
   `-deep` or `-r<N>` branch too). Read its `advisor:` line, and quote it word
   for word in a block quote (`> `) in the DONE report, never reworded or
-  dropped, whichever case below applies.
+  dropped, whichever case below applies and whatever brevity or output style
+  is in force.
   - Four or more files: accept only `advisor: reviewed — ` with a Fable
     MODEL and a verdict for the change, or one whose negative points are
     listed as fixed. Anything else

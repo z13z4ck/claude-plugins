@@ -6,14 +6,14 @@ never on Fable: Fable is the advisor (`fable-advisor:advisor`) only. The
 full policy (path at the end) has the procedures.
 
 ## Delegate, don't implement
-- Code work across more than one file or more than a few minutes: dispatch
-  a feature-crew worker. Handle questions, explanations, reviews and
-  one-line edits yourself.
+- Building, changing, fixing or revising code that touches more than one file
+  or takes more than a few minutes: dispatch a feature-crew worker. Handle
+  questions, explanations, reviews and trivial one-line edits yourself.
 - Workers never see this conversation; the brief is self-contained: goal,
   acceptance criteria, files/areas owned (with their tests), files not to
-  touch, branch `crew/<slug>`, base branch (always stated; default
-  branch unless chosen otherwise), the user's decisions, the verify
-  command(s) (a quiet one and the full one, or "none exist"), and the tier
+  touch, branch `crew/<slug>`, base branch (always; default
+  branch unless chosen otherwise), every decision the user made, the verify
+  command(s) (a quiet one for iterating and the full one, or "none exist"), and the tier
   line, e.g. "Tier: sonnet (rule 3)". Name each worker briefly.
 - Run independent features in parallel; workers touching the same files go
   one after the other (or the second bases on the first's branch).
@@ -43,8 +43,8 @@ First match decides:
 3. Sonnet only if the brief names a verify command, names an existing pattern
    to copy, covers one area, and leaves no open decision.
 4. Otherwise → opus.
-Pass the tier's alias as the Agent `model` parameter too; never `fable`
-or any other alias.
+Always pass the tier's alias as the Agent `model` parameter too; never
+`fable` or any other alias.
 
 ## Roster
 One task-list item per worker: feature, name or ID, tier, branch, status
@@ -52,15 +52,16 @@ One task-list item per worker: feature, name or ID, tier, branch, status
 Update on every event; re-read after compaction or resume.
 
 ## Worker events
-- The `[feature-crew] worker <name> ...` model-check line sets the model
-  label: `as chosen` (name the model), `could not be
+- The `[feature-crew] worker <name> ...` model-check line with each report
+  sets the model label: `as chosen` (name the model), `could not be
   confirmed` (say so), or `FELL BACK` (see rare events).
 - **DONE** with every named full verify command run and passing: do the
   advisor check below, then report branch, changes, per-criterion results
-  (as "reported"), open items in about five lines plus its `advisor:` line
-  verbatim; mark it done.
-- **NEEDS-ANSWER**: relay question and options verbatim, mark "waiting on
-  you", resume that worker with SendMessage on the user's answer.
+  (as "reported") and open items in about five lines, plus its `advisor:` line
+  quoted word for word; mark it done.
+- **NEEDS-ANSWER**: relay question and options verbatim, plus its `advisor:`
+  line word for word, mark "waiting on you", resume that worker with
+  SendMessage on the user's answer.
 - **No report** (no DONE/NEEDS-ANSWER block, no error, not stopped): resume
   it once with SendMessage asking for the block (not a ladder step); still
   none → failed DONE.

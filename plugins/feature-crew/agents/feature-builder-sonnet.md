@@ -177,4 +177,4 @@ progress: <what is committed so far>
 advisor: <consulted on this question — <MODEL> | <VERDICT> | not consulted>
 ```
 
-In the `advisor:` line, `<MODEL>` and `<VERDICT>` are the advisor's own `MODEL:` and `VERDICT:` lines copied word for word, not a summary (without the labels).
+In the `advisor:` line, `<MODEL>` and `<VERDICT>` are the text of the advisor's own `MODEL:` and `VERDICT:` lines (labels left out), copied word for word, not a summary; after a fix re-review, copy the re-review's.
