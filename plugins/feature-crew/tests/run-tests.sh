@@ -1561,7 +1561,9 @@ if has_phrase "$PLUGIN/policy/orchestrator.md" "word for word" && case "$fb" in 
 else
   no "full policy's fallback review quotes the advisor lines word for word in a block quote"
 fi
-if has_phrase "$PLUGIN/policy/orchestrator-core.md" "word for word"; then
+if has_phrase "$PLUGIN/policy/orchestrator-core.md" "word for word" &&
+  has_phrase "$PLUGIN/policy/orchestrator-core.md" "its \`advisor:\` line verbatim" &&
+  has_phrase "$PLUGIN/policy/orchestrator.md" "quote it word for word in a block quote"; then
   ok "core says the advisor lines are quoted word for word"
 else
   no "core says the advisor lines are quoted word for word"

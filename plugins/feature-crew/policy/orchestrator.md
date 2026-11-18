@@ -320,11 +320,12 @@ worker's consultations never count for this session. You still check each DONE, 
 - **Check the worker's review on DONE.** Count
   `git diff --name-only <base>...<branch> | wc -l`, with `<branch>` as named
   in the DONE block and `<base>` the original feature's base (for a
-  `-deep` or `-r<N>` branch too). Read its `advisor:` line.
+  `-deep` or `-r<N>` branch too). Read its `advisor:` line, and quote it word
+  for word in a block quote (`> `) in the DONE report, never reworded or
+  dropped, whichever case below applies.
   - Four or more files: accept only `advisor: reviewed — ` with a Fable
     MODEL and a verdict for the change, or one whose negative points are
-    listed as fixed. Quote that line word for word in the DONE report, never reworded or
-    dropped. Anything else
+    listed as fixed. Anything else
     (`consulted on … only`, `not consulted`, a non-Fable MODEL, a negative
     verdict with no fix listed): review it yourself (next point).
   - Under four files: report DONE directly, unless `changed:` or `open:`
