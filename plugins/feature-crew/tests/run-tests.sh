@@ -347,12 +347,12 @@ else
   no "hooks.json registers the UserPromptSubmit model check through bash, no SubagentStop"
 fi
 
-if grep -q '"version": "0.7.0"' "$PLUGIN/.claude-plugin/plugin.json" &&
+if grep -q '"version": "0.7.1"' "$PLUGIN/.claude-plugin/plugin.json" &&
   ! grep -qi 'on Fable' "$PLUGIN/.claude-plugin/plugin.json" &&
   ! grep -qi 'Fable worker' "$PLUGIN/.claude-plugin/plugin.json"; then
-  ok "plugin.json is 0.7.0 and no longer says workers run on Fable"
+  ok "plugin.json is 0.7.1 and no longer says workers run on Fable"
 else
-  no "plugin.json is 0.7.0 and no longer says workers run on Fable"
+  no "plugin.json is 0.7.1 and no longer says workers run on Fable"
 fi
 
 # 0.6.0: Fable is the advisor only. No worker agent pins it, no dispatch
@@ -1431,8 +1431,9 @@ while [ "$i" -le 25 ]; do
 done
 fixed="${first%"$PLUGIN/policy/orchestrator.md"}"
 if [ "$got" = " 10 20" ] && [ "$same" -eq 1 ] && [ "$fixed" != "$first" ] &&
-  [ "$(printf '%s' "$fixed" | wc -c)" -lt 520 ] &&
-  case "$first" in *"Never merge, push or delete branches unless the user asks"*"Relay NEEDS-ANSWER question and options verbatim"*) true ;; *) false ;; esac; then
+  [ "$(printf '%s' "$fixed" | wc -c)" -lt 560 ] &&
+  case "$first" in *"Never merge, push or delete branches unless the user asks"*"Relay NEEDS-ANSWER question and options verbatim"*) true ;; *) false ;; esac &&
+  case "$first" in *"do not implement it"*"run and passing"*"advisor:"*"word for word"*) true ;; *) false ;; esac; then
   ok "refresher: only on the 10th and 20th genuine prompt, byte-identical, ending with the full-policy path"
 else
   no "refresher: only on the 10th and 20th genuine prompt, byte-identical, ending with the full-policy path" "at:$got same=$same [$first]"
@@ -1553,5 +1554,46 @@ else
 fi
 
 echo
+# 0.7.1: advisor verdicts are relayed word for word.
+FB="$(tr '\n' ' ' <"$PLUGIN/policy/orchestrator.md" | tr -s ' ')"
+fb="${FB#*Fallback review.}"; fb="${fb%%Act on the verdict*}"
+if case "$fb" in *"word for word"*"block quote"*"labels included"*"whatever brevity or output style"*) true ;; *) false ;; esac; then
+  ok "full policy's fallback review quotes the advisor lines word for word in a block quote, labels included, over any brevity"
+else
+  no "full policy's fallback review quotes the advisor lines word for word in a block quote, labels included, over any brevity"
+fi
+O2="$PLUGIN/policy/orchestrator.md"
+C2="$PLUGIN/policy/orchestrator-core.md"
+DN="${FB#*Check the worker*review on DONE.}"; DN="${DN%%Fallback review.*}"
+if has_phrase "$O2" "quote it word for word in a block quote" &&
+  case "$DN" in *"block quote"*"whatever brevity or output style is in force"*) true ;; *) false ;; esac &&
+  has_phrase "$O2" "plus the worker's \`advisor:\` line quoted word for word" &&
+  has_phrase "$O2" "with its \`advisor:\` line, if it has one, quoted word for word"; then
+  ok "full policy: DONE and NEEDS-ANSWER relay the advisor: line word for word, over any brevity"
+else
+  no "full policy: DONE and NEEDS-ANSWER relay the advisor: line word for word, over any brevity"
+fi
+if has_phrase "$C2" "plus its \`advisor:\` line quoted word for word" &&
+  has_phrase "$C2" "plus its \`advisor:\` line word for word" &&
+  has_phrase "$C2" "MODEL, VERDICT, RISKS lines word for word"; then
+  ok "core: DONE, NEEDS-ANSWER and fallback review quote the advisor lines word for word"
+else
+  no "core: DONE, NEEDS-ANSWER and fallback review quote the advisor lines word for word"
+fi
+if has_phrase "$PLUGIN/bin/session-start.sh" "resume nothing by name or ID from before" &&
+  has_phrase "$PLUGIN/bin/session-start.sh" "Before your first reply" &&
+  has_phrase "$PLUGIN/bin/session-start.sh" "based on that branch"; then
+  ok "session-start resume notes keep their full wording"
+else
+  no "session-start resume notes keep their full wording"
+fi
+for f in "$PLUGIN"/agents/feature-builder*.md; do
+  if has_phrase "$f" "(labels left out), copied word for word, not a summary; after a fix re-review, copy the re-review's"; then
+    ok "$(basename "$f") says MODEL and VERDICT are copied word for word"
+  else
+    no "$(basename "$f") says MODEL and VERDICT are copied word for word"
+  fi
+done
+
 printf '%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

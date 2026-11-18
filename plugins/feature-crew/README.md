@@ -251,7 +251,8 @@ compaction (and a full cache rebuild) closer. So the orchestrator Reads it
 once per start, compaction, resume or clear and again only for the rare
 events, and the model-check hook adds a short fixed refresher of the
 most-forgotten core rules (delegate, never merge or push unasked, what a
-DONE needs, relay NEEDS-ANSWER verbatim, when to Read the full policy) to
+DONE needs, quote the advisor lines word for word, relay NEEDS-ANSWER
+verbatim, when to Read the full policy) to
 every 10th user prompt. Keep-alive wakes, task notifications and worker
 reports neither count nor get it. The block is byte-identical every time
 and appended to the conversation, so the cached prompt prefix is untouched.
@@ -363,6 +364,14 @@ model check; the worker agents stay available for explicit use.
 
 ## Changelog
 
+- **0.7.1** — Advisor verdicts are relayed word for word. The orchestrator quotes
+  the worker's `advisor:` line and any fallback review's MODEL, VERDICT and
+  RISKS lines in a block quote, labels included, instead of paraphrasing them,
+  and the worker prompts say `<MODEL>` and `<VERDICT>` are the advisor's own
+  lines copied word for word.
+  The refresher now carries the same rule, and the core and a few SessionStart
+  notes were tightened; the worst measured start variant is ~7,800 bytes, about
+  200 under the 8,000-byte cap, and the refresher cap is now 560 bytes.
 - **0.7.0** — Keep the orchestrator's prompt cache warm while workers run
   past the 1-hour cache TTL: a background `sleep 2700` described
   `feature-crew keep-alive`, armed on dispatch or resume and re-armed on
