@@ -368,6 +368,9 @@ model check; the worker agents stay available for explicit use.
   RISKS lines in a block quote, labels included, instead of paraphrasing them,
   and the worker prompts say `<MODEL>` and `<VERDICT>` are the advisor's own
   lines copied word for word.
+  The refresher now carries the same rule, and the core and a few SessionStart
+  notes were tightened to keep every start variant at least ~390 bytes under
+  the 8,000-byte cap.
 - **0.7.0** — Keep the orchestrator's prompt cache warm while workers run
   past the 1-hour cache TTL: a background `sleep 2700` described
   `feature-crew keep-alive`, armed on dispatch or resume and re-armed on

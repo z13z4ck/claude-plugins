@@ -123,15 +123,15 @@ crew_branches() {
 case "$source_kind" in
   compact)
     printf '\n## Session note: context was just compacted\n'
-    printf 'Workers dispatched earlier in this session are still running. Re-read the roster from your task list before answering anything about worker status.\n'
+    printf 'Workers dispatched earlier are still running. Re-read the roster in your task list before answering about worker status.\n'
     ;;
   resume | fork | clear)
     printf '\n## Session note: this session started from "%s"\n' "$source_kind"
-    printf 'Background workers from the earlier conversation stopped when it ended. Any roster item still marked running, waiting or under review is stale: mark it stopped, and resume nothing by name or ID from before.\n'
+    printf 'Workers from the earlier conversation stopped when it ended. Roster items marked running, waiting or under review are stale: mark them stopped, resume none.\n'
     branches="$(crew_branches)"
     if [ -n "$branches" ]; then
-      printf 'Crew branches in this repository, newest first:\n%s\n' "$branches"
-      printf 'Before your first reply, tell the user in one or two lines which crew branches exist and offer to continue unfinished ones with a new feature-builder based on that branch.\n'
+      printf 'Crew branches, newest first:\n%s\n' "$branches"
+      printf 'Before replying, tell the user in a line or two which crew branches exist and offer to continue unfinished ones with a new feature-builder on that branch.\n'
     else
       printf 'No crew/* branches exist in this repository.\n'
     fi

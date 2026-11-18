@@ -1432,7 +1432,8 @@ done
 fixed="${first%"$PLUGIN/policy/orchestrator.md"}"
 if [ "$got" = " 10 20" ] && [ "$same" -eq 1 ] && [ "$fixed" != "$first" ] &&
   [ "$(printf '%s' "$fixed" | wc -c)" -lt 520 ] &&
-  case "$first" in *"Never merge, push or delete branches unless the user asks"*"Relay NEEDS-ANSWER question and options verbatim"*) true ;; *) false ;; esac; then
+  case "$first" in *"Never merge, push or delete branches unless the user asks"*"Relay NEEDS-ANSWER question and options verbatim"*) true ;; *) false ;; esac &&
+  case "$first" in *"word for word"*) true ;; *) false ;; esac; then
   ok "refresher: only on the 10th and 20th genuine prompt, byte-identical, ending with the full-policy path"
 else
   no "refresher: only on the 10th and 20th genuine prompt, byte-identical, ending with the full-policy path" "at:$got same=$same [$first]"
