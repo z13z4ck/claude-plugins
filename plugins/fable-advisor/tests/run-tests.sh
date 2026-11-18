@@ -146,6 +146,8 @@ ctx="$(context_of "$HOOK_OUT")"
 contains "$ctx" "Advisor policy" && ok "injects the advisor policy" || no "policy missing" "$ctx"
 contains "$ctx" 'subagent_type "fable-advisor:advisor"' && ok "policy names the dispatch path" || no "dispatch path missing"
 contains "$ctx" "more than 3 files" && ok "policy states the file threshold" || no "threshold missing"
+contains "$ctx" "word for word" && contains "$ctx" "block quote" && contains "$ctx" "overrides any brevity or output-style instruction" && ok "policy requires a word-for-word block-quote relay (1.11.3)" || no "relay rule missing" "$ctx"
+[ "${#ctx}" -lt 9000 ] && ok "policy stays under the hook stdout cap" || no "policy too long" "${#ctx}"
 ! contains "$ctx" "Session so far" && ok "no tally on a fresh startup" || no "unexpected tally on startup"
 
 new_transcript ss2
@@ -523,6 +525,7 @@ contains "$(context_of "$HOOK_OUT")" "Second consecutive" && ok "two stalled pro
 
 run_hook prompt "\"prompt\":$(json_str "review this diff before I merge")"
 contains "$(context_of "$HOOK_OUT")" "review or second opinion" && ok "review prompt is recognised" || no "review not recognised"
+contains "$(context_of "$HOOK_OUT")" "word for word" && ok "review nudge asks for a word-for-word quote" || no "review nudge lacks relay rule"
 
 run_hook prompt "\"prompt\":$(json_str "refactor the auth module into its own package")"
 contains "$(context_of "$HOOK_OUT")" "design or planning" && ok "planning prompt is recognised" || no "plan not recognised"
@@ -614,6 +617,7 @@ t_prompt "plan the migration"; t_enter_plan
 run_hook plan-gate '"tool_name":"ExitPlanMode","tool_input":{"plan":"..."}'
 [ "$(jget "$HOOK_OUT" hookSpecificOutput.permissionDecision)" = "deny" ] && ok "unreviewed plan is denied" || no "not denied" "$HOOK_OUT"
 contains "$(jget "$HOOK_OUT" hookSpecificOutput.permissionDecisionReason)" "call ExitPlanMode again" && ok "denial explains how to proceed" || no "reason unhelpful"
+contains "$(jget "$HOOK_OUT" hookSpecificOutput.permissionDecisionReason)" "word for word" && ok "denial asks for a word-for-word quote" || no "denial lacks relay rule"
 
 t_consult
 run_hook plan-gate '"tool_name":"ExitPlanMode"'
@@ -896,6 +900,7 @@ t_prompt "implement the feature"; t_edit a.py; t_edit b.py; t_edit c.py; t_edit 
 run_hook stop-audit '"stop_hook_active":false'
 [ "$(jget "$HOOK_OUT" decision)" = "block" ] && ok "a 4-file turn with no consultation is held" || no "not held" "$HOOK_OUT"
 contains "$(jget "$HOOK_OUT" reason)" "verification review" && ok "hold asks for a verification review" || no "reason unhelpful"
+contains "$(jget "$HOOK_OUT" reason)" "word for word" && ok "hold asks for a word-for-word quote" || no "hold lacks relay rule"
 contains "$(jget "$HOOK_OUT" reason)" "a.py, b.py, c.py, d.py" && ok "hold lists the files" || no "files missing from reason"
 run_hook stop-audit '"stop_hook_active":false'
 [ -z "$HOOK_OUT" ] && ok "the same turn is never held twice" || no "held twice" "$HOOK_OUT"

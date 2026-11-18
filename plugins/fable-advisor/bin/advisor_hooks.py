@@ -94,6 +94,9 @@ DISPATCH = (
     '"fable-advisor:advisor", model "fable")'
 )
 
+# Short form of session policy rule 2, reused wherever a hook asks for the advisor's reply to be relayed.
+RELAY = "quote its MODEL, VERDICT and RISKS lines word for word in a block quote (policy rule 2)"
+
 # --- configuration ----------------------------------------------------------
 
 
@@ -879,7 +882,9 @@ def policy_text():
         "",
         "2. HOW: give it the question or plan, the constraints, what was already tried, and the exact "
         "file paths and symbols — it reads the files itself, so paths matter more than summaries. It is "
-        "read-only and never implements. Present its MODEL, VERDICT and RISKS lines to the user intact. "
+        "read-only and never implements. Relay its reply by quoting its MODEL, VERDICT and RISKS lines word for word in a Markdown "
+        "block quote (`> `), labels included, before your own view: never paraphrase, shorten, reorder or "
+        "merge them into your prose. This overrides any brevity or output-style instruction. "
         "If MODEL is not Fable, label the verdict \"ADVISOR RUNNING DEGRADED\". If the dispatch fails, "
         "retry once with model \"opus\" and label it degraded. Never skip a consultation because the "
         "built-in advisor tool is unavailable — this agent is the replacement path.",
@@ -1382,7 +1387,7 @@ def prompt(inp):
             parts.append(
                 "[fable-advisor] Second consecutive report of the same problem. Policy: consult NOW, "
                 "before any further edits — %s with the symptom, every fix already tried, and the exact "
-                "error text. Present its VERDICT before attempting another fix." % DISPATCH
+                "error text. %s before attempting another fix." % (DISPATCH, RELAY)
             )
         else:
             parts.append(
@@ -1394,22 +1399,20 @@ def prompt(inp):
         primary = "review"
         parts.append(
             "[fable-advisor] The user is asking for a review or second opinion. Policy: %s with the change "
-            "set or question and the exact file paths, and present its MODEL, VERDICT and RISKS to the "
-            "user intact before giving your own view." % DISPATCH
+            "set or question and the exact file paths, and %s, before giving your own view." % (DISPATCH, RELAY)
         )
     elif "decision" in cats:
         primary = "decision"
         parts.append(
             "[fable-advisor] This prompt asks for a decision between options. Policy: %s with the options, "
-            "the constraints and the file paths involved BEFORE committing to a direction; present its "
-            "VERDICT to the user, and say whether you agree." % DISPATCH
+            "the constraints and the file paths involved BEFORE committing to a direction; %s, and say whether you agree." % (DISPATCH, RELAY)
         )
     elif "plan" in cats:
         primary = "plan"
         parts.append(
             "[fable-advisor] This prompt starts design or planning work. Policy: draft the plan (goals, "
             "ordered steps, files to touch, assumptions), then %s to critique it BEFORE editing any file. "
-            "Fold accepted findings into the plan and show the user the VERDICT." % DISPATCH
+            "Fold accepted findings into the plan and %s." % (DISPATCH, RELAY)
         )
     pending = scan.edited_since(scan.last_consult())
     if len(pending) >= CFG.threshold:
@@ -1443,8 +1446,8 @@ def plan_gate(inp):
         "[fable-advisor] This plan has not been reviewed by the advisor. Before exiting plan mode, %s "
         "with the full plan, the files it touches and its assumptions; ask for wrong assumptions, "
         "missing steps, ordering risks and cheaper alternatives. Fold accepted findings into the plan, "
-        "show the user the advisor's MODEL, VERDICT and RISKS, then call ExitPlanMode again. If the "
-        "dispatch fails, retry once with model \"opus\" and label the verdict degraded." % DISPATCH
+        "%s, then call ExitPlanMode again. If the "
+        "dispatch fails, retry once with model \"opus\" and label the verdict degraded." % (DISPATCH, RELAY)
     )
     if CFG.mode == "nudge":
         context("PreToolUse", reason)
@@ -1585,8 +1588,8 @@ def edit_watch(inp):
     text = (
         "[fable-advisor] %d distinct files have now been edited since the last advisor consultation "
         "(threshold %d): %s. Policy: pause before further edits and %s with the goal, the files changed "
-        "so far and what remains; present its VERDICT and adjust course if it says so."
-        % (n, CFG.threshold, _list_files(files), DISPATCH)
+        "so far and what remains; %s, and adjust course if it says so."
+        % (n, CFG.threshold, _list_files(files), DISPATCH, RELAY)
     )
     context("PostToolUse", text)
     log("edit-nudge", sid, files=n, boundary=boundary)
@@ -1659,10 +1662,9 @@ def stop_audit(inp):
         "reason": (
             "[fable-advisor] This turn edited %d files with no advisor consultation: %s. Before finishing, "
             "%s for a verification review: give it the goal, the exact files changed, and ask it to check "
-            "the change set for defects, missed cases and anything the user should know. Report its "
-            "MODEL, VERDICT and RISKS to the user verbatim (label it DEGRADED if MODEL is not Fable), "
+            "the change set for defects, missed cases and anything the user should know. %s (label it DEGRADED if MODEL is not Fable), "
             "fix anything it finds that is clearly right, then finish. This hold fires once per turn."
-            % (len(files), _list_files(files), DISPATCH)
+            % (len(files), _list_files(files), DISPATCH, RELAY)
         ),
     })
     log("stop-hold", sid, files=len(files), turn=turn)
