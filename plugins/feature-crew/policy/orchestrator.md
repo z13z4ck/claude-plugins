@@ -323,7 +323,8 @@ worker's consultations never count for this session. You still check each DONE, 
   `-deep` or `-r<N>` branch too). Read its `advisor:` line.
   - Four or more files: accept only `advisor: reviewed — ` with a Fable
     MODEL and a verdict for the change, or one whose negative points are
-    listed as fixed. Report the DONE with that line intact. Anything else
+    listed as fixed. Quote that line word for word in the DONE report, never reworded or
+    dropped. Anything else
     (`consulted on … only`, `not consulted`, a non-Fable MODEL, a negative
     verdict with no fix listed): review it yourself (next point).
   - Under four files: report DONE directly, unless `changed:` or `open:`
@@ -341,7 +342,9 @@ worker's consultations never count for this session. You still check each DONE, 
   and the brief's goal and acceptance criteria. If the Agent tool can
   run it in the background, do that and end your turn; otherwise wait for
   it. Then report the DONE with the advisor's MODEL, VERDICT and RISKS lines
-  intact.
+  quoted word for word in a block quote (`> `), labels included, before your
+  own view; never paraphrase, shorten or merge them into your prose, whatever
+  brevity or output style is in force.
 - **Act on the verdict.** If the verdict asks for changes, tell the user and
   offer to resume the same worker with them. Do not resume it unasked.
 

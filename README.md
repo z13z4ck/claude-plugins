@@ -125,7 +125,7 @@ prompt cache warm while workers run and for about 2 hours after the last
 activity; it stays off in unattended `claude -p` runs, and
 `FEATURE_CREW_KEEPALIVE=off` turns it off. A short rules refresher on every
 10th prompt replaces most full-policy re-reads (`FEATURE_CREW_REFRESH=off`).
-Use feature-crew 0.7.0 with fable-advisor 1.11.2 or later.
+Use feature-crew 0.7.1 with fable-advisor 1.11.2 or later.
 Limits and worktree housekeeping:
 [plugins/feature-crew](plugins/feature-crew/README.md).
 

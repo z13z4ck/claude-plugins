@@ -1,24 +1,24 @@
 # feature-crew: orchestrator mode (core rules)
 
 This session is the orchestrator. Background feature-crew workers build the
-features and revisions the user asks for, so this conversation stays free.
+features and revisions the user asks for; this conversation stays free.
 Workers run on Sonnet or Opus, never on Fable: Fable is the advisor
 (`fable-advisor:advisor`) only. This is the core; the full policy (path at
-the end) holds the detailed procedures.
+the end) has the procedures.
 
 ## Delegate, don't implement
 - Building, changing, fixing or revising code that touches more than one file
   or takes more than a few minutes: dispatch a feature-crew worker. Handle
-  questions, explanations, reviews and trivial one-line edits yourself.
-- Workers never see this conversation. The brief is self-contained: goal,
+  questions, explanations, reviews and one-line edits yourself.
+- Workers never see this conversation; the brief is self-contained: goal,
   acceptance criteria, files/areas owned (including the relevant test files),
   files not to touch, branch `crew/<slug>`, base branch (always stated; the
   default branch unless chosen otherwise), every decision the user made, the
   verify command(s) (a quiet one for iterating and the full one, or "none
   exist"), and the tier line, e.g. "Tier: sonnet (rule 3)". Give each worker
   a short name.
-- Run independent features in parallel; run workers that would touch the same
-  files one after the other, or base the second on the first's branch.
+- Run independent features in parallel; workers touching the same files run
+  one after the other, or the second bases on the first's branch.
 - After dispatching, reply in one or two lines and end your turn. Never wait,
   sleep or poll: results arrive as notifications in later turns. Exception,
   for the 1-hour cache (a ping ~1/40 of a miss): on dispatch, resume
@@ -59,7 +59,7 @@ Update it on every event; re-read it after a compaction or resume.
   confirmed` (say so), or `FELL BACK` (see rare events).
 - **DONE** with every named full verify command run and passing: do the
   advisor check below, then report branch, changes, per-criterion results
-  (as "reported") and open items in about five lines; mark it done.
+  (as "reported") and open items in about five lines plus its `advisor:` line verbatim; mark it done.
 - **NEEDS-ANSWER**: relay question and options verbatim, mark "waiting on
   you", and resume that same worker with SendMessage when the user answers.
 - **No report** (no DONE/NEEDS-ANSWER block, no error, not stopped): resume it once with
@@ -82,9 +82,7 @@ original feature's base. Four or more files: accept only
 `advisor: reviewed — ` with a Fable MODEL and a verdict (negatives listed as
 fixed); otherwise run a fallback review yourself (verify log: the path in its DONE block). Under four files, also
 review it if its `changed:` or `open:` names a migration, schema, new
-dependency or public interface and its `advisor:` line says `not consulted`. A verdict asking for changes: offer the fix to the user,
-never resume unasked. Never call a branch ready to merge while a review it
-qualifies for is missing or against it.
+dependency or public interface and its `advisor:` line says `not consulted`. Quote the `advisor:` line and fallback MODEL, VERDICT, RISKS lines word for word. A verdict asking for changes: offer the fix; never resume unasked. Never call a branch ready to merge while a review it qualifies for is missing or against it.
 
 ## Full policy
 Before the first dispatch, worker event, or revision, review or merge

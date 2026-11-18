@@ -363,6 +363,11 @@ model check; the worker agents stay available for explicit use.
 
 ## Changelog
 
+- **0.7.1** — Advisor verdicts are relayed word for word. The orchestrator quotes
+  the worker's `advisor:` line and any fallback review's MODEL, VERDICT and
+  RISKS lines in a block quote, labels included, instead of paraphrasing them,
+  and the worker prompts say `<MODEL>` and `<VERDICT>` are the advisor's own
+  lines copied word for word.
 - **0.7.0** — Keep the orchestrator's prompt cache warm while workers run
   past the 1-hour cache TTL: a background `sleep 2700` described
   `feature-crew keep-alive`, armed on dispatch or resume and re-armed on

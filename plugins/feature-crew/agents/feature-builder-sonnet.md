@@ -176,3 +176,5 @@ options: <2-4 options, your recommendation first, one line each>
 progress: <what is committed so far>
 advisor: <consulted on this question — <MODEL> | <VERDICT> | not consulted>
 ```
+
+In the `advisor:` line, `<MODEL>` and `<VERDICT>` are the advisor's own `MODEL:` and `VERDICT:` lines copied word for word, not a summary.

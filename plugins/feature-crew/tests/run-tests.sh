@@ -347,12 +347,12 @@ else
   no "hooks.json registers the UserPromptSubmit model check through bash, no SubagentStop"
 fi
 
-if grep -q '"version": "0.7.0"' "$PLUGIN/.claude-plugin/plugin.json" &&
+if grep -q '"version": "0.7.1"' "$PLUGIN/.claude-plugin/plugin.json" &&
   ! grep -qi 'on Fable' "$PLUGIN/.claude-plugin/plugin.json" &&
   ! grep -qi 'Fable worker' "$PLUGIN/.claude-plugin/plugin.json"; then
-  ok "plugin.json is 0.7.0 and no longer says workers run on Fable"
+  ok "plugin.json is 0.7.1 and no longer says workers run on Fable"
 else
-  no "plugin.json is 0.7.0 and no longer says workers run on Fable"
+  no "plugin.json is 0.7.1 and no longer says workers run on Fable"
 fi
 
 # 0.6.0: Fable is the advisor only. No worker agent pins it, no dispatch
@@ -1553,5 +1553,26 @@ else
 fi
 
 echo
+# 0.7.1: advisor verdicts are relayed word for word.
+FB="$(tr '\n' ' ' <"$PLUGIN/policy/orchestrator.md" | tr -s ' ')"
+fb="${FB#*Fallback review.}"; fb="${fb%%Act on the verdict*}"
+if has_phrase "$PLUGIN/policy/orchestrator.md" "word for word" && case "$fb" in *"word for word"*"block quote"*) true ;; *) false ;; esac; then
+  ok "full policy's fallback review quotes the advisor lines word for word in a block quote"
+else
+  no "full policy's fallback review quotes the advisor lines word for word in a block quote"
+fi
+if has_phrase "$PLUGIN/policy/orchestrator-core.md" "word for word"; then
+  ok "core says the advisor lines are quoted word for word"
+else
+  no "core says the advisor lines are quoted word for word"
+fi
+for f in "$PLUGIN"/agents/feature-builder*.md; do
+  if has_phrase "$f" "copied word for word, not a summary"; then
+    ok "$(basename "$f") says MODEL and VERDICT are copied word for word"
+  else
+    no "$(basename "$f") says MODEL and VERDICT are copied word for word"
+  fi
+done
+
 printf '%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
