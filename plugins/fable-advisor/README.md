@@ -187,6 +187,8 @@ the gates.
 1.11.3 makes the relay rule explicit: the session quotes the advisor's MODEL,
 VERDICT and RISKS lines word for word in a block quote before its own view
 (the advisor labels them exactly), instead of paraphrasing them.
+The stalled-fix, decision, plan and edit-watch nudges used to ask only for the
+VERDICT and now ask for the MODEL, VERDICT and RISKS quoted word for word.
 
 1.11.2 leaves the review-diff and verify-log location to the worker prompt
 (the injected worker policy and the worker hold no longer name the git dir,

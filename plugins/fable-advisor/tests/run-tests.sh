@@ -515,13 +515,16 @@ new_transcript p1
 run_hook prompt "\"prompt\":$(json_str "should we use redis or postgres for the queue?")"
 [ "$(jget "$HOOK_OUT" hookSpecificOutput.hookEventName)" = "UserPromptSubmit" ] && ok "emits UserPromptSubmit output" || no "wrong event" "$HOOK_OUT"
 contains "$(context_of "$HOOK_OUT")" "decision between options" && ok "decision prompt is recognised" || no "decision not recognised"
+contains "$(context_of "$HOOK_OUT")" "word for word" && ok "decision nudge asks for a word-for-word quote" || no "decision nudge lacks relay rule"
 
 run_hook prompt "\"prompt\":$(json_str "the build still fails with the same error after that change")"
 contains "$(context_of "$HOOK_OUT")" "stalled fix" && ok "stalled-fix prompt is recognised" || no "stalled not recognised" "$HOOK_OUT"
+contains "$(context_of "$HOOK_OUT")" "word for word" && ok "stalled-fix nudge asks for a word-for-word quote" || no "stalled-fix nudge lacks relay rule"
 
 t_prompt "the build still fails with the same error after that change"
 run_hook prompt "\"prompt\":$(json_str "nope, still broken, same error")"
 contains "$(context_of "$HOOK_OUT")" "Second consecutive" && ok "two stalled prompts in a row escalate" || no "no escalation" "$HOOK_OUT"
+contains "$(context_of "$HOOK_OUT")" "word for word" && ok "second-stall nudge asks for a word-for-word quote" || no "second-stall nudge lacks relay rule"
 
 run_hook prompt "\"prompt\":$(json_str "review this diff before I merge")"
 contains "$(context_of "$HOOK_OUT")" "review or second opinion" && ok "review prompt is recognised" || no "review not recognised"
@@ -529,6 +532,7 @@ contains "$(context_of "$HOOK_OUT")" "word for word" && ok "review nudge asks fo
 
 run_hook prompt "\"prompt\":$(json_str "refactor the auth module into its own package")"
 contains "$(context_of "$HOOK_OUT")" "design or planning" && ok "planning prompt is recognised" || no "plan not recognised"
+contains "$(context_of "$HOOK_OUT")" "word for word" && ok "plan nudge asks for a word-for-word quote" || no "plan nudge lacks relay rule"
 
 run_hook prompt "\"prompt\":$(json_str "plan how we should restructure the auth module")"
 contains "$(context_of "$HOOK_OUT")" "design or planning" && ok "'plan how we should restructure' is a planning prompt" || no "plan control missed" "$HOOK_OUT"
@@ -692,6 +696,7 @@ run_hook edit-watch '"tool_name":"Edit","tool_input":{"file_path":"c.py"}'
 t_edit d.py
 run_hook edit-watch '"tool_name":"Edit","tool_input":{"file_path":"d.py"}'
 [ "$(jget "$HOOK_OUT" hookSpecificOutput.hookEventName)" = "PostToolUse" ] && contains "$(context_of "$HOOK_OUT")" "4 distinct files" && ok "4th distinct file triggers the nudge" || no "no nudge at 4" "$HOOK_OUT"
+contains "$(context_of "$HOOK_OUT")" "word for word" && ok "edit-watch nudge asks for a word-for-word quote" || no "edit-watch nudge lacks relay rule"
 run_hook edit-watch '"tool_name":"Edit","tool_input":{"file_path":"d.py"}'
 [ -z "$HOOK_OUT" ] && ok "same threshold does not nudge twice" || no "duplicate nudge" "$HOOK_OUT"
 t_edit e.py
